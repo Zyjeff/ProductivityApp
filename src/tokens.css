@@ -229,6 +229,62 @@ body {
   padding: 0;
 }
 .q-capture input::placeholder { color: var(--text-faint); }
+.q-capture input:disabled { color: var(--text-faint); }
+
+.q-capture-wrap { position: relative; display: inline-block; }
+
+.q-capture-mode {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 8px 0 8px;
+  background: var(--bg-elev); color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 500 11.5px var(--font-sans);
+  cursor: pointer; flex-shrink: 0; white-space: nowrap;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.q-capture-mode:hover { border-color: var(--border-strong); }
+.q-capture-mode-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.q-capture-mode-dot--subtasks { background: var(--info); }
+.q-capture-mode-dot--project  { background: var(--warning); }
+
+.q-capture-menu {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  z-index: 50; min-width: 220px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+  animation: q-fadein 140ms cubic-bezier(.2,.8,.2,1) both;
+}
+.q-capture-menu button {
+  display: flex; flex-direction: column; gap: 2px;
+  text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  color: var(--text);
+  font: 500 13px var(--font-sans);
+  transition: background var(--t-fast);
+}
+.q-capture-menu button:hover { background: var(--bg-soft); }
+.q-capture-menu button.is-active { background: var(--bg-soft); border-color: var(--accent); }
+.q-capture-menu .q-capture-menu-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.q-capture-menu .q-capture-menu-sub {
+  font: 400 11px var(--font-sans);
+  color: var(--text-faint);
+}
+
+@keyframes q-spin { to { transform: rotate(360deg); } }
+.q-spin { animation: q-spin 700ms linear infinite; transform-origin: center; }
 
 @keyframes q-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(139,92,246,0.45); }

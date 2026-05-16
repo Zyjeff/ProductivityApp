@@ -274,6 +274,55 @@ const AI_PLAN_RULES =
   "\"tasks\":[\"exact task title\"]}. Include only dates that receive at least " +
   "one task. No markdown, no commentary.";
 
+const AI_CAPTURE_RULES =
+  "You turn freeform descriptions into structured tasks for a productivity " +
+  "app. Be concrete, action-oriented, and concise. Sentence case. No trailing " +
+  "periods on titles.\n\n" +
+  "Three output schemas keyed by MODE.\n\n" +
+  "MODE: TASK — single action item.\n" +
+  "{\"title\":\"<5-10 word title>\",\"description\":\"<one-sentence summary or empty if input is already concise>\"}\n\n" +
+  "MODE: SUBTASKS — a task with concrete steps.\n" +
+  "{\"title\":\"<5-10 word title>\",\"description\":\"<optional one-sentence summary>\"," +
+  "\"subtasks\":[\"<~5 word action step>\",...3-6 items, each starting with a verb...]}\n\n" +
+  "MODE: PROJECT — a multi-task initiative.\n" +
+  "{\"title\":\"<2-5 word project name, noun phrase>\",\"description\":\"<brief goal>\"," +
+  "\"tasks\":[{\"title\":\"<~5-8 word action task>\",\"description\":\"\"}, ...3-7 items...]}\n\n" +
+  "Rules:\n" +
+  "- If the user already provided a good title, keep it but tidy it.\n" +
+  "- Don't pad with filler. Specific > generic.\n" +
+  "- For PROJECT mode, the tasks should cover the project end-to-end and be " +
+  "sized to ~0.5-3h each.\n\n" +
+  "Return ONLY valid JSON matching the requested mode's schema. No markdown, " +
+  "no commentary, no code fences.";
+
+async function aiFromDescription(description, mode) {
+  const dynamic = `MODE: ${mode.toUpperCase()}\nInput: ${description.trim()}`;
+  try {
+    const r = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 600,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_CAPTURE_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
+      }),
+    });
+    const d = await r.json();
+    return JSON.parse(d.content[0].text.replace(/```\w*|```/g, "").trim());
+  } catch {
+    const title = description.trim().slice(0, 60);
+    if (mode === "project")  return { title, description: "", tasks: [] };
+    if (mode === "subtasks") return { title, description: "", subtasks: [] };
+    return { title, description: "" };
+  }
+}
+
 async function aiPlanWeek(tasks, caps, opts = {}) {
   const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize"
   const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
@@ -637,6 +686,7 @@ function Icon({ name, size = 14 }) {
     case "focus":    return <svg {...common}><path d="M6 4l5.5 4L6 12V4z" fill="currentColor" stroke="none" /></svg>;
     case "bolt":     return <svg {...common}><path d="M9 2L4 10h3l-1 4 5-8H8l1-4z" fill="currentColor" stroke="none" /></svg>;
     case "moon":     return <svg {...common}><path d="M13 9a5 5 0 11-6-6 4 4 0 006 6z" /></svg>;
+    case "ring":     return <svg {...common}><circle cx="8" cy="8" r="5" strokeDasharray="6 4" /></svg>;
     case "queue":    return <svg {...common}><path d="M3 5h10M3 8h10M3 11h7" /></svg>;
     case "ship":     return <svg {...common}><path d="M2 11l1.5 2.5h9L14 11M3 8l5-5 5 5M8 3v8" /></svg>;
     case "calendar": return <svg {...common}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></svg>;
@@ -1116,34 +1166,127 @@ function sortForEnergy(arr, energy) {
   });
 }
 
-function QuickCapture({ onAdd, placeholder = "Capture a task…" }) {
+const CAPTURE_MODES = [
+  { id: "task",     label: "Task",     sub: "single action item", placeholder: "Describe a task — AI writes the title" },
+  { id: "subtasks", label: "Subtasks", sub: "task with concrete steps", placeholder: "Describe a multi-step task — AI suggests steps" },
+  { id: "project",  label: "Project",  sub: "multi-task initiative", placeholder: "Describe a project — AI suggests child tasks" },
+];
+
+function QuickCapture({ onCreateTask, onCreateProject, onOpenManual }) {
+  const [mode, setMode] = useState("task");
   const [text, setText] = useState("");
-  const ref = useRef(null);
+  const [loading, setLoading] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const inputRef = useRef(null);
+  const menuRef = useRef(null);
+
   useEffect(() => {
-    captureFocusBus.focus = () => ref.current?.focus();
+    captureFocusBus.focus = () => inputRef.current?.focus();
     return () => { captureFocusBus.focus = () => {}; };
   }, []);
-  const submit = () => {
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  const currentMode = CAPTURE_MODES.find(m => m.id === mode);
+
+  const submit = async () => {
     const v = text.trim();
-    if (!v) return;
-    onAdd({ title: v, desc: "", notes: "", tags: [], subtasks: [], recurring: "none", priority: "medium" });
-    setText("");
+    if (!v || loading) return;
+    setLoading(true);
+    try {
+      const result = await aiFromDescription(v, mode);
+      setText("");
+      if (mode === "project") {
+        onCreateProject({
+          title: result.title || v.slice(0, 60),
+          description: result.description || "",
+          tasks: Array.isArray(result.tasks) ? result.tasks : [],
+        });
+      } else {
+        onCreateTask({
+          title: result.title || v.slice(0, 60),
+          desc: result.description || "",
+          notes: "",
+          tags: [],
+          subtasks: mode === "subtasks" && Array.isArray(result.subtasks) ? result.subtasks : [],
+          recurring: "none",
+          priority: "medium",
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   };
+
   return (
-    <div className="q-capture">
-      <Icon name="plus" size={13} />
-      <input
-        ref={ref}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-          else if (e.key === "Escape") { setText(""); ref.current?.blur(); }
-        }}
-        placeholder={placeholder}
-        aria-label="Quick capture task"
-      />
-      <span className="q-kbd" title="Press N to focus">N</span>
+    <div className="q-capture-wrap" ref={menuRef}>
+      <div className="q-capture" style={{ opacity: loading ? 0.85 : 1 }}>
+        <button
+          type="button"
+          className="q-capture-mode"
+          onClick={() => setMenuOpen(o => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          title="Switch capture mode"
+        >
+          <span className={"q-capture-mode-dot q-capture-mode-dot--" + mode} />
+          {currentMode.label}
+          <Icon name="chevron" size={10} />
+        </button>
+        <input
+          ref={inputRef}
+          value={text}
+          disabled={loading}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+            else if (e.key === "Escape") { setText(""); inputRef.current?.blur(); }
+          }}
+          placeholder={loading ? "Generating…" : currentMode.placeholder}
+          aria-label="Describe a task"
+        />
+        {loading ? (
+          <span className="q-spin" style={{ display: "inline-flex" }}>
+            <Icon name="ring" size={12} />
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="q-icon-btn"
+            onClick={onOpenManual}
+            title="Open the full task form"
+            aria-label="Manual task entry"
+          ><Icon name="edit" size={13} /></button>
+        )}
+        <span className="q-kbd" title="Press N to focus">N</span>
+      </div>
+      {menuOpen && (
+        <div className="q-capture-menu" role="listbox">
+          {CAPTURE_MODES.map(m => (
+            <button
+              key={m.id}
+              type="button"
+              role="option"
+              aria-selected={mode === m.id}
+              className={mode === m.id ? "is-active" : ""}
+              onClick={() => { setMode(m.id); setMenuOpen(false); inputRef.current?.focus(); }}
+            >
+              <div className="q-capture-menu-row">
+                <span className={"q-capture-mode-dot q-capture-mode-dot--" + m.id} />
+                <span>{m.label}</span>
+              </div>
+              <div className="q-capture-menu-sub">{m.sub}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1169,7 +1312,7 @@ function TodayView({
   tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
   weekPlan, setWeekPlan, completeTask, uncompleteTask,
   addTask, updateTask, deleteTask, toggleSub, splitTask, setView,
-  openNewTask, setOpenNewTask,
+  openNewTask, setOpenNewTask, createProjectFromCapture,
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
 }) {
@@ -1276,7 +1419,11 @@ function TodayView({
               ? `${allPending.length} pending · ${readyToShip.length} project${readyToShip.length>1?"s":""} ready to ship`
               : `${allPending.length} pending · ${todayPlanTasks.length} on today's plan`
         }
-        right={<QuickCapture onAdd={handleAdd} />}
+        right={<QuickCapture
+          onCreateTask={handleAdd}
+          onCreateProject={(data) => { createProjectFromCapture(data); setView("pipeline"); }}
+          onOpenManual={() => { setEditing(null); setOpenNewTask(true); }}
+        />}
       />
 
       <div className="q-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
@@ -1469,7 +1616,7 @@ function TodayView({
 function QueueView({
   tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
-  deleteTask, toggleSub, splitTask,
+  deleteTask, toggleSub, splitTask, createProjectFromCapture, setView,
   openNewTask, setOpenNewTask,
 }) {
   const [filter, setFilter] = useState("pending");
@@ -1505,7 +1652,11 @@ function QueueView({
         eyebrow="All tasks"
         title="Queue"
         sub={`${list.length} ${filter === "pending" ? "pending" : filter}${projectFilter && projectsMap[projectFilter] ? ` · filtered by ${projectsMap[projectFilter].title}` : ""}`}
-        right={<QuickCapture onAdd={handleAdd} />}
+        right={<QuickCapture
+          onCreateTask={handleAdd}
+          onCreateProject={(data) => { createProjectFromCapture(data); setView("pipeline"); }}
+          onOpenManual={() => { setEditing(null); setOpenNewTask(true); }}
+        />}
       />
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
@@ -2983,6 +3134,50 @@ export default function App() {
     });
   }, [tasks, projects, notify]);
 
+  const createProjectFromCapture = useCallback((data) => {
+    const projectId = "p-" + uid();
+    const proj = {
+      id: projectId,
+      title: (data.title || "Untitled project").trim(),
+      desc: data.description || "",
+      notes: "", tags: [], type: "other",
+      createdAt: Date.now(), completedAt: null, shippedAt: null,
+      childTaskIds: [],
+    };
+    const tmpChildren = (data.tasks || []).map((t, i) => ({
+      id: "ct-" + uid() + i,
+      title: (t.title || "").trim() || "Untitled task",
+      desc: t.description || "",
+      notes: "", tags: [], subtasks: [],
+      xp: 15, difficulty: "medium", reason: "scoring…",
+      recurring: "none", priority: "medium",
+      projectId, completed: false, createdAt: Date.now() + i,
+    }));
+    proj.childTaskIds = tmpChildren.map(c => c.id);
+    const newProjects = [proj, ...projects];
+    const newTasks = [...tmpChildren, ...tasks];
+    setProjects(newProjects); setTasks(newTasks);
+    saveKV(KEYS.projects, newProjects); saveKV(KEYS.tasks, newTasks);
+    notify(tmpChildren.length > 0
+      ? `Project created · ${tmpChildren.length} task${tmpChildren.length > 1 ? "s" : ""}`
+      : "Project created");
+
+    if (tmpChildren.length) {
+      Promise.all(tmpChildren.map(c => aiScore(c.title, c.desc, [], [], "Part of: " + proj.title)
+        .then(sc => ({ id: c.id, sc })))).then(updates => {
+        setTasks(prev => {
+          const map = Object.fromEntries(updates.map(u => [u.id, u.sc]));
+          const next = prev.map(t => map[t.id]
+            ? { ...t, xp: map[t.id].xp || 15, difficulty: map[t.id].difficulty || "medium", reason: map[t.id].reason || "auto" }
+            : t);
+          saveKV(KEYS.tasks, next);
+          return next;
+        });
+      });
+    }
+    return projectId;
+  }, [tasks, projects, notify]);
+
   const addChildToProject = useCallback((projectId, data) => {
     const child = {
       id: "ct-" + uid(), title: data.title.trim(), desc: "", notes: "", tags: [],
@@ -3136,6 +3331,7 @@ export default function App() {
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
     toggleSub, splitTask, addChildToProject, removeChildFromProject,
     createProject, renameProject, shipProject, unshipProject, deleteProject,
+    createProjectFromCapture,
     setView,
     openNewTask, setOpenNewTask,
     startFocus, energy, setEnergy,
