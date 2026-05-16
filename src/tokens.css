@@ -299,6 +299,78 @@ body {
 @keyframes q-spin { to { transform: rotate(360deg); } }
 .q-spin { animation: q-spin 700ms linear infinite; transform-origin: center; }
 
+/* ───── Multi-week planner ───── */
+.q-planner-week {
+  display: flex; gap: 8px;
+  margin-bottom: 8px;
+}
+.q-planner-day {
+  flex: 1 1 0; min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px;
+  transition: flex 200ms cubic-bezier(.2,.8,.2,1),
+              border-color var(--t-fast),
+              background var(--t-fast);
+}
+.q-planner-day:hover { flex: 3 1 0; }
+.q-planner-day-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; margin-bottom: 6px;
+}
+.q-planner-item {
+  font: 11.5px var(--font-sans);
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+}
+.q-planner-item--daily {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg-soft);
+  font-size: 11px;
+  padding: 3px 7px;
+}
+.q-planner-item-head {
+  display: flex; align-items: center; gap: 6px;
+}
+.q-planner-item-title {
+  flex: 1; min-width: 0;
+  font-size: 11.5px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.q-planner-item-part {
+  font: 500 9px var(--font-mono);
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 3px; padding: 1px 5px;
+  flex-shrink: 0;
+}
+.q-planner-item-note {
+  font: 400 10.5px var(--font-sans);
+  color: var(--text-muted);
+  margin-top: 4px; margin-left: 24px;
+  line-height: 1.35;
+  /* show full note when day is hovered/expanded */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.q-planner-day:hover .q-planner-item-note {
+  -webkit-line-clamp: 4;
+}
+.q-planner-item-meta {
+  font: 9px var(--font-mono);
+  color: var(--text-faint);
+  margin-top: 4px; margin-left: 24px;
+}
+
+@media (max-width: 880px) {
+  .q-planner-week { flex-wrap: wrap; }
+  .q-planner-day  { flex: 1 1 calc((100% - 24px) / 4); min-width: 90px; }
+  .q-planner-day:hover { flex: 1 1 calc((100% - 24px) / 4); }
+}
+
 .q-day-closed {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;

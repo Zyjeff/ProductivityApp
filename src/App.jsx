@@ -64,7 +64,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -204,6 +204,19 @@ async function runMigrations() {
     }
   }
 
+  // v3 → v4: weekPlan entries gain items[]: a richer shape that lets a
+  // single task be split across multiple days with a per-day note + hours.
+  // {date, taskIds:[id]} -> {date, items:[{taskId:id}]}.
+  if (v < 4) {
+    const wp = await loadKV(KEYS.weekplan, null);
+    if (Array.isArray(wp) && wp.length && wp[0] && wp[0].taskIds && !wp[0].items) {
+      const converted = wp
+        .map(e => ({ date: e.date, items: (e.taskIds || []).map(id => ({ taskId: id })) }))
+        .filter(e => e.items.length);
+      await saveKV(KEYS.weekplan, converted);
+    }
+  }
+
   await saveKV(KEYS.schema, SCHEMA_VERSION);
 }
 
@@ -263,19 +276,25 @@ const AI_PLAN_RULES =
   "Given a list of unscheduled tasks and a set of workdays with their " +
   "remaining capacity (hours), assign tasks to specific dates.\n\n" +
   "RULES:\n" +
-  "1. Never exceed a day's REMAINING capacity. Overflow pushes to the next " +
-  "available day.\n" +
-  "2. Fill earlier days before later ones. Don't artificially spread out work " +
+  "1. Never exceed a day's REMAINING capacity.\n" +
+  "2. SPLIT BIG TASKS. If a task's estimated hours exceed any single day's " +
+  "remaining capacity, split it across consecutive days. For each chunk, " +
+  "provide hours and a one-line note describing what specifically happens " +
+  "that day. Split chunks should sum to the task's total estimate.\n" +
+  "3. Fill earlier days before later ones. Don't artificially spread out work " +
   "across many days when it could finish sooner.\n" +
-  "3. Priority order: urgent > high > medium > low.\n" +
-  "4. Pair hard/focus work with mornings; light/admin work with afternoons.\n" +
-  "5. Daily recurring tasks are NOT in the task list — they're already " +
+  "4. Priority order: urgent > high > medium > low.\n" +
+  "5. Pair hard/focus work with mornings; light/admin work with afternoons.\n" +
+  "6. Daily recurring tasks are NOT in the task list — they're already " +
   "subtracted from each day's capacity. Do not schedule them.\n" +
-  "6. Tasks already on the calendar (when listed) stay put unless you are " +
+  "7. Tasks already on the calendar (when listed) stay put unless you are " +
   "explicitly asked to optimize.\n\n" +
-  "Output schema: a JSON array of new assignments, each {\"date\":\"YYYY-MM-DD\"," +
-  "\"tasks\":[\"exact task title\"]}. Include only dates that receive at least " +
-  "one task. No markdown, no commentary.";
+  "Output schema: a JSON array of day entries, each {\"date\":\"YYYY-MM-DD\"," +
+  "\"items\":[...]}. Each item is one of:\n" +
+  "  {\"title\":\"exact task title\"}                                — task fits in one day\n" +
+  "  {\"title\":\"exact task title\",\"hours\":<num>,\"note\":\"<10-15 word slice>\"} — one chunk of a split task\n" +
+  "Include only dates that receive at least one item. No markdown, no " +
+  "commentary, no code fences.";
 
 const AI_CAPTURE_RULES =
   "You turn freeform descriptions into structured tasks for a productivity " +
@@ -350,19 +369,22 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   }
   if (!dates.length) return existingPlan;
 
-  // Storage shape: {date, taskIds: [id]}. Prompt + AI response use titles
-  // (more readable for Claude); we translate at the boundary.
+  // Storage shape: {date, items:[{taskId,hours?,note?}]}. Prompt + AI use
+  // titles (more readable for Claude); we translate at the boundary.
   const tasksById = new Map(tasks.map(t => [t.id, t]));
   const titleToId = new Map();
   for (const t of allPending) if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
 
   // Per-date scheduled hours from existingPlan (only used for append).
-  const scheduledIds = new Set(existingPlan.flatMap(e => e.taskIds || []));
+  const scheduledIds = new Set(existingPlan.flatMap(e => (e.items || []).map(i => i.taskId)));
   const dateToScheduledHours = {};
   for (const e of existingPlan) {
-    const hrs = (e.taskIds || []).reduce((s, id) => {
-      const t = tasksById.get(id);
-      return s + (t && t.recurring !== "daily" ? (DIFFICULTY[t.difficulty]?.hours || 1.5) : 0);
+    const hrs = (e.items || []).reduce((s, it) => {
+      const t = tasksById.get(it.taskId);
+      if (!t || t.recurring === "daily") return s;
+      // If the item has explicit hours (split chunk), use them; otherwise
+      // use the task's estimated hours.
+      return s + (it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5));
     }, 0);
     dateToScheduledHours[e.date] = hrs;
   }
@@ -392,11 +414,16 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   let existingBlock = "";
   if (mode !== "optimize" && existingPlan.length) {
     const lines = existingPlan
-      .filter(e => (e.taskIds || []).length)
+      .filter(e => (e.items || []).length)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(e => {
-        const titles = (e.taskIds || []).map(id => tasksById.get(id)?.title).filter(Boolean);
-        return titles.length ? `- ${e.date}: ${titles.map(t => `"${t}"`).join(", ")}` : "";
+        const parts = (e.items || []).map(it => {
+          const t = tasksById.get(it.taskId);
+          if (!t) return null;
+          if (it.hours != null && it.note) return `"${t.title}" (${it.hours}h: ${it.note})`;
+          return `"${t.title}"`;
+        }).filter(Boolean);
+        return parts.length ? `- ${e.date}: ${parts.join(", ")}` : "";
       })
       .filter(Boolean)
       .join("\n");
@@ -436,28 +463,48 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     });
     const d = await r.json();
     const parsed = JSON.parse(d.content[0].text.replace(/```\w*|```/g, "").trim());
-    // Convert returned titles back to IDs; drop unresolvable.
-    const newEntries = parsed
-      .filter(e => e && e.date && Array.isArray(e.tasks) && e.tasks.length)
-      .map(e => ({
-        date: e.date,
-        taskIds: e.tasks.map(t => titleToId.get(t)).filter(Boolean),
-      }))
-      .filter(e => e.taskIds.length);
+    // Accept both shapes — the model occasionally returns the older
+    // {tasks:[...]} format. Normalize to items[].
+    const normalizeEntry = (e) => {
+      if (!e || !e.date) return null;
+      const rawItems = Array.isArray(e.items)
+        ? e.items
+        : Array.isArray(e.tasks)
+          ? e.tasks.map(x => typeof x === "string" ? { title: x } : x)
+          : [];
+      const items = rawItems
+        .map(it => {
+          const title = it && it.title;
+          if (!title) return null;
+          const id = titleToId.get(title);
+          if (!id) return null;
+          const out = { taskId: id };
+          if (typeof it.hours === "number" && it.hours > 0) out.hours = Math.round(it.hours * 10) / 10;
+          if (typeof it.note === "string" && it.note.trim()) out.note = it.note.trim().slice(0, 80);
+          return out;
+        })
+        .filter(Boolean);
+      return items.length ? { date: e.date, items } : null;
+    };
+    const newEntries = parsed.map(normalizeEntry).filter(Boolean);
 
     if (mode === "optimize") return newEntries;
 
     // Append: merge new entries into existing, preserving order by date.
+    // We dedupe items by taskId-per-day; a new chunk replaces an existing
+    // one if the day already had the same task (rare in append flow).
     const byDate = new Map();
-    for (const e of existingPlan) byDate.set(e.date, [...(e.taskIds || [])]);
+    for (const e of existingPlan) byDate.set(e.date, [...(e.items || [])]);
     for (const e of newEntries) {
       const list = byDate.get(e.date) || [];
-      for (const id of e.taskIds) if (!list.includes(id)) list.push(id);
+      for (const it of e.items) {
+        if (!list.some(x => x.taskId === it.taskId)) list.push(it);
+      }
       byDate.set(e.date, list);
     }
     return Array.from(byDate.entries())
-      .map(([date, taskIds]) => ({ date, taskIds }))
-      .filter(e => e.taskIds.length)
+      .map(([date, items]) => ({ date, items }))
+      .filter(e => e.items.length)
       .sort((a, b) => a.date.localeCompare(b.date));
   } catch {
     return existingPlan.length ? existingPlan : null;
@@ -673,9 +720,36 @@ function generateDemoData() {
     if (dow === 0 || dow === 6) continue; // skip weekends
     const count = dayOffset === 0 ? 3 : 1 + Math.floor(rng() * 2);
     const ids = activeIds.slice(cursor, cursor + count);
-    if (ids.length) weekPlan.push({ date: isoDate(d), taskIds: ids });
+    if (ids.length) weekPlan.push({ date: isoDate(d), items: ids.map(id => ({ taskId: id })) });
     cursor += count;
   }
+
+  // Plant one split task across 3 consecutive working days to showcase the
+  // multi-day chunk feature.
+  const bigTask = tasks.find(t => !t.completed && t.difficulty === "hard");
+  if (bigTask) {
+    // Remove the big task from any current single-day entry
+    for (const entry of weekPlan) {
+      entry.items = entry.items.filter(it => it.taskId !== bigTask.id);
+    }
+    const splitNotes = [
+      "Wireframe + research direction",
+      "Build core component shell",
+      "Polish, review, hand off",
+    ];
+    let placed = 0;
+    for (let off = 1; off < 14 && placed < 3; off++) {
+      const d = addDays(today, off);
+      const dow = d.getDay();
+      if (dow === 0 || dow === 6) continue;
+      const iso = isoDate(d);
+      let entry = weekPlan.find(e => e.date === iso);
+      if (!entry) { entry = { date: iso, items: [] }; weekPlan.push(entry); }
+      entry.items.push({ taskId: bigTask.id, hours: 1.5, note: splitNotes[placed] });
+      placed += 1;
+    }
+  }
+  weekPlan.sort((a, b) => a.date.localeCompare(b.date));
 
   // Profile
   const totalCompletedXP = tasks.filter(t => t.completed).reduce((s, t) => s + (t.xp || 0), 0);
@@ -1622,11 +1696,14 @@ function TodayView({
 
   const todayIso = isoDate(new Date());
   const todayPlanData = weekPlan
-    ? (weekPlan.find(d => d.date === todayIso) || { taskIds: [] })
+    ? (weekPlan.find(d => d.date === todayIso) || { items: [] })
     : null;
-  const todayScheduled = todayPlanData
-    ? (todayPlanData.taskIds || []).map(id => tasksById.get(id)).filter(Boolean)
-    : [];
+  const todayItems = todayPlanData ? (todayPlanData.items || []) : [];
+  // De-duplicate by task id (defensive — should not normally repeat per day).
+  const todayScheduledSeen = new Set();
+  const todayScheduled = todayItems
+    .map(it => tasksById.get(it.taskId))
+    .filter(t => t && !todayScheduledSeen.has(t.id) && todayScheduledSeen.add(t.id));
   const todayPlanTasks = sortForEnergy(dailyPending.concat(todayScheduled), energy);
   const planXP = todayPlanTasks.reduce((s,t) => s + (t.xp || 0), 0);
   const planDone = todayPlanTasks.filter(t => t.completed).length;
@@ -1834,14 +1911,14 @@ function TodayView({
           ) : (
             (() => {
               const upcoming = (weekPlan || [])
-                .filter(e => e.date > todayIso && (e.taskIds || []).length > 0)
+                .filter(e => e.date > todayIso && (e.items || []).length > 0)
                 .sort((a, b) => a.date.localeCompare(b.date))[0];
               const tWeekday = weekdayName(new Date());
               const isWeekendDay = tWeekday === "Saturday" || tWeekday === "Sunday";
               if (upcoming) {
                 const upDate = parseIsoDate(upcoming.date);
                 const dayLabel = upDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-                const n = upcoming.taskIds.length;
+                const n = upcoming.items.length;
                 return (
                   <EmptyState dashed>
                     <div style={{ marginBottom: 6, fontWeight: 500, color: "var(--text)" }}>
@@ -2386,6 +2463,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
   const [caps, setCaps] = useState(DEFAULT_CAPS);
   const [editingCap, setEditingCap] = useState(null);
   const [draggedId, setDraggedId] = useState(null);
+  const [draggedFrom, setDraggedFrom] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
 
@@ -2403,7 +2481,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
   const dailyHours = dailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
   const totalH = nonDailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
 
-  const scheduledIds = new Set((weekPlan || []).flatMap(e => e.taskIds || []));
+  const scheduledIds = new Set((weekPlan || []).flatMap(e => (e.items || []).map(i => i.taskId)));
   const unscheduledCount = nonDailyPending.filter(t => !scheduledIds.has(t.id)).length;
   const hasPlan = Array.isArray(weekPlan) && weekPlan.length > 0;
 
@@ -2422,30 +2500,64 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     });
   };
 
-  const moveTask = (taskId, targetIso) => {
+  // Move a specific item-chunk from sourceIso to targetIso. If sourceIso is
+  // null, behaves like the legacy moveTask (removes the taskId from every
+  // day and places it on the target). When sourceIso is provided (drag from
+  // a specific day), only that one chunk moves — sibling splits stay put.
+  const moveTask = (taskId, targetIso, sourceIso = null) => {
     const current = Array.isArray(weekPlan) ? weekPlan : [];
-    const stripped = current.map(entry => ({
-      ...entry,
-      taskIds: (entry.taskIds || []).filter(id => id !== taskId),
-    })).filter(entry => entry.taskIds.length > 0 || entry.date === targetIso);
+    let movedItem = null;
+    const stripped = current.map(entry => {
+      const matchesSource = sourceIso == null ? true : entry.date === sourceIso;
+      if (!matchesSource) return entry;
+      const before = entry.items || [];
+      const out = [];
+      for (const it of before) {
+        if (it.taskId === taskId && !movedItem) movedItem = it;
+        else out.push(it);
+      }
+      return { ...entry, items: out };
+    }).filter(entry => (entry.items || []).length > 0 || entry.date === targetIso);
+
+    const item = movedItem || { taskId };
     let found = false;
     const updated = stripped.map(entry => {
       if (entry.date === targetIso) {
         found = true;
-        if (!(entry.taskIds || []).includes(taskId)) return { ...entry, taskIds: [...(entry.taskIds || []), taskId] };
+        const has = (entry.items || []).some(x => x.taskId === item.taskId);
+        if (!has) return { ...entry, items: [...(entry.items || []), item] };
       }
       return entry;
     });
-    if (!found) updated.push({ date: targetIso, taskIds: [taskId] });
+    if (!found) updated.push({ date: targetIso, items: [item] });
     updated.sort((a, b) => a.date.localeCompare(b.date));
     setWeekPlan(updated); saveKV(KEYS.weekplan, updated);
   };
 
-  const days = useMemo(() => {
+  // 4 weeks rolling: [weekStart, +1, +2, +3] x 7 days = 28 day cells.
+  const weeks = useMemo(() => {
     const out = [];
-    for (let i = 0; i < 7; i++) out.push(addDays(weekStart, i));
+    for (let w = 0; w < 4; w++) {
+      const wkStart = addDays(weekStart, w * 7);
+      const days = [];
+      for (let i = 0; i < 7; i++) days.push(addDays(wkStart, i));
+      out.push({ start: wkStart, days });
+    }
     return out;
   }, [weekStart]);
+
+  // Split lookup: taskId -> [{date, item}, ...] sorted by date.
+  const splitMap = useMemo(() => {
+    const map = new Map();
+    for (const entry of (weekPlan || [])) {
+      for (const item of (entry.items || [])) {
+        if (!map.has(item.taskId)) map.set(item.taskId, []);
+        map.get(item.taskId).push({ date: entry.date, item });
+      }
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.date.localeCompare(b.date));
+    return map;
+  }, [weekPlan]);
 
   const todayIso = isoDate(new Date());
 
@@ -2557,116 +2669,135 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
         </EmptyState>
       ) : (
         <div>
-          <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 }}>
-            {days.map((dateObj) => {
-              const iso = isoDate(dateObj);
-              const wd = weekdayName(dateObj);
-              const data = (weekPlan || []).find(d => d.date === iso) || { taskIds: [] };
-              const isToday = iso === todayIso;
-              const isPast = iso < todayIso;
-              const scheduledTasks = (data.taskIds || []).map(id => tasksById.get(id)).filter(Boolean);
-              const dayScheduledH = scheduledTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
-              const dayH = dayScheduledH + dailyHours;
-              const cap = caps[wd] != null ? caps[wd] : 4;
-              const isOff = cap === 0;
-              const loadPct = isOff ? 0 : Math.min(Math.round((dayH / cap) * 100), 100);
-              const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
-              const dayXP = scheduledTasks.reduce((s, t) => s + (t.xp || 0), 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
-              const isDragOver = dragOver === iso;
-              return (
-                <div key={iso}
-                  onDragOver={(e) => { e.preventDefault(); setDragOver(iso); }}
-                  onDragLeave={() => { if (dragOver === iso) setDragOver(null); }}
-                  onDrop={(e) => { e.preventDefault(); if (draggedId) moveTask(draggedId, iso); setDraggedId(null); setDragOver(null); }}
-                  className="q-card"
-                  style={{
-                    padding: 12,
-                    borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
-                    background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
-                    opacity: isOff && scheduledTasks.length === 0 && dailyPending.length === 0
-                      ? 0.4
-                      : (isPast && scheduledTasks.length === 0 && dailyPending.length === 0 ? 0.45 : 1),
-                    transition: "border-color var(--t-fast), background var(--t-fast)",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: isToday ? "var(--accent)" : "var(--text)" }}>{wd.slice(0, 3)}</span>
-                      <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
-                      {isOff && <span style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>off</span>}
+          {weeks.map((week, wIdx) => (
+            <div key={wIdx} className="q-planner-week">
+              {week.days.map((dateObj) => {
+                const iso = isoDate(dateObj);
+                const wd = weekdayName(dateObj);
+                const data = (weekPlan || []).find(d => d.date === iso) || { items: [] };
+                const items = data.items || [];
+                const isToday = iso === todayIso;
+                const isPast = iso < todayIso;
+                const cap = caps[wd] != null ? caps[wd] : 4;
+                const isOff = cap === 0;
+
+                const dayScheduledH = items.reduce((s, it) => {
+                  const t = tasksById.get(it.taskId);
+                  if (!t || t.recurring === "daily") return s;
+                  return s + (it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5));
+                }, 0);
+                const dayH = dayScheduledH + dailyHours;
+                const loadPct = isOff ? 0 : (cap > 0 ? Math.min(Math.round((dayH / cap) * 100), 100) : 0);
+                const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
+                const dayXP = items.reduce((s, it) => {
+                  const t = tasksById.get(it.taskId);
+                  return s + (t?.xp || 0);
+                }, 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
+                const isDragOver = dragOver === iso;
+
+                return (
+                  <div key={iso} className="q-planner-day"
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(iso); }}
+                    onDragLeave={() => { if (dragOver === iso) setDragOver(null); }}
+                    onDrop={(e) => { e.preventDefault(); if (draggedId) moveTask(draggedId, iso, draggedFrom); setDraggedId(null); setDraggedFrom(null); setDragOver(null); }}
+                    style={{
+                      borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
+                      background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
+                      opacity: isOff && items.length === 0 && dailyPending.length === 0
+                        ? 0.45
+                        : (isPast && items.length === 0 && dailyPending.length === 0 ? 0.5 : 1),
+                    }}
+                  >
+                    <div className="q-planner-day-head">
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: isToday ? "var(--accent)" : "var(--text)" }}>{wd.slice(0, 3)}</span>
+                        <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
+                        {isOff && <span style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>off</span>}
+                      </div>
+                      {!isOff && dayH > 0 && (
+                        <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
+                          {dayH.toFixed(1)}/{cap}h
+                        </span>
+                      )}
                     </div>
-                    {!isOff && dayH > 0 && (
-                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
-                        {dayH.toFixed(1)}/{cap}h
-                      </span>
+                    {!isOff && dayH > 0 && <div style={{ margin: "0 0 8px" }}><ProgressBar pct={loadPct} tone={loadColor} height={3} /></div>}
+                    {dailyPending.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
+                        {dailyPending.map((t, i) => {
+                          const isDoneToday = t.completed && isToday;
+                          return (
+                            <div key={"d-"+i} className="q-planner-item q-planner-item--daily" style={{
+                              borderLeft: "2px solid " + (DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
+                              color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
+                              textDecoration: isDoneToday ? "line-through" : "none",
+                            }}>
+                              <Icon name="recur" size={9} />
+                              <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
-                  </div>
-                  {dayH > 0 && <div style={{ marginBottom: 8 }}><ProgressBar pct={loadPct} tone={loadColor} height={3} /></div>}
-                  {dailyPending.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
-                      {dailyPending.map((t, i) => {
-                        const isDoneToday = t.completed && isToday;
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: items.length === 0 ? 24 : 0 }}>
+                      {items.length === 0 ? (
+                        <div style={{ fontSize: 10, color: "var(--text-faint)", fontStyle: "italic", paddingTop: 2 }}>
+                          {dailyPending.length > 0 ? "" : (isOff ? "" : "Free")}
+                        </div>
+                      ) : items.map((it) => {
+                        const t = tasksById.get(it.taskId);
+                        if (!t) return null;
+                        const splits = splitMap.get(t.id) || [];
+                        const isSplit = splits.length > 1;
+                        const splitIdx = splits.findIndex(x => x.date === iso);
+                        const itemHours = it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5);
+                        const itemNote = it.note;
                         return (
-                          <div key={"d-"+i} style={{
-                            fontSize: 11, padding: "3px 7px", borderRadius: "var(--r-sm)",
-                            background: "var(--bg-soft)",
-                            borderLeft: "2px solid " + (DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
-                            color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
-                            textDecoration: isDoneToday ? "line-through" : "none",
-                            display: "flex", alignItems: "center", gap: 5,
-                          }}>
-                            <Icon name="recur" size={9} />
-                            <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                          <div key={it.taskId}
+                            className="q-planner-item"
+                            draggable={!t.completed}
+                            onDragStart={(e) => { setDraggedId(t.id); setDraggedFrom(iso); e.dataTransfer.effectAllowed = "move"; }}
+                            onDragEnd={() => { setDraggedId(null); setDraggedFrom(null); setDragOver(null); }}
+                            style={{
+                              background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
+                              border: "1px solid var(--border)",
+                              borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
+                              color: t.completed ? "var(--text-faint)" : "var(--text)",
+                              opacity: t.completed ? 0.6 : (draggedId === t.id && draggedFrom === iso ? 0.35 : 1),
+                              cursor: t.completed ? "default" : "grab",
+                            }}
+                          >
+                            <div className="q-planner-item-head">
+                              <CompleteButton
+                                done={t.completed}
+                                tone={DIFFICULTY[t.difficulty]?.tone}
+                                onComplete={() => completeTask(t.id)}
+                                onReopen={() => uncompleteTask(t.id)}
+                              />
+                              <span className="q-planner-item-title" style={{
+                                textDecoration: t.completed ? "line-through" : "none",
+                              }}>{t.title}</span>
+                              {isSplit && (
+                                <span className="q-planner-item-part">{splitIdx + 1}/{splits.length}</span>
+                              )}
+                            </div>
+                            {isSplit && itemNote && (
+                              <div className="q-planner-item-note">{itemNote}</div>
+                            )}
+                            <div className="q-planner-item-meta">
+                              {t.xp} XP · {itemHours}h{isSplit ? " (chunk)" : ""}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
-                  )}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: scheduledTasks.length === 0 ? 28 : 0 }}>
-                    {scheduledTasks.length === 0 ? (
-                      <div style={{ fontSize: 10, color: "var(--text-faint)", fontStyle: "italic", paddingTop: 2 }}>
-                        {dailyPending.length > 0 ? "" : "Free"}
-                      </div>
-                    ) : scheduledTasks.map((t) => (
-                      <div key={t.id}
-                        draggable={!t.completed}
-                        onDragStart={(e) => { setDraggedId(t.id); e.dataTransfer.effectAllowed = "move"; }}
-                        onDragEnd={() => { setDraggedId(null); setDragOver(null); }}
-                        style={{
-                          fontSize: 11, padding: "5px 7px", borderRadius: "var(--r-sm)",
-                          background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
-                          border: "1px solid var(--border)",
-                          borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
-                          color: t.completed ? "var(--text-faint)" : "var(--text)",
-                          opacity: t.completed ? 0.6 : (draggedId === t.id ? 0.35 : 1),
-                          cursor: t.completed ? "default" : "grab",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <CompleteButton
-                            done={t.completed}
-                            tone={DIFFICULTY[t.difficulty]?.tone}
-                            onComplete={() => completeTask(t.id)}
-                            onReopen={() => uncompleteTask(t.id)}
-                          />
-                          <span style={{
-                            fontSize: 11, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                            textDecoration: t.completed ? "line-through" : "none",
-                          }}>{t.title}</span>
-                        </div>
-                        <div style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 3, marginLeft: 24 }}>
-                          {t.xp} XP · {DIFFICULTY[t.difficulty]?.hours || 1.5}h
-                        </div>
-                      </div>
-                    ))}
+                    {dayXP > 0 && <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dayXP} XP</div>}
                   </div>
-                  {dayXP > 0 && <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dayXP} XP</div>}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 10 }}>
-            Drag scheduled tasks between days · Navigate weeks with ← →
+                );
+              })}
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 14 }}>
+            Hover a day to expand it · Drag scheduled tasks between days · Splits move chunk-by-chunk
           </div>
         </div>
       )}
@@ -3020,8 +3151,8 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
     new Date(t.completedAt).toDateString() === todayStr);
   const xpToday = completedToday.reduce((s, t) => s + (t.xp || 0), 0);
   const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
-  const scheduledTomorrow = (todayEntry?.taskIds || [])
-    .map(id => tasks.find(t => t.id === id))
+  const scheduledTomorrow = (todayEntry?.items || [])
+    .map(it => tasks.find(t => t.id === it.taskId))
     .filter(t => t && !t.completed);
 
   const logScreen = () => {
@@ -3816,12 +3947,11 @@ export default function App() {
     const todayIso = isoDate(new Date());
     const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
     if (!todayEntry) return 0;
-    const unfinished = (todayEntry.taskIds || []).filter(id => {
-      const t = tasks.find(x => x.id === id);
+    const unfinishedItems = (todayEntry.items || []).filter(it => {
+      const t = tasks.find(x => x.id === it.taskId);
       return t && !t.completed;
     });
-    if (!unfinished.length) return 0;
-    // Find next working day (cap > 0)
+    if (!unfinishedItems.length) return 0;
     const caps = await loadKV(KEYS.caps, DEFAULT_CAPS);
     let dayOffset = 1;
     let targetIso = null;
@@ -3832,22 +3962,24 @@ export default function App() {
       dayOffset += 1;
     }
     if (!targetIso) return 0;
+    const movingIds = new Set(unfinishedItems.map(it => it.taskId));
     const next = (weekPlan || []).map(e => {
-      if (e.date === todayIso) return { ...e, taskIds: (e.taskIds || []).filter(id => !unfinished.includes(id)) };
+      if (e.date === todayIso) return { ...e, items: (e.items || []).filter(it => !movingIds.has(it.taskId)) };
       return e;
-    }).filter(e => (e.taskIds || []).length);
+    }).filter(e => (e.items || []).length);
     const targetEntry = next.find(e => e.date === targetIso);
     if (targetEntry) {
-      const merged = [...new Set([...(targetEntry.taskIds || []), ...unfinished])];
+      const existing = new Set((targetEntry.items || []).map(it => it.taskId));
+      const merged = [...(targetEntry.items || []), ...unfinishedItems.filter(it => !existing.has(it.taskId))];
       const idx = next.indexOf(targetEntry);
-      next[idx] = { ...targetEntry, taskIds: merged };
+      next[idx] = { ...targetEntry, items: merged };
     } else {
-      next.push({ date: targetIso, taskIds: unfinished });
+      next.push({ date: targetIso, items: unfinishedItems });
     }
     next.sort((a, b) => a.date.localeCompare(b.date));
     setWeekPlan(next);
     await saveKV(KEYS.weekplan, next);
-    return unfinished.length;
+    return unfinishedItems.length;
   }, [tasks, weekPlan]);
 
   const closeDay = useCallback(async ({ rollForward }) => {
