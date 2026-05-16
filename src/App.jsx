@@ -396,7 +396,7 @@ async function aiScore(title, desc, subtasks, tags, notes) {
     "DIFFICULTY: easy=simple+no subtasks, medium=some complexity or 1-3 subtasks, hard=complex or 4+ subtasks, epic=major or 6+ subtasks\n" +
     "\nReturn ONLY valid JSON no markdown: {\"xp\":<int 5-100>,\"difficulty\":\"easy|medium|hard|epic\",\"reason\":\"<10 words>\"}";
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("/api/anthropic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -457,7 +457,7 @@ async function aiPlanWeek(tasks, todayName, caps) {
     `Return ONLY a JSON array, no markdown. Only include days with tasks. Each entry needs a 'week' field:\n` +
     `[{"week":"current","day":"Monday","tasks":["title1"]},{"week":"next","day":"Tuesday","tasks":["title2"]}]`;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch("/api/anthropic", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
