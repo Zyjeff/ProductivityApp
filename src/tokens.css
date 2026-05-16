@@ -29,7 +29,14 @@
   --info:         #60a5fa;
   --info-soft:    #16223a;
 
-  --r-sm: 4px; --r-md: 6px; --r-lg: 10px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 12px;
+
+  /* project-type accents */
+  --proj-template:  #a78bfa;
+  --proj-component: #60a5fa;
+  --proj-client:    #4ade80;
+  --proj-side:      #f472b6;
+  --proj-other:     #a3a3ac;
   --t-fast: 110ms cubic-bezier(.2,.8,.2,1);
   --t-med: 170ms cubic-bezier(.2,.8,.2,1);
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -392,37 +399,136 @@ body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 16px 18px;
   position: relative;
   overflow: hidden;
+  display: flex; flex-direction: column;
+  min-height: 132px;
+}
+.q-stat-top {
+  padding: 18px 20px 4px;
+  flex: 1;
+}
+.q-stat-bottom {
+  height: 48px;
+  width: 100%;
+  position: relative;
 }
 .q-stat-label {
   font: 500 10px var(--font-mono);
   color: var(--text-faint);
   letter-spacing: 0.18em; text-transform: uppercase;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .q-stat-value {
-  font: 600 26px var(--font-sans);
+  font: 600 28px var(--font-sans);
   color: var(--text);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  line-height: 1.1;
+  line-height: 1.05;
 }
 .q-stat-trend {
   display: inline-flex; align-items: center; gap: 4px;
-  font: 500 11px var(--font-sans);
-  margin-top: 6px;
+  font: 500 11.5px var(--font-sans);
+  margin-top: 8px;
 }
 .q-stat-trend--up   { color: var(--success); }
 .q-stat-trend--down { color: var(--danger); }
 .q-stat-trend--flat { color: var(--text-faint); }
-.q-stat-spark {
-  position: absolute;
-  right: 18px; bottom: 14px;
-  width: 70px; height: 26px;
-  opacity: 0.95;
-  pointer-events: none;
+.q-stat-spark { display: block; width: 100%; height: 100%; }
+.q-stat-hist {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 100%; padding: 8px 14px 14px;
+}
+.q-stat-hist-bar {
+  flex: 1; min-width: 0;
+  border-radius: 1px;
+  background: var(--text-muted);
+  opacity: 0.32;
+  transition: background var(--t-fast);
+}
+.q-stat-hist-bar--active { background: var(--accent); opacity: 1; }
+.q-stat-hist-bar--low    { opacity: 0.18; }
+
+/* ───── Projects card ───── */
+.q-proj-row {
+  display: flex; flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}
+.q-proj-row + .q-proj-row { border-top: 1px solid var(--border); padding-top: 12px; }
+.q-proj-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.q-proj-bullet {
+  width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 8px 0 currentColor;
+}
+.q-proj-name {
+  flex: 1; min-width: 0;
+  font: 500 13px var(--font-sans);
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.q-proj-count {
+  font: 500 11px var(--font-mono);
+  color: var(--text-faint);
+}
+.q-proj-bar {
+  height: 4px; width: 100%;
+  background: var(--bg-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.q-proj-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 320ms cubic-bezier(.2,.8,.2,1);
+}
+
+/* ───── This Week card ───── */
+.q-week-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: stretch;
+}
+.q-week-hero {
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 100px;
+}
+.q-week-bars {
+  display: flex; align-items: flex-end; gap: 8px;
+  height: 80px;
+  flex: 1;
+}
+.q-week-bar-col {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; gap: 6px; min-width: 0;
+}
+.q-week-bar-track {
+  width: 100%; height: 60px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.q-week-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: background var(--t-fast);
+}
+.q-week-bar--active { background: var(--accent); }
+.q-week-bar--filled { background: var(--text-muted); opacity: 0.5; }
+.q-week-bar--empty  { background: var(--border); }
+.q-week-day-label {
+  font: 500 10px var(--font-mono);
+  color: var(--text-faint);
+}
+.q-week-day-label--active { color: var(--accent-strong); }
+.q-week-avg-bg {
+  border-bottom: 1px dashed var(--border-strong);
 }
 
 /* ───── Weekly Pulse card ───── */
@@ -439,6 +545,8 @@ body {
 @media (max-width: 1024px) {
   .q-today-grid { grid-template-columns: 1fr !important; }
   .q-today-rail { order: 2; }
+  .q-bottom-grid { grid-template-columns: 1fr !important; }
+  .q-week-card { grid-template-columns: 1fr !important; gap: 16px !important; }
 }
 @media (max-width: 880px) {
   .q-sidebar { width: 64px !important; padding: 18px 0 !important; }

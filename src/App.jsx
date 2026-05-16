@@ -1267,40 +1267,123 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnter
 
 const captureFocusBus = { focus: () => {} };
 
-function Sparkline({ data, tone = "var(--accent)", width = 70, height = 26 }) {
+function Sparkline({ data, tone = "var(--accent)" }) {
+  const sparkId = useMemo(() => "spark-" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0) return null;
+  const width = 200, height = 48;  // viewBox; SVG scales via preserveAspectRatio=none
   const max = Math.max(1, ...data);
   const stepX = width / Math.max(1, data.length - 1);
   const points = data.map((v, i) => {
     const x = i * stepX;
-    const y = height - (v / max) * (height - 3) - 1;
+    const y = height - (v / max) * (height - 6) - 2;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const linePath = "M" + points.join("L");
   const areaPath = linePath + `L${width},${height}L0,${height}Z`;
-  const sparkId = "spark-" + Math.random().toString(36).slice(2, 8);
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="q-stat-spark" preserveAspectRatio="none" aria-hidden>
       <defs>
         <linearGradient id={sparkId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={tone} stopOpacity="0.28" />
+          <stop offset="0%" stopColor={tone} stopOpacity="0.38" />
           <stop offset="100%" stopColor={tone} stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={areaPath} fill={`url(#${sparkId})`} />
-      <path d={linePath} fill="none" stroke={tone} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath} fill="none" stroke={tone} strokeWidth="1.6"
+        strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
 
-function TrendBadge({ pct }) {
+function StreakHistogram({ data }) {
+  const max = Math.max(1, ...data);
+  return (
+    <div className="q-stat-hist" aria-hidden>
+      {data.map((v, i) => {
+        const h = v > 0 ? Math.max(4, Math.round((v / max) * 28)) : 3;
+        const isLast = i === data.length - 1;
+        const cls = isLast
+          ? "q-stat-hist-bar q-stat-hist-bar--active"
+          : "q-stat-hist-bar" + (v === 0 ? " q-stat-hist-bar--low" : "");
+        return <div key={i} className={cls} style={{ height: h }} />;
+      })}
+    </div>
+  );
+}
+
+function TrendBadge({ pct, label = "vs last week" }) {
   if (pct == null) return null;
   const kind = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
   const arrow = kind === "up" ? "↑" : kind === "down" ? "↓" : "·";
   return (
     <div className={"q-stat-trend q-stat-trend--" + kind}>
       <span style={{ fontFamily: "var(--font-mono)" }}>{arrow}</span>
-      {Math.abs(pct)}% vs 7d avg
+      {Math.abs(pct)}% {label}
+    </div>
+  );
+}
+
+const PROJECT_TYPE_COLOR = {
+  template:  "var(--proj-template)",
+  component: "var(--proj-component)",
+  client:    "var(--proj-client)",
+  side:      "var(--proj-side)",
+  other:     "var(--proj-other)",
+};
+function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_COLOR.other; }
+
+function ThisWeekCard({ tasks }) {
+  const data = useMemo(() => {
+    const monday = mondayOf(new Date());
+    const todayIso = isoDate(new Date());
+    const labels = ["M","T","W","T","F","S","S"];
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(monday, i);
+      const dStr = d.toDateString();
+      const iso = isoDate(d);
+      const count = tasks.filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === dStr).length;
+      days.push({ iso, label: labels[i], count, isToday: iso === todayIso, inPast: iso < todayIso, isCurrent: iso === todayIso });
+    }
+    const elapsedDays = Math.max(1, days.filter(d => d.iso <= todayIso).length);
+    const total = days.reduce((s, d) => s + d.count, 0);
+    const avg = (total / elapsedDays).toFixed(1);
+    return { days, total, avg };
+  }, [tasks]);
+  const max = Math.max(1, ...data.days.map(d => d.count));
+
+  return (
+    <div className="q-week-card">
+      <div className="q-week-hero">
+        <div className="q-eyebrow" style={{ marginBottom: 10 }}>This week</div>
+        <div style={{
+          fontSize: 32, fontWeight: 600, color: "var(--text)",
+          letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums",
+          lineHeight: 1.05,
+        }}>{data.avg}</div>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>tasks / day avg</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, fontFamily: "var(--font-mono)" }}>
+          {data.total} total · {data.days.filter(d => d.count > 0).length}/7 days
+        </div>
+      </div>
+      <div className="q-week-bars">
+        {data.days.map((d, i) => {
+          const h = d.count > 0 ? Math.max(4, Math.round((d.count / max) * 56)) : 2;
+          const cls = d.isToday
+            ? "q-week-bar q-week-bar--active"
+            : d.count > 0
+              ? "q-week-bar q-week-bar--filled"
+              : "q-week-bar q-week-bar--empty";
+          return (
+            <div key={i} className="q-week-bar-col" title={`${d.label} · ${d.count} task${d.count !== 1 ? "s" : ""}`}>
+              <div className="q-week-bar-track">
+                <div className={cls} style={{ height: h }} />
+              </div>
+              <div className={"q-week-day-label" + (d.isToday ? " q-week-day-label--active" : "")}>{d.label}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1540,26 +1623,35 @@ function TodayView({
   const readyToShip = activeProjects.filter(p => progressOfProject(p, tasksById) === 100 && (p.childTaskIds || []).length > 0);
 
   const trendStats = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
+    // 14 days of history; the last 7 power trend calcs, the full 14 power
+    // the streak histogram.
+    const days14 = [];
+    for (let i = 13; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
-      days.push(d.toDateString());
+      days14.push(d.toDateString());
     }
-    const xpByDay = days.map(s => tasks
+    const xpByDay14 = days14.map(s => tasks
       .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s)
       .reduce((sum, t) => sum + (t.xp || 0), 0));
-    const doneByDay = days.map(s => tasks
+    const doneByDay14 = days14.map(s => tasks
       .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s).length);
-    const pctTrend = (today, hist) => {
-      const avg = hist.reduce((a, b) => a + b, 0) / Math.max(1, hist.length);
-      if (avg === 0) return null;
-      return Math.round(((today - avg) / avg) * 100);
+
+    const lastWeek = xpByDay14.slice(0, 7);
+    const thisWeek = xpByDay14.slice(7, 14);
+    const lastWeekDone = doneByDay14.slice(0, 7);
+    const thisWeekDone = doneByDay14.slice(7, 14);
+    const trend = (a, b) => {
+      const sumA = a.reduce((s, v) => s + v, 0);
+      const sumB = b.reduce((s, v) => s + v, 0);
+      if (sumA === 0) return null;
+      return Math.round(((sumB - sumA) / sumA) * 100);
     };
     return {
-      xpByDay,
-      doneByDay,
-      xpTrend:   pctTrend(xpByDay[6],   xpByDay.slice(0, 6)),
-      doneTrend: pctTrend(doneByDay[6], doneByDay.slice(0, 6)),
+      xpByDay: xpByDay14.slice(7, 14),
+      doneByDay: doneByDay14.slice(7, 14),
+      doneByDay14,
+      xpTrend:   trend(lastWeek, thisWeek),
+      doneTrend: trend(lastWeekDone, thisWeekDone),
     };
   }, [tasks]);
 
@@ -1606,33 +1698,67 @@ function TodayView({
 
       <div className="q-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
         <div className="q-stat">
-          <div className="q-stat-label">Today's XP</div>
-          <div className="q-stat-value">{profile.todayXP}</div>
-          <TrendBadge pct={trendStats.xpTrend} />
-          <Sparkline data={trendStats.xpByDay} tone="var(--accent)" />
-        </div>
-        <div className="q-stat">
-          <div className="q-stat-label">Streak</div>
-          <div className="q-stat-value" style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            {profile.streak}<span style={{ fontSize: 13, color: "var(--text-faint)", fontWeight: 500 }}>d</span>
+          <div className="q-stat-top">
+            <div className="q-stat-label">Today's XP</div>
+            <div className="q-stat-value">{profile.todayXP}</div>
+            <TrendBadge pct={trendStats.xpTrend} />
           </div>
-          {profile.streak > 0 && (
-            <div className="q-stat-trend q-stat-trend--flat">
-              <Icon name="flame" size={11} /> {profile.streak === 1 ? "first day" : "going"}
+          <div className="q-stat-bottom">
+            <Sparkline data={trendStats.xpByDay} tone="var(--accent)" />
+          </div>
+        </div>
+        <div className="q-stat">
+          <div className="q-stat-top">
+            <div className="q-stat-label">Streak</div>
+            <div className="q-stat-value" style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              {profile.streak}<span style={{ fontSize: 13, color: "var(--text-faint)", fontWeight: 500 }}>days</span>
             </div>
-          )}
+            {profile.streak > 0 ? (
+              <div className="q-stat-trend q-stat-trend--flat">
+                <Icon name="flame" size={11} /> {profile.streak === 1 ? "first day" : "going"}
+              </div>
+            ) : (
+              <div className="q-stat-trend q-stat-trend--flat">Ship something today</div>
+            )}
+          </div>
+          <div className="q-stat-bottom">
+            <StreakHistogram data={trendStats.doneByDay14} />
+          </div>
         </div>
         <div className="q-stat">
-          <div className="q-stat-label">Done today</div>
-          <div className="q-stat-value">{todayDone.length}</div>
-          <TrendBadge pct={trendStats.doneTrend} />
-          <Sparkline data={trendStats.doneByDay} tone="var(--success)" />
+          <div className="q-stat-top">
+            <div className="q-stat-label">Done today</div>
+            <div className="q-stat-value">{todayDone.length}</div>
+            <TrendBadge pct={trendStats.doneTrend} />
+          </div>
+          <div className="q-stat-bottom">
+            <Sparkline data={trendStats.doneByDay} tone="var(--success)" />
+          </div>
         </div>
         <div className="q-stat">
-          <div className="q-stat-label">Pending</div>
-          <div className="q-stat-value">{allPending.length}</div>
-          <div className="q-stat-trend q-stat-trend--flat">
-            {readyToShip.length > 0 ? `${readyToShip.length} ready to ship` : "open queue"}
+          <div className="q-stat-top">
+            <div className="q-stat-label">Pending</div>
+            <div className="q-stat-value">{allPending.length}</div>
+            <div className="q-stat-trend q-stat-trend--flat">
+              {readyToShip.length > 0 ? `${readyToShip.length} ready to ship` : "open queue"}
+            </div>
+          </div>
+          <div className="q-stat-bottom">
+            <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: "8px 18px", height: "100%" }}>
+              {/* tiny stack of difficulty pips for variety */}
+              {["epic","hard","medium","easy"].map(d => {
+                const count = allPending.filter(t => t.difficulty === d).length;
+                return count > 0 ? (
+                  <span key={d} title={`${count} ${d}`} style={{
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                    marginLeft: 10, fontSize: 10, fontFamily: "var(--font-mono)",
+                    color: "var(--text-faint)",
+                  }}>
+                    <DifficultyPip d={d} /> {count}
+                  </span>
+                ) : null;
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -1750,29 +1876,6 @@ function TodayView({
             </div>
           )}
 
-          {activeProjects.length > 0 && (
-            <div className="q-card" style={{ padding: 14 }}>
-              <Eyebrow right={<button className="q-link" onClick={() => setView("pipeline")}>All →</button>}>
-                Projects
-              </Eyebrow>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {activeProjects.slice(0, 5).map(p => {
-                  const pct = progressOfProject(p, tasksById);
-                  const total = (p.childTaskIds || []).length;
-                  const done = (p.childTaskIds || []).map(id => tasksById.get(id)).filter(t => t && t.completed).length;
-                  return (
-                    <div key={p.id}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
-                        <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>{done}/{total}</span>
-                      </div>
-                      <ProgressBar pct={pct} tone={pct === 100 ? "var(--success)" : "var(--accent)"} height={3} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <div className="q-card" style={{ padding: 14 }}>
             <Eyebrow right={<button className="q-link" onClick={() => setView("habits")}>Habits →</button>}>
@@ -1833,6 +1936,41 @@ function TodayView({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="q-bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 24 }}>
+        <div className="q-card" style={{ padding: "18px 20px" }}>
+          <Eyebrow right={<button className="q-link" onClick={() => setView("pipeline")}>All →</button>}>
+            Projects
+          </Eyebrow>
+          {activeProjects.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: "var(--text-faint)", padding: "8px 0" }}>
+              No active projects yet. Capture one with the project mode.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {activeProjects.slice(0, 6).map(p => {
+                const pct = progressOfProject(p, tasksById);
+                const total = (p.childTaskIds || []).length;
+                const done = (p.childTaskIds || []).map(id => tasksById.get(id)).filter(t => t && t.completed).length;
+                const color = pct === 100 ? "var(--success)" : projectColor(p.type);
+                return (
+                  <div key={p.id} className="q-proj-row">
+                    <div className="q-proj-head">
+                      <span className="q-proj-bullet" style={{ background: color, color }} />
+                      <span className="q-proj-name">{p.title}</span>
+                      <span className="q-proj-count">{done} / {total}</span>
+                    </div>
+                    <div className="q-proj-bar">
+                      <div className="q-proj-bar-fill" style={{ width: pct + "%", background: color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <ThisWeekCard tasks={tasks} />
       </div>
     </div>
   );
