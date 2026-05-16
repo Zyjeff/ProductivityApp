@@ -400,7 +400,7 @@ async function aiScore(title, desc, subtasks, tags, notes) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 120,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -461,7 +461,7 @@ async function aiPlanWeek(tasks, todayName, caps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 1200,
         messages: [{ role: "user", content: prompt }],
       }),
