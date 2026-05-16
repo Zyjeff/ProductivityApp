@@ -5,7 +5,11 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Stale-asset redirects (from older deploys) should 404, not rewrite to
+# index.html — otherwise the browser tries to parse HTML as a JS module.
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 404
+
+# No client-side routing in this app, so no SPA fallback needed.
