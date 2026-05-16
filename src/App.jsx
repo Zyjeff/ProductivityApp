@@ -634,6 +634,9 @@ function Icon({ name, size = 14 }) {
     case "edit":     return <svg {...common}><path d="M11.5 2.5l2 2L6 12H4v-2L11.5 2.5z" /></svg>;
     case "trash":    return <svg {...common}><path d="M3 4h10M5 4v9a1 1 0 001 1h4a1 1 0 001-1V4M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1" /></svg>;
     case "today":    return <svg {...common}><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="2" fill="currentColor" stroke="none" /></svg>;
+    case "focus":    return <svg {...common}><path d="M6 4l5.5 4L6 12V4z" fill="currentColor" stroke="none" /></svg>;
+    case "bolt":     return <svg {...common}><path d="M9 2L4 10h3l-1 4 5-8H8l1-4z" fill="currentColor" stroke="none" /></svg>;
+    case "moon":     return <svg {...common}><path d="M13 9a5 5 0 11-6-6 4 4 0 006 6z" /></svg>;
     case "queue":    return <svg {...common}><path d="M3 5h10M3 8h10M3 11h7" /></svg>;
     case "ship":     return <svg {...common}><path d="M2 11l1.5 2.5h9L14 11M3 8l5-5 5 5M8 3v8" /></svg>;
     case "calendar": return <svg {...common}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></svg>;
@@ -851,10 +854,11 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
 
 function TaskRow({
   task, projectName,
-  onComplete, onUncomplete, onDelete, onEdit, onToggleSub, onSplit,
+  onComplete, onUncomplete, onDelete, onEdit, onToggleSub, onSplit, onFocus,
   compact, expanded, onToggleExpand,
 }) {
   const done = task.completed;
+  const ageDays = task.createdAt ? Math.floor((Date.now() - task.createdAt) / 86400000) : 0;
   const sub  = task.subtasks || [];
   const doneSub = sub.filter(s => s.done).length;
   const diff = DIFFICULTY[task.difficulty] || DIFFICULTY.medium;
@@ -886,6 +890,21 @@ function TaskRow({
                 <Icon name="recur" size={10} /> {task.recurring}
               </span>
             )}
+            {!done && ageDays > 7 && (
+              <span
+                title={`Pending ${ageDays} day${ageDays !== 1 ? "s" : ""}`}
+                style={{
+                  display: "inline-flex", alignItems: "center",
+                  fontSize: 10, fontFamily: "var(--font-mono)",
+                  color: ageDays > 14 ? "var(--warning)" : "var(--text-faint)",
+                  border: `1px solid ${ageDays > 14 ? "var(--warning)" : "var(--border-strong)"}`,
+                  borderRadius: 3, padding: "0 5px",
+                  background: ageDays > 14 ? "var(--warning-soft)" : "transparent",
+                }}
+              >
+                {ageDays}d
+              </span>
+            )}
           </div>
           {(task.tags?.length || projectName) && (
             <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
@@ -908,6 +927,14 @@ function TaskRow({
             <DifficultyPip d={task.difficulty} />
             {task.xp} XP
           </span>
+          {!compact && !done && onFocus && (
+            <button
+              className="q-icon-btn"
+              onClick={(e) => { e.stopPropagation(); onFocus(task.id); }}
+              aria-label="Enter focus mode"
+              title="Focus on this task"
+            ><Icon name="focus" size={13} /></button>
+          )}
           {!compact && onEdit && (
             <button className="q-icon-btn" onClick={(e) => { e.stopPropagation(); onEdit(task); }} aria-label="Edit"><Icon name="edit" size={13} /></button>
           )}
@@ -1014,6 +1041,81 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp }) {
 
 const captureFocusBus = { focus: () => {} };
 
+function Sparkline({ data, tone = "var(--accent)", width = 70, height = 26 }) {
+  if (!data || data.length === 0) return null;
+  const max = Math.max(1, ...data);
+  const stepX = width / Math.max(1, data.length - 1);
+  const points = data.map((v, i) => {
+    const x = i * stepX;
+    const y = height - (v / max) * (height - 3) - 1;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const linePath = "M" + points.join("L");
+  const areaPath = linePath + `L${width},${height}L0,${height}Z`;
+  const sparkId = "spark-" + Math.random().toString(36).slice(2, 8);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="q-stat-spark" preserveAspectRatio="none" aria-hidden>
+      <defs>
+        <linearGradient id={sparkId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={tone} stopOpacity="0.28" />
+          <stop offset="100%" stopColor={tone} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${sparkId})`} />
+      <path d={linePath} fill="none" stroke={tone} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TrendBadge({ pct }) {
+  if (pct == null) return null;
+  const kind = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
+  const arrow = kind === "up" ? "↑" : kind === "down" ? "↓" : "·";
+  return (
+    <div className={"q-stat-trend q-stat-trend--" + kind}>
+      <span style={{ fontFamily: "var(--font-mono)" }}>{arrow}</span>
+      {Math.abs(pct)}% vs 7d avg
+    </div>
+  );
+}
+
+function EnergyToggle({ value, onChange }) {
+  const opts = [
+    { id: "low",    label: "Low"    },
+    { id: "normal", label: "Normal" },
+    { id: "high",   label: "High"   },
+  ];
+  return (
+    <div className="q-energy" role="group" aria-label="Energy mode">
+      {opts.map(o => (
+        <button
+          key={o.id}
+          type="button"
+          className={value === o.id ? "is-active" : ""}
+          onClick={() => onChange(o.id)}
+          aria-pressed={value === o.id}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const DIFFICULTY_ORDER = ["easy", "medium", "hard", "epic"];
+function sortForEnergy(arr, energy) {
+  const priorityOf = (t) => PRIORITIES[t.priority || "medium"].order;
+  const diffOf = (t) => DIFFICULTY_ORDER.indexOf(t.difficulty || "medium");
+  if (energy === "normal" || !energy) {
+    return arr.slice().sort((a, b) => priorityOf(a) - priorityOf(b));
+  }
+  return arr.slice().sort((a, b) => {
+    const da = diffOf(a), db = diffOf(b);
+    if (da !== db) return energy === "high" ? db - da : da - db;
+    return priorityOf(a) - priorityOf(b);
+  });
+}
+
 function QuickCapture({ onAdd, placeholder = "Capture a task…" }) {
   const [text, setText] = useState("");
   const ref = useRef(null);
@@ -1068,6 +1170,8 @@ function TodayView({
   weekPlan, setWeekPlan, completeTask, uncompleteTask,
   addTask, updateTask, deleteTask, toggleSub, splitTask, setView,
   openNewTask, setOpenNewTask,
+  startFocus, energy, setEnergy,
+  endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
 }) {
   const [editing, setEditing] = useState(null);
   const [exp,     setExp]     = useState(null);
@@ -1096,7 +1200,7 @@ function TodayView({
   const todayScheduled = todayPlanData
     ? (todayPlanData.taskIds || []).map(id => tasksById.get(id)).filter(Boolean)
     : [];
-  const todayPlanTasks = dailyPending.concat(todayScheduled);
+  const todayPlanTasks = sortForEnergy(dailyPending.concat(todayScheduled), energy);
   const planXP = todayPlanTasks.reduce((s,t) => s + (t.xp || 0), 0);
   const planDone = todayPlanTasks.filter(t => t.completed).length;
 
@@ -1114,6 +1218,30 @@ function TodayView({
   const activeProjects = projects.filter(p => !p.completedAt);
   const readyToShip = activeProjects.filter(p => progressOfProject(p, tasksById) === 100 && (p.childTaskIds || []).length > 0);
 
+  const trendStats = useMemo(() => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
+      days.push(d.toDateString());
+    }
+    const xpByDay = days.map(s => tasks
+      .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s)
+      .reduce((sum, t) => sum + (t.xp || 0), 0));
+    const doneByDay = days.map(s => tasks
+      .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s).length);
+    const pctTrend = (today, hist) => {
+      const avg = hist.reduce((a, b) => a + b, 0) / Math.max(1, hist.length);
+      if (avg === 0) return null;
+      return Math.round(((today - avg) / avg) * 100);
+    };
+    return {
+      xpByDay,
+      doneByDay,
+      xpTrend:   pctTrend(xpByDay[6],   xpByDay.slice(0, 6)),
+      doneTrend: pctTrend(doneByDay[6], doneByDay.slice(0, 6)),
+    };
+  }, [tasks]);
+
   const hour = new Date().getHours();
   const planDoneAll = todayPlanTasks.length > 0 && planDone === todayPlanTasks.length;
   const greeting = (() => {
@@ -1127,8 +1255,17 @@ function TodayView({
     return "Still here.";
   })();
 
+  const dow = new Date().getDay();
+  const showWeeklyPulse = !weeklyDismissed && (dow === 1 || dow === 2);
+  const dismissWeekly = () => {
+    const wid = isoDate(mondayOf(new Date()));
+    saveKV("quest_pulse_dismissed", wid);
+    setWeeklyDismissed(true);
+  };
+
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 1180, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 1180, margin: "0 auto" }}>
+      {showWeeklyPulse && <WeeklyPulse tasks={tasks} onDismiss={dismissWeekly} />}
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         title={greeting}
@@ -1142,26 +1279,55 @@ function TodayView({
         right={<QuickCapture onAdd={handleAdd} />}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[
-          { l: "Today's XP", v: profile.todayXP, tone: "var(--accent)", mono: true },
-          { l: "Streak",     v: `${profile.streak}d`, tone: "var(--text)", mono: true },
-          { l: "Done today", v: todayDone.length, tone: "var(--text)", mono: true },
-          { l: "Pending",    v: allPending.length, tone: "var(--text)", mono: true },
-        ].map(s => (
-          <div key={s.l} className="q-card" style={{ padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 6 }}>{s.l}</div>
-            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: s.mono ? "var(--font-mono)" : "var(--font-sans)", color: s.tone }}>{s.v}</div>
+      <div className="q-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
+        <div className="q-stat">
+          <div className="q-stat-label">Today's XP</div>
+          <div className="q-stat-value">{profile.todayXP}</div>
+          <TrendBadge pct={trendStats.xpTrend} />
+          <Sparkline data={trendStats.xpByDay} tone="var(--accent)" />
+        </div>
+        <div className="q-stat">
+          <div className="q-stat-label">Streak</div>
+          <div className="q-stat-value" style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            {profile.streak}<span style={{ fontSize: 13, color: "var(--text-faint)", fontWeight: 500 }}>d</span>
           </div>
-        ))}
+          {profile.streak > 0 && (
+            <div className="q-stat-trend q-stat-trend--flat">
+              <Icon name="flame" size={11} /> {profile.streak === 1 ? "first day" : "going"}
+            </div>
+          )}
+        </div>
+        <div className="q-stat">
+          <div className="q-stat-label">Done today</div>
+          <div className="q-stat-value">{todayDone.length}</div>
+          <TrendBadge pct={trendStats.doneTrend} />
+          <Sparkline data={trendStats.doneByDay} tone="var(--success)" />
+        </div>
+        <div className="q-stat">
+          <div className="q-stat-label">Pending</div>
+          <div className="q-stat-value">{allPending.length}</div>
+          <div className="q-stat-trend q-stat-trend--flat">
+            {readyToShip.length > 0 ? `${readyToShip.length} ready to ship` : "open queue"}
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
+      <div className="q-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         <div>
           {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
           {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
 
-          <Eyebrow right={<button className="q-link" onClick={() => setView("queue")}>Full queue →</button>}>
+          <Eyebrow right={
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <EnergyToggle value={energy} onChange={setEnergy} />
+              {todayDone.length > 0 && (
+                <button className="q-link" onClick={() => setEndOfDayOpen(true)} title="Close the day">
+                  Close day →
+                </button>
+              )}
+              <button className="q-link" onClick={() => setView("queue")}>Full queue →</button>
+            </div>
+          }>
             Today's plan
           </Eyebrow>
           {todayPlanTasks.length > 0 ? (
@@ -1170,7 +1336,7 @@ function TodayView({
                 <TaskRow key={t.id} task={t}
                   onComplete={completeTask} onUncomplete={uncompleteTask}
                   onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
-                  onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask}
+                  onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                 />
@@ -1192,7 +1358,7 @@ function TodayView({
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="q-today-rail" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {readyToShip.length > 0 && (
             <div className="q-card" style={{ padding: 14, borderColor: "var(--success)", background: "var(--success-soft)" }}>
               <Eyebrow right={<button className="q-link" onClick={() => setView("pipeline")}>Pipeline →</button>}>
@@ -1301,7 +1467,7 @@ function TodayView({
 /* ───── QUEUE VIEW ───── */
 
 function QueueView({
-  tasks, projects, projectsMap,
+  tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
   deleteTask, toggleSub, splitTask,
   openNewTask, setOpenNewTask,
@@ -1312,27 +1478,29 @@ function QueueView({
   const [exp,     setExp]     = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
 
-  const list = tasks
+  const filtered = tasks
     .filter(t => {
       if (filter === "pending")   return !t.completed;
       if (filter === "recurring") return t.recurring && t.recurring !== "none";
       if (filter === "done")      return t.completed;
       return true;
     })
-    .filter(t => !projectFilter || t.projectId === projectFilter)
-    .sort((a, b) => {
-      if (filter !== "pending") return (b.completedAt || 0) - (a.completedAt || 0);
-      if (sortBy === "priority") return (PRIORITIES[a.priority||"medium"].order) - (PRIORITIES[b.priority||"medium"].order);
-      if (sortBy === "xp")       return (b.xp || 0) - (a.xp || 0);
-      if (sortBy === "created")  return (b.createdAt || 0) - (a.createdAt || 0);
-      return 0;
-    });
+    .filter(t => !projectFilter || t.projectId === projectFilter);
+  const list = (() => {
+    if (filter !== "pending") return filtered.slice().sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+    if (sortBy === "energy")   return sortForEnergy(filtered, energy);
+    if (sortBy === "priority") return filtered.slice().sort((a, b) => (PRIORITIES[a.priority||"medium"].order) - (PRIORITIES[b.priority||"medium"].order));
+    if (sortBy === "xp")       return filtered.slice().sort((a, b) => (b.xp || 0) - (a.xp || 0));
+    if (sortBy === "created")  return filtered.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (sortBy === "age")      return filtered.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return filtered;
+  })();
 
   const handleAdd = (d) => { addTask(d); setOpenNewTask(false); };
   const handleUpdate = (d) => updateTask(editing.id, d).then(() => setEditing(null));
 
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
       <PageHeader
         eyebrow="All tasks"
         title="Queue"
@@ -1351,7 +1519,7 @@ function QueueView({
             <div style={{ height: 14, width: 1, background: "var(--border)" }} />
             <span className="q-eyebrow">Sort</span>
             <div style={{ display: "flex", gap: 4 }}>
-              {[["priority","priority"],["xp","XP"],["created","newest"]].map(([id, lbl]) => (
+              {[["priority","priority"],["energy","energy"],["xp","XP"],["created","newest"],["age","oldest"]].map(([id, lbl]) => (
                 <ChipChoice key={id} active={sortBy === id} onClick={() => setSortBy(id)}>{lbl}</ChipChoice>
               ))}
             </div>
@@ -1373,7 +1541,7 @@ function QueueView({
             <TaskRow key={t.id} task={t}
               onComplete={completeTask} onUncomplete={uncompleteTask}
               onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
-              onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask}
+              onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
             />
@@ -1437,7 +1605,7 @@ function PipelineView({
   const readyCount = active.filter(p => progressOfProject(p, tasksById) === 100 && (p.childTaskIds || []).length > 0).length;
 
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 720, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 720, margin: "0 auto" }}>
       <PageHeader
         eyebrow="Shipping"
         title="Pipeline"
@@ -1730,7 +1898,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
   const todayIso = isoDate(new Date());
 
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 1080, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 1080, margin: "0 auto" }}>
       <PageHeader
         eyebrow="AI scheduler"
         title="Plan"
@@ -1758,7 +1926,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
 
       <div className="q-card" style={{ padding: 14, marginBottom: 18 }}>
         <Eyebrow>Daily capacity — click to edit (applies every week)</Eyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+        <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
           {WEEKDAYS.map(day => {
             const isToday = day === tName;
             const val = caps[day] || 4;
@@ -1836,7 +2004,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
         </EmptyState>
       ) : (
         <div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+          <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
             {days.map((dateObj) => {
               const iso = isoDate(dateObj);
               const wd = weekdayName(dateObj);
@@ -1979,7 +2147,7 @@ function HabitsView() {
   if (!ready) return <div style={{ padding: VIEW_PAD, color: "var(--text-faint)", fontSize: 13 }}>Loading…</div>;
 
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 720, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 720, margin: "0 auto" }}>
       <PageHeader eyebrow="Awareness" title="Screen log" sub="Manual log. Awareness is the point." />
 
       <div className="q-card" style={{ padding: 18, marginBottom: 16 }}>
@@ -2135,7 +2303,7 @@ function HabitsView() {
 
 function TrophiesView({ unlocked }) {
   return (
-    <div style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
+    <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
       <PageHeader
         eyebrow="Progress"
         title="Trophies"
@@ -2199,6 +2367,310 @@ function ShortcutHelp({ onClose }) {
   );
 }
 
+/* ───── WEEKLY PULSE ───── */
+
+function WeeklyPulse({ tasks, onDismiss }) {
+  const stats = useMemo(() => {
+    const thisMonday = mondayOf(new Date());
+    const lastWeekStart = addDays(thisMonday, -7);
+    const lastWeekEnd   = thisMonday;
+    const lw = tasks.filter(t => {
+      if (!t.completed || !t.completedAt) return false;
+      const d = new Date(t.completedAt);
+      return d >= lastWeekStart && d < lastWeekEnd;
+    });
+    const days = [
+      { label: "Mon" }, { label: "Tue" }, { label: "Wed" },
+      { label: "Thu" }, { label: "Fri" }, { label: "Sat" }, { label: "Sun" },
+    ].map(d => ({ ...d, count: 0, xp: 0 }));
+    for (const t of lw) {
+      const d = new Date(t.completedAt);
+      const wd = d.getDay();
+      const idx = wd === 0 ? 6 : wd - 1;
+      days[idx].count += 1;
+      days[idx].xp += (t.xp || 0);
+    }
+    const best = days.reduce((b, d) => d.count > b.count ? d : b, days[0]);
+    return {
+      total: lw.length,
+      xp: lw.reduce((s, t) => s + (t.xp || 0), 0),
+      days, best,
+    };
+  }, [tasks]);
+
+  if (stats.total === 0) return null;
+  const maxCount = Math.max(1, ...stats.days.map(d => d.count));
+
+  return (
+    <div className="q-pulse-card q-fade-in" style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div>
+          <div className="q-eyebrow" style={{ marginBottom: 4 }}>Last week</div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>
+            {stats.total} shipped · {stats.xp} XP
+          </div>
+        </div>
+        <button className="q-icon-btn" onClick={onDismiss} aria-label="Dismiss weekly pulse"><Icon name="close" size={12} /></button>
+      </div>
+
+      <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 48 }}>
+        {stats.days.slice(0, 7).map((d, i) => {
+          const h = d.count > 0 ? Math.max(4, Math.round((d.count / maxCount) * 36)) : 2;
+          const isBest = d === stats.best && d.count > 0;
+          return (
+            <div key={d.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div style={{ width: "100%", height: 36, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                <div style={{
+                  width: "100%", height: h,
+                  background: isBest ? "var(--accent)" : (d.count > 0 ? "var(--border-strong)" : "var(--border)"),
+                  borderRadius: "2px 2px 0 0",
+                  transition: "background var(--t-fast)",
+                }} />
+              </div>
+              <span style={{
+                fontSize: 9, fontFamily: "var(--font-mono)",
+                color: isBest ? "var(--accent-strong)" : "var(--text-faint)",
+              }}>{d.label}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {stats.best.count > 1 && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.5 }}>
+          Best day was <span style={{ color: "var(--text)", fontWeight: 500 }}>{stats.best.label}</span> — {stats.best.count} shipped, {stats.best.xp} XP.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───── END-OF-DAY RITUAL ───── */
+
+function EndOfDayDialog({ tasks, weekPlan, profile, onClose }) {
+  const [screen, setScreen] = useState({ xOpens: 0, ytOpens: 0, mobileHours: null });
+  const [mobile, setMobile] = useState("");
+  useEffect(() => {
+    loadKV(KEYS.screen, {}).then(d => {
+      setScreen(d[todayKey()] || { xOpens: 0, ytOpens: 0, mobileHours: null });
+    });
+  }, []);
+
+  const todayStr = new Date().toDateString();
+  const todayIso = isoDate(new Date());
+  const completedToday = tasks.filter(t => t.completed && t.completedAt &&
+    new Date(t.completedAt).toDateString() === todayStr);
+  const xpToday = completedToday.reduce((s, t) => s + (t.xp || 0), 0);
+  const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
+  const scheduledTomorrow = (todayEntry?.taskIds || [])
+    .map(id => tasks.find(t => t.id === id))
+    .filter(t => t && !t.completed);
+
+  const logScreen = () => {
+    if (!mobile) return;
+    const hrs = parseFloat(mobile) || 0;
+    loadKV(KEYS.screen, {}).then(d => {
+      const next = { ...d, [todayKey()]: { ...screen, mobileHours: hrs } };
+      saveKV(KEYS.screen, next);
+      setScreen({ ...screen, mobileHours: hrs });
+      setMobile("");
+    });
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0,
+        background: "rgba(8,8,12,0.72)",
+        backdropFilter: "blur(4px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 10004, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="q-card q-fade-in"
+        style={{ width: "100%", maxWidth: 440, padding: 24 }}
+      >
+        <div className="q-eyebrow" style={{ marginBottom: 4 }}>End of day</div>
+        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.015em", marginBottom: 16 }}>
+          {completedToday.length > 0 ? "That's a wrap." : "Closing out."}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
+          <div style={{ background: "var(--bg-soft)", borderRadius: "var(--r-md)", padding: "12px 14px" }}>
+            <div className="q-stat-label" style={{ marginBottom: 6 }}>Completed</div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+              {completedToday.length}
+            </div>
+          </div>
+          <div style={{ background: "var(--bg-soft)", borderRadius: "var(--r-md)", padding: "12px 14px" }}>
+            <div className="q-stat-label" style={{ marginBottom: 6 }}>XP earned</div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--accent-strong)" }}>
+              {xpToday}
+            </div>
+          </div>
+        </div>
+
+        {completedToday.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div className="q-eyebrow" style={{ marginBottom: 8 }}>Shipped today</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto" }} className="q-scroll">
+              {completedToday.map(t => (
+                <div key={t.id} style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "5px 8px", borderRadius: "var(--r-sm)",
+                  background: "var(--bg-soft)", fontSize: 12.5,
+                }}>
+                  <Icon name="check" size={11} />
+                  <span style={{ flex: 1, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>+{t.xp}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {scheduledTomorrow.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div className="q-eyebrow" style={{ marginBottom: 8 }}>
+              Rolling to next available day · {scheduledTomorrow.length}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 110, overflowY: "auto" }} className="q-scroll">
+              {scheduledTomorrow.map(t => (
+                <div key={t.id} style={{
+                  fontSize: 12.5, color: "var(--text-muted)",
+                  padding: "4px 8px", borderRadius: "var(--r-sm)",
+                  border: "1px dashed var(--border)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{t.title}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginBottom: 18 }}>
+          <div className="q-eyebrow" style={{ marginBottom: 8 }}>Screen time</div>
+          {screen.mobileHours != null ? (
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+              {screen.mobileHours}h mobile logged · {screen.xOpens || 0} X opens · {screen.ytOpens || 0} YT opens
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                type="number" min="0" max="24" step="0.5"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && mobile) logScreen(); }}
+                placeholder="Mobile hours (optional)"
+                className="q-input q-input--sm"
+                style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+              />
+              <button
+                className={mobile ? "q-btn q-btn--outline q-btn--sm" : "q-btn q-btn--ghost q-btn--sm"}
+                disabled={!mobile} onClick={logScreen}
+              >Log</button>
+            </div>
+          )}
+        </div>
+
+        <button className="q-btn q-btn--primary" style={{ width: "100%" }} onClick={onClose}>
+          <Icon name="moon" size={13} /> Close the day
+        </button>
+        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 10, textAlign: "center" }}>
+          That's enough for today.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───── FOCUS TUNNEL ───── */
+
+function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip }) {
+  const [running, setRunning] = useState(true);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef(null);
+  const baseRef = useRef(0);
+
+  useEffect(() => {
+    baseRef.current = 0;
+    setElapsedMs(0);
+    setRunning(true);
+  }, [task?.id]);
+
+  useEffect(() => {
+    if (!running) return;
+    startedAtRef.current = Date.now();
+    const id = setInterval(() => {
+      setElapsedMs(baseRef.current + (Date.now() - startedAtRef.current));
+    }, 250);
+    return () => {
+      clearInterval(id);
+      baseRef.current = baseRef.current + (Date.now() - startedAtRef.current);
+    };
+  }, [running]);
+
+  useEffect(() => {
+    const h = (e) => {
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea") return;
+      if (e.key === "Escape") { e.preventDefault(); onExit(); }
+      else if (e.key === " ") { e.preventDefault(); setRunning(r => !r); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onExit]);
+
+  if (!task) return null;
+  const sec = Math.floor(elapsedMs / 1000);
+  const p2 = (n) => String(n).padStart(2, "0");
+  const hh = Math.floor(sec / 3600);
+  const mm = Math.floor((sec % 3600) / 60);
+  const ss = sec % 60;
+  const timeStr = hh > 0 ? `${hh}:${p2(mm)}:${p2(ss)}` : `${p2(mm)}:${p2(ss)}`;
+  const target = DIFFICULTY[task.difficulty]?.hours || 1.5;
+
+  return (
+    <div className="q-focus-overlay" role="dialog" aria-label="Focus mode">
+      <div className="q-focus-bar">
+        <button className="q-btn q-btn--ghost" onClick={onExit}>
+          <Icon name="close" size={14} /> Exit focus <span className="q-kbd" style={{ marginLeft: 4 }}>Esc</span>
+        </button>
+        {onSkip && nextTask && (
+          <button className="q-btn q-btn--ghost q-btn--sm" onClick={onSkip}>
+            Skip <Icon name="chevronR" size={12} />
+          </button>
+        )}
+      </div>
+      <div className="q-focus-body">
+        <div className="q-focus-meta">
+          <span className="q-focus-dot" />
+          {projectName && <><span>{projectName}</span><span style={{ color: "var(--text-faint)" }}>·</span></>}
+          <span className="q-eyebrow">{(task.difficulty || "medium")} · ~{target}h</span>
+        </div>
+        <h1 className="q-focus-title">{task.title}</h1>
+        <div className="q-focus-timer">{timeStr}</div>
+        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+          <button className="q-btn q-btn--outline" onClick={() => setRunning(r => !r)} style={{ minWidth: 130 }}>
+            {running ? "Pause" : "Resume"} <span className="q-kbd" style={{ marginLeft: 4 }}>Space</span>
+          </button>
+          <button className="q-btn q-btn--success" onClick={onComplete}>
+            <Icon name="check" size={13} /> Mark complete
+          </button>
+        </div>
+      </div>
+      {nextTask && (
+        <div className="q-focus-next q-fade-in">
+          <div className="q-eyebrow" style={{ marginBottom: 4 }}>Up Next</div>
+          <div style={{ fontSize: 13, color: "var(--text)" }}>{nextTask.title}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ───── ROOT APP ───── */
 
 export default function App() {
@@ -2213,6 +2685,10 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [openNewTask, setOpenNewTask] = useState(false);
   const [levelUp,  setLevelUp]  = useState(null);
+  const [focusTaskId, setFocusTaskId] = useState(null);
+  const [energy, setEnergy] = useState("normal");  // "low" | "normal" | "high"
+  const [endOfDayOpen, setEndOfDayOpen] = useState(false);
+  const [weeklyDismissed, setWeeklyDismissed] = useState(false);
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -2243,6 +2719,12 @@ export default function App() {
       setProfile({ ...p, todayXP, streak });
       setUnlocked(a);
       setWeekPlan(w);
+
+      // Weekly pulse dismissal: stored as the weekId of the last dismissal.
+      const dismissedAt = await loadKV("quest_pulse_dismissed", null);
+      const currentWeekId = isoDate(mondayOf(new Date()));
+      setWeeklyDismissed(dismissedAt === currentWeekId);
+
       setReady(true);
       const changed = processed.some((x, i) => t[i] && x.completed !== t[i].completed);
       if (changed) saveKV(KEYS.tasks, processed);
@@ -2621,6 +3103,33 @@ export default function App() {
     return m;
   }, [tasks]);
 
+  // Focus tunnel state
+  const focusTask = focusTaskId ? tasksById.get(focusTaskId) : null;
+  const todayIso = isoDate(new Date());
+  const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
+  const nextFocusId = useMemo(() => {
+    if (!focusTaskId) return null;
+    const schedIds = (todayEntry?.taskIds || [])
+      .filter(id => id !== focusTaskId && !tasksById.get(id)?.completed);
+    const dailyIds = tasks
+      .filter(t => t.recurring === "daily" && !t.completed && t.id !== focusTaskId)
+      .map(t => t.id);
+    const queue = dailyIds.concat(schedIds);
+    return queue[0] || null;
+  }, [focusTaskId, todayEntry, tasksById, tasks]);
+  const nextFocusTask = nextFocusId ? tasksById.get(nextFocusId) : null;
+  const focusProjectName = focusTask?.projectId ? projectsMap[focusTask.projectId]?.title : null;
+
+  const startFocus = useCallback((id) => setFocusTaskId(id), []);
+  const exitFocus  = useCallback(() => setFocusTaskId(null), []);
+  const completeFocus = useCallback(() => {
+    if (!focusTaskId) return;
+    const advance = nextFocusId;
+    completeTask(focusTaskId);
+    setFocusTaskId(advance);
+  }, [focusTaskId, nextFocusId, completeTask]);
+  const skipFocus = useCallback(() => setFocusTaskId(nextFocusId), [nextFocusId]);
+
   const shared = {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan,
@@ -2629,6 +3138,9 @@ export default function App() {
     createProject, renameProject, shipProject, unshipProject, deleteProject,
     setView,
     openNewTask, setOpenNewTask,
+    startFocus, energy, setEnergy,
+    endOfDayOpen, setEndOfDayOpen,
+    weeklyDismissed, setWeeklyDismissed,
   };
 
   return (
@@ -2660,6 +3172,24 @@ export default function App() {
             </div>
           )}
           {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
+          {endOfDayOpen && (
+            <EndOfDayDialog
+              tasks={tasks}
+              weekPlan={weekPlan}
+              profile={profile}
+              onClose={() => setEndOfDayOpen(false)}
+            />
+          )}
+          {focusTask && (
+            <FocusTunnel
+              task={focusTask}
+              nextTask={nextFocusTask}
+              projectName={focusProjectName}
+              onComplete={completeFocus}
+              onExit={exitFocus}
+              onSkip={nextFocusTask ? skipFocus : null}
+            />
+          )}
         </div>
       )}
     </>
