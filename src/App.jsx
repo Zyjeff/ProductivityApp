@@ -34,7 +34,8 @@ const PROJECT_TYPE_LABEL_TO_ID = {
 };
 
 const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
-const DEFAULT_CAPS = { Monday:4, Tuesday:4, Wednesday:4, Thursday:4, Friday:3 };
+const WEEK_ALL  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const DEFAULT_CAPS = { Monday:4, Tuesday:4, Wednesday:4, Thursday:4, Friday:3, Saturday:0, Sunday:0 };
 
 const ACHIEVEMENTS = [
   { id:"first",     title:"First Strike",   desc:"Complete your first task" },
@@ -73,6 +74,8 @@ const NAV_ITEMS = [
   { id: "habits",   label: "Habits",   glyph: "H", shortcut: "5" },
   { id: "trophies", label: "Trophies", glyph: "*", shortcut: "6" },
 ];
+
+const PREVIEW_KEY = "quest_preview_snapshot";
 
 /* ───── STORAGE ───── */
 
@@ -335,13 +338,17 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const dailyHours = dailyTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
   if (!nonDailyPending.length) return existingPlan.length ? existingPlan : [];
 
-  // Build the date horizon: next `horizonDays` weekdays starting today.
+  // Build the date horizon: next `horizonDays` working days starting today.
+  // Working days = days with cap > 0. By default Sat/Sun are 0 so they're
+  // skipped, but users can raise them to schedule on weekends.
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const dates = [];
-  for (let i = 0; dates.length < horizonDays && i < horizonDays * 2 + 10; i++) {
+  for (let i = 0; dates.length < horizonDays && i < horizonDays * 2 + 14; i++) {
     const d = addDays(today, i);
-    if (isWeekday(d)) dates.push(d);
+    const wd = weekdayName(d);
+    if ((caps[wd] || 0) > 0) dates.push(d);
   }
+  if (!dates.length) return existingPlan;
 
   // Storage shape: {date, taskIds: [id]}. Prompt + AI response use titles
   // (more readable for Claude); we translate at the boundary.
@@ -523,13 +530,171 @@ function mondayOf(d) {
 function isWeekday(d) { const x = d.getDay(); return x >= 1 && x <= 5; }
 function weekdayName(d) { return d.toLocaleDateString("en-US", { weekday: "long" }); }
 function fmtWeekLabel(monday) {
-  const fri = addDays(monday, 4);
-  const sameMonth = monday.getMonth() === fri.getMonth();
+  const sun = addDays(monday, 6);
+  const sameMonth = monday.getMonth() === sun.getMonth();
   const m1 = monday.toLocaleDateString("en-US", { month: "short" });
-  const m2 = fri.toLocaleDateString("en-US",   { month: "short" });
+  const m2 = sun.toLocaleDateString("en-US",   { month: "short" });
   return sameMonth
-    ? `${m1} ${monday.getDate()} – ${fri.getDate()}, ${monday.getFullYear()}`
-    : `${m1} ${monday.getDate()} – ${m2} ${fri.getDate()}, ${monday.getFullYear()}`;
+    ? `${m1} ${monday.getDate()} – ${sun.getDate()}, ${monday.getFullYear()}`
+    : `${m1} ${monday.getDate()} – ${m2} ${sun.getDate()}, ${monday.getFullYear()}`;
+}
+
+function generateDemoData() {
+  const now = Date.now();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayStr = today.toDateString();
+  const rng = () => Math.random();
+  const choice = (arr) => arr[Math.floor(rng() * arr.length)];
+
+  const projects = [
+    { id: "demo-p-1", title: "Landing redesign",  type: "client",    desc: "", notes: "", tags: [], createdAt: now - 12 * 86400000, completedAt: null, shippedAt: null, childTaskIds: [] },
+    { id: "demo-p-2", title: "Quest mobile",       type: "side",      desc: "", notes: "", tags: [], createdAt: now -  8 * 86400000, completedAt: null, shippedAt: null, childTaskIds: [] },
+    { id: "demo-p-3", title: "Component library",  type: "component", desc: "", notes: "", tags: [], createdAt: now -  5 * 86400000, completedAt: null, shippedAt: null, childTaskIds: [] },
+    { id: "demo-p-4", title: "Hero illustration",  type: "template",  desc: "", notes: "", tags: [], createdAt: now - 20 * 86400000, completedAt: now - 3 * 86400000, shippedAt: now - 3 * 86400000, childTaskIds: [] },
+  ];
+
+  const xpFor = (diff) => diff === "easy" ? 12 + Math.floor(rng() * 8) : diff === "medium" ? 30 + Math.floor(rng() * 18) : diff === "hard" ? 55 + Math.floor(rng() * 22) : 82 + Math.floor(rng() * 18);
+
+  const tasks = [];
+
+  // Active project tasks
+  const active = [
+    { title: "Audit current hero section",       diff: "medium", prio: "high",   pid: "demo-p-1" },
+    { title: "Redesign primary navigation",      diff: "hard",   prio: "urgent", pid: "demo-p-1" },
+    { title: "Build animated counters component",diff: "medium", prio: "medium", pid: "demo-p-3" },
+    { title: "Define color tokens v2",           diff: "easy",   prio: "medium", pid: "demo-p-3" },
+    { title: "Spec offline-first sync model",    diff: "hard",   prio: "high",   pid: "demo-p-2" },
+    { title: "Tighten copy on pricing page",     diff: "easy",   prio: "low",    pid: "demo-p-1" },
+    { title: "Run accessibility scan",           diff: "medium", prio: "medium", pid: "demo-p-1" },
+    { title: "Wire up dark mode toggle",         diff: "medium", prio: "medium", pid: "demo-p-2" },
+    { title: "Write Storybook stories for chips",diff: "easy",   prio: "low",    pid: "demo-p-3" },
+    { title: "Plan next sprint",                 diff: "easy",   prio: "high",   pid: null         },
+    { title: "Reply to procurement email",       diff: "easy",   prio: "urgent", pid: null         },
+  ];
+  active.forEach((t, i) => {
+    tasks.push({
+      id: "demo-ta-" + i,
+      title: t.title, desc: "", notes: "", tags: [], subtasks: [],
+      xp: xpFor(t.diff), difficulty: t.diff, reason: "demo",
+      recurring: "none", priority: t.prio,
+      projectId: t.pid, completed: false,
+      createdAt: now - (2 + Math.floor(rng() * 10)) * 86400000,
+    });
+  });
+
+  // Daily recurring (one done today, two pending)
+  const daily = [
+    { title: "Morning standup",           done: true  },
+    { title: "Inbox triage",              done: true  },
+    { title: "Day journal entry",         done: false },
+  ];
+  daily.forEach((t, i) => {
+    const at = new Date(today); at.setHours(8 + i * 2, 0, 0, 0);
+    tasks.push({
+      id: "demo-tr-" + i,
+      title: t.title, desc: "", notes: "", tags: [], subtasks: [],
+      xp: 10, difficulty: "easy", reason: "demo",
+      recurring: "daily", priority: "medium", projectId: null,
+      completed: t.done, completedAt: t.done ? at.getTime() : null,
+      createdAt: now - 30 * 86400000,
+    });
+  });
+
+  // Completed today (a few visible wins)
+  const todaysWins = [
+    { title: "Reply to Sara about Q3 ask",     diff: "easy",   pid: null         },
+    { title: "Fix mobile nav drawer overlap",  diff: "medium", pid: "demo-p-2"   },
+    { title: "Tidy up Figma library",          diff: "easy",   pid: "demo-p-3"   },
+    { title: "Push staging build",             diff: "medium", pid: "demo-p-1"   },
+    { title: "Sketch onboarding flow",         diff: "hard",   pid: "demo-p-2"   },
+  ];
+  todaysWins.forEach((t, i) => {
+    const at = new Date(today); at.setHours(9 + i, 10 + i * 7, 0, 0);
+    tasks.push({
+      id: "demo-tw-" + i,
+      title: t.title, desc: "", notes: "", tags: [], subtasks: [],
+      xp: xpFor(t.diff), difficulty: t.diff, reason: "demo",
+      recurring: "none", priority: "medium",
+      projectId: t.pid, completed: true, completedAt: at.getTime(),
+      createdAt: at.getTime() - 86400000,
+    });
+  });
+
+  // Historical completions distributed across the last 14 days for trend lines
+  const historyTitles = [
+    "Wireframe pricing tiers", "Sync with client on scope", "Refactor toast component",
+    "Build progress ring", "Update README", "Address PR feedback round 1",
+    "Polish loading skeletons", "Document API endpoints", "Schedule kickoff call",
+    "Add keyboard shortcuts overlay", "Set up linting rules", "Write release notes",
+    "Audit Lighthouse scores", "Implement command palette stub", "Trim CSS bundle",
+    "Configure Sentry", "Draft case study outline", "Bug fix: state hydration",
+    "Pair on hard layout problem", "Update homepage copy",
+  ];
+  for (let i = 0; i < 22; i++) {
+    const daysAgo = 1 + Math.floor(rng() * 13);
+    const dt = new Date(today); dt.setDate(dt.getDate() - daysAgo);
+    dt.setHours(8 + Math.floor(rng() * 10), Math.floor(rng() * 59), 0, 0);
+    if (dt.toDateString() === todayStr) dt.setDate(dt.getDate() - 1);
+    const diff = choice(["easy", "easy", "medium", "medium", "hard"]);
+    tasks.push({
+      id: "demo-th-" + i,
+      title: historyTitles[i % historyTitles.length] + (i >= historyTitles.length ? ` (${Math.floor(i / historyTitles.length) + 1})` : ""),
+      desc: "", notes: "", tags: [], subtasks: [],
+      xp: xpFor(diff), difficulty: diff, reason: "demo",
+      recurring: "none", priority: "medium",
+      projectId: rng() < 0.55 ? choice(projects).id : null,
+      completed: true, completedAt: dt.getTime(),
+      createdAt: dt.getTime() - 86400000,
+    });
+  }
+
+  // Hook child IDs into projects
+  projects.forEach(p => {
+    p.childTaskIds = tasks.filter(t => t.projectId === p.id).map(t => t.id);
+  });
+
+  // Week plan: scatter 1-2 active tasks per day over the next 5 working days
+  const activeIds = tasks.filter(t => !t.completed && t.recurring !== "daily").map(t => t.id);
+  const weekPlan = [];
+  let cursor = 0;
+  for (let dayOffset = 0; dayOffset < 14 && cursor < activeIds.length; dayOffset++) {
+    const d = addDays(today, dayOffset);
+    const dow = d.getDay();
+    if (dow === 0 || dow === 6) continue; // skip weekends
+    const count = dayOffset === 0 ? 3 : 1 + Math.floor(rng() * 2);
+    const ids = activeIds.slice(cursor, cursor + count);
+    if (ids.length) weekPlan.push({ date: isoDate(d), taskIds: ids });
+    cursor += count;
+  }
+
+  // Profile
+  const totalCompletedXP = tasks.filter(t => t.completed).reduce((s, t) => s + (t.xp || 0), 0);
+  const todayXP = tasks
+    .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === todayStr)
+    .reduce((s, t) => s + (t.xp || 0), 0);
+  const profile = {
+    totalXP: totalCompletedXP,
+    todayXP,
+    streak: 6,
+    lastDate: todayStr,
+    completedCount: tasks.filter(t => t.completed).length,
+  };
+
+  // Screen log: last 7 days
+  const screen = {};
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    screen[isoDate(d)] = {
+      xOpens: Math.floor(rng() * 12),
+      ytOpens: Math.floor(rng() * 6),
+      mobileHours: Math.round((1 + rng() * 3) * 2) / 2,
+    };
+  }
+
+  const achievements = ["first", "five", "twenty", "streak3", "xp500", "decompose", "project"];
+  const caps = { Monday: 4, Tuesday: 4, Wednesday: 4, Thursday: 4, Friday: 3, Saturday: 0, Sunday: 0 };
+
+  return { tasks, projects, profile, weekPlan, screen, achievements, caps };
 }
 
 function progressOfProject(p, tasksById) {
@@ -1033,7 +1198,7 @@ function TaskRow({
 
 /* ───── SIDEBAR ───── */
 
-function Sidebar({ view, setView, lvl, profile, onOpenHelp }) {
+function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnterPreview, onExitPreview }) {
   return (
     <aside className="q-sidebar" style={{
       width: 200, flexShrink: 0, height: "100vh",
@@ -1079,9 +1244,20 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp }) {
             <span style={{ fontFamily: "var(--font-mono)" }}>{profile.streak}-day streak</span>
           </div>
         )}
-        <button className="q-btn q-btn--ghost q-btn--xs" style={{ marginTop: 10, padding: 0 }} onClick={onOpenHelp}>
-          <Icon name="key" size={11} /> shortcuts
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+          <button className="q-btn q-btn--ghost q-btn--xs" style={{ padding: 0 }} onClick={onOpenHelp}>
+            <Icon name="key" size={11} /> shortcuts
+          </button>
+          {previewMode ? (
+            <button className="q-btn q-btn--ghost q-btn--xs" style={{ padding: 0, color: "var(--accent-strong)" }} onClick={onExitPreview}>
+              exit preview
+            </button>
+          ) : (
+            <button className="q-btn q-btn--ghost q-btn--xs" style={{ padding: 0 }} onClick={onEnterPreview}>
+              <Icon name="bolt" size={11} /> preview
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );
@@ -1131,9 +1307,9 @@ function TrendBadge({ pct }) {
 
 function EnergyToggle({ value, onChange }) {
   const opts = [
-    { id: "low",    label: "Low"    },
-    { id: "normal", label: "Normal" },
-    { id: "high",   label: "High"   },
+    { id: "low",    label: "Easy", title: "Surface easy tasks first (low energy)" },
+    { id: "normal", label: "Auto", title: "Default sort by priority" },
+    { id: "high",   label: "Hard", title: "Surface hard tasks first (high energy)" },
   ];
   return (
     <div className="q-energy" role="group" aria-label="Energy mode">
@@ -1144,6 +1320,7 @@ function EnergyToggle({ value, onChange }) {
           className={value === o.id ? "is-active" : ""}
           onClick={() => onChange(o.id)}
           aria-pressed={value === o.id}
+          title={o.title}
         >
           {o.label}
         </button>
@@ -1315,6 +1492,7 @@ function TodayView({
   openNewTask, setOpenNewTask, createProjectFromCapture,
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
+  previewMode,
 }) {
   const [editing, setEditing] = useState(null);
   const [exp,     setExp]     = useState(null);
@@ -1399,7 +1577,7 @@ function TodayView({
   })();
 
   const dow = new Date().getDay();
-  const showWeeklyPulse = !weeklyDismissed && (dow === 1 || dow === 2);
+  const showWeeklyPulse = !weeklyDismissed && (previewMode || dow === 1 || dow === 2);
   const dismissWeekly = () => {
     const wid = isoDate(mondayOf(new Date()));
     saveKV("quest_pulse_dismissed", wid);
@@ -1494,14 +1672,63 @@ function TodayView({
               </div>
             </div>
           ) : (
-            <EmptyState dashed>
-              <div style={{ marginBottom: 12 }}>
-                {weekPlan ? "Nothing scheduled for today." : "No plan yet. Let the planner sort the next two weeks."}
-              </div>
-              <button className="q-btn q-btn--outline q-btn--sm" disabled={planLoading || allPending.length === 0} onClick={generatePlan}>
-                {planLoading ? "Planning…" : weekPlan ? "Regenerate plan" : "Generate plan"}
-              </button>
-            </EmptyState>
+            (() => {
+              const upcoming = (weekPlan || [])
+                .filter(e => e.date > todayIso && (e.taskIds || []).length > 0)
+                .sort((a, b) => a.date.localeCompare(b.date))[0];
+              const tWeekday = weekdayName(new Date());
+              const isWeekendDay = tWeekday === "Saturday" || tWeekday === "Sunday";
+              if (upcoming) {
+                const upDate = parseIsoDate(upcoming.date);
+                const dayLabel = upDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+                const n = upcoming.taskIds.length;
+                return (
+                  <EmptyState dashed>
+                    <div style={{ marginBottom: 6, fontWeight: 500, color: "var(--text)" }}>
+                      {isWeekendDay ? "Off today. Enjoy the weekend." : "Nothing scheduled today."}
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      Next up: <span style={{ color: "var(--text-muted)" }}>{dayLabel}</span> · {n} task{n > 1 ? "s" : ""}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                      <button className="q-btn q-btn--outline q-btn--sm" onClick={() => setView("planner")}>
+                        Open planner
+                      </button>
+                      {!isWeekendDay && allPending.length > 0 && (
+                        <button className="q-btn q-btn--ghost q-btn--sm" disabled={planLoading} onClick={generatePlan}>
+                          {planLoading ? "Planning…" : "Schedule pending"}
+                        </button>
+                      )}
+                    </div>
+                  </EmptyState>
+                );
+              }
+              if (!weekPlan || weekPlan.length === 0) {
+                return (
+                  <EmptyState dashed>
+                    <div style={{ marginBottom: 12 }}>
+                      {allPending.length === 0
+                        ? "Queue empty. Capture a task to get started."
+                        : "No plan yet. Let the planner sort the next two weeks."}
+                    </div>
+                    {allPending.length > 0 && (
+                      <button className="q-btn q-btn--outline q-btn--sm" disabled={planLoading} onClick={generatePlan}>
+                        {planLoading ? "Planning…" : "Generate plan"}
+                      </button>
+                    )}
+                  </EmptyState>
+                );
+              }
+              // Plan exists but everything's already done; no upcoming entries
+              return (
+                <EmptyState dashed>
+                  <div style={{ fontWeight: 500, color: "var(--text)", marginBottom: 4 }}>
+                    {isWeekendDay ? "Off today. Enjoy the weekend." : "Plan cleared."}
+                  </div>
+                  <div>Capture something new, or generate a fresh plan when you're ready.</div>
+                </EmptyState>
+              );
+            })()
           )}
         </div>
 
@@ -2008,7 +2235,8 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
   const hasPlan = Array.isArray(weekPlan) && weekPlan.length > 0;
 
   const updateCap = (day, val) => {
-    const v = Math.max(0.5, Math.min(10, parseFloat(val) || 1));
+    const raw = parseFloat(val);
+    const v = isNaN(raw) ? 0 : Math.max(0, Math.min(10, raw));
     const next = { ...caps, [day]: v };
     setCaps(next); saveKV(KEYS.caps, next);
   };
@@ -2042,7 +2270,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
 
   const days = useMemo(() => {
     const out = [];
-    for (let i = 0; i < 5; i++) out.push(addDays(weekStart, i));
+    for (let i = 0; i < 7; i++) out.push(addDays(weekStart, i));
     return out;
   }, [weekStart]);
 
@@ -2076,19 +2304,20 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
       />
 
       <div className="q-card" style={{ padding: 14, marginBottom: 18 }}>
-        <Eyebrow>Daily capacity — click to edit (applies every week)</Eyebrow>
-        <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
-          {WEEKDAYS.map(day => {
+        <Eyebrow>Daily capacity — click to edit. Set Sat / Sun to schedule weekends.</Eyebrow>
+        <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 }}>
+          {WEEK_ALL.map(day => {
             const isToday = day === tName;
-            const val = caps[day] || 4;
+            const val = caps[day] != null ? caps[day] : (day === "Saturday" || day === "Sunday" ? 0 : 4);
             const isEditing = editingCap === day;
-            const barTone = val <= 2 ? "var(--danger)" : val <= 4 ? "var(--warning)" : "var(--success)";
+            const isOff = val === 0;
+            const barTone = isOff ? "var(--border-strong)" : val <= 2 ? "var(--danger)" : val <= 4 ? "var(--warning)" : "var(--success)";
             return (
-              <div key={day} style={{ textAlign: "center" }}>
+              <div key={day} style={{ textAlign: "center", opacity: isOff ? 0.6 : 1 }}>
                 <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, fontWeight: 600, color: isToday ? "var(--accent)" : "var(--text-muted)" }}>{day.slice(0, 3)}</div>
                 {isEditing ? (
                   <input
-                    type="number" min="0.5" max="10" step="0.5" defaultValue={val} autoFocus
+                    type="number" min="0" max="10" step="0.5" defaultValue={val} autoFocus
                     onBlur={(e) => { updateCap(day, e.target.value); setEditingCap(null); }}
                     onKeyDown={(e) => { if (e.key === "Enter") { updateCap(day, e.target.value); setEditingCap(null); } }}
                     className="q-input q-input--sm"
@@ -2098,10 +2327,10 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                   <button
                     onClick={() => setEditingCap(day)}
                     className="q-btn q-btn--outline q-btn--sm"
-                    style={{ width: "100%", justifyContent: "center", fontFamily: "var(--font-mono)" }}
-                  >{val}h</button>
+                    style={{ width: "100%", justifyContent: "center", fontFamily: "var(--font-mono)", color: isOff ? "var(--text-faint)" : "var(--text)" }}
+                  >{isOff ? "off" : `${val}h`}</button>
                 )}
-                <div style={{ marginTop: 6 }}><ProgressBar pct={(val / 8) * 100} tone={barTone} height={3} /></div>
+                <div style={{ marginTop: 6 }}><ProgressBar pct={isOff ? 0 : (val / 8) * 100} tone={barTone} height={3} /></div>
               </div>
             );
           })}
@@ -2155,7 +2384,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
         </EmptyState>
       ) : (
         <div>
-          <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+          <div className="q-planner-grid" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 }}>
             {days.map((dateObj) => {
               const iso = isoDate(dateObj);
               const wd = weekdayName(dateObj);
@@ -2165,8 +2394,9 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
               const scheduledTasks = (data.taskIds || []).map(id => tasksById.get(id)).filter(Boolean);
               const dayScheduledH = scheduledTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
               const dayH = dayScheduledH + dailyHours;
-              const cap = caps[wd] || 4;
-              const loadPct = Math.min(Math.round((dayH / cap) * 100), 100);
+              const cap = caps[wd] != null ? caps[wd] : 4;
+              const isOff = cap === 0;
+              const loadPct = isOff ? 0 : Math.min(Math.round((dayH / cap) * 100), 100);
               const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
               const dayXP = scheduledTasks.reduce((s, t) => s + (t.xp || 0), 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
               const isDragOver = dragOver === iso;
@@ -2180,7 +2410,9 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                     padding: 12,
                     borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
                     background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
-                    opacity: isPast && scheduledTasks.length === 0 && dailyPending.length === 0 ? 0.45 : 1,
+                    opacity: isOff && scheduledTasks.length === 0 && dailyPending.length === 0
+                      ? 0.4
+                      : (isPast && scheduledTasks.length === 0 && dailyPending.length === 0 ? 0.45 : 1),
                     transition: "border-color var(--t-fast), background var(--t-fast)",
                   }}
                 >
@@ -2188,8 +2420,9 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: isToday ? "var(--accent)" : "var(--text)" }}>{wd.slice(0, 3)}</span>
                       <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
+                      {isOff && <span style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>off</span>}
                     </div>
-                    {dayH > 0 && (
+                    {!isOff && dayH > 0 && (
                       <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
                         {dayH.toFixed(1)}/{cap}h
                       </span>
@@ -2840,6 +3073,7 @@ export default function App() {
   const [energy, setEnergy] = useState("normal");  // "low" | "normal" | "high"
   const [endOfDayOpen, setEndOfDayOpen] = useState(false);
   const [weeklyDismissed, setWeeklyDismissed] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -2875,6 +3109,10 @@ export default function App() {
       const dismissedAt = await loadKV("quest_pulse_dismissed", null);
       const currentWeekId = isoDate(mondayOf(new Date()));
       setWeeklyDismissed(dismissedAt === currentWeekId);
+
+      // Preview mode: if a snapshot exists, we're in demo mode.
+      const snap = await loadKV(PREVIEW_KEY, null);
+      setPreviewMode(!!snap);
 
       setReady(true);
       const changed = processed.some((x, i) => t[i] && x.completed !== t[i].completed);
@@ -3325,6 +3563,58 @@ export default function App() {
   }, [focusTaskId, nextFocusId, completeTask]);
   const skipFocus = useCallback(() => setFocusTaskId(nextFocusId), [nextFocusId]);
 
+  const enterPreview = useCallback(async () => {
+    if (previewMode) return;
+    // Snapshot the user's current data.
+    const snap = {
+      tasks, projects, profile, unlocked, weekPlan,
+      caps: await loadKV(KEYS.caps, DEFAULT_CAPS),
+      screen: await loadKV(KEYS.screen, {}),
+    };
+    await saveKV(PREVIEW_KEY, snap);
+    const demo = generateDemoData();
+    setTasks(demo.tasks);
+    setProjects(demo.projects);
+    setProfile(demo.profile);
+    setUnlocked(demo.achievements);
+    setWeekPlan(demo.weekPlan);
+    await Promise.all([
+      saveKV(KEYS.tasks, demo.tasks),
+      saveKV(KEYS.projects, demo.projects),
+      saveKV(KEYS.profile, demo.profile),
+      saveKV(KEYS.achievements, demo.achievements),
+      saveKV(KEYS.weekplan, demo.weekPlan),
+      saveKV(KEYS.caps, demo.caps),
+      saveKV(KEYS.screen, demo.screen),
+    ]);
+    setPreviewMode(true);
+    setWeeklyDismissed(false);
+    setView("today");
+    notify("Preview mode on");
+  }, [previewMode, tasks, projects, profile, unlocked, weekPlan, notify]);
+
+  const exitPreview = useCallback(async () => {
+    const snap = await loadKV(PREVIEW_KEY, null);
+    if (!snap) { setPreviewMode(false); return; }
+    setTasks(snap.tasks || []);
+    setProjects(snap.projects || []);
+    setProfile(snap.profile || { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 });
+    setUnlocked(snap.unlocked || []);
+    setWeekPlan(snap.weekPlan || null);
+    await Promise.all([
+      saveKV(KEYS.tasks, snap.tasks || []),
+      saveKV(KEYS.projects, snap.projects || []),
+      saveKV(KEYS.profile, snap.profile || { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
+      saveKV(KEYS.achievements, snap.unlocked || []),
+      saveKV(KEYS.weekplan, snap.weekPlan || null),
+      saveKV(KEYS.caps, snap.caps || DEFAULT_CAPS),
+      saveKV(KEYS.screen, snap.screen || {}),
+      saveKV(PREVIEW_KEY, null),
+    ]);
+    setPreviewMode(false);
+    notify("Your data is back");
+  }, [notify]);
+
   const shared = {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan,
@@ -3337,6 +3627,7 @@ export default function App() {
     startFocus, energy, setEnergy,
     endOfDayOpen, setEndOfDayOpen,
     weeklyDismissed, setWeeklyDismissed,
+    previewMode,
   };
 
   return (
@@ -3350,8 +3641,27 @@ export default function App() {
         </div>
       ) : (
         <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)", color: "var(--text)" }}>
-          <Sidebar view={view} setView={setView} lvl={lvl} profile={profile} onOpenHelp={() => setShowHelp(true)} />
+          <Sidebar
+            view={view}
+            setView={setView}
+            lvl={lvl}
+            profile={profile}
+            onOpenHelp={() => setShowHelp(true)}
+            previewMode={previewMode}
+            onEnterPreview={enterPreview}
+            onExitPreview={exitPreview}
+          />
           <main className="q-scroll" style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
+            {previewMode && (
+              <div className="q-preview-banner">
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <Icon name="bolt" size={12} /> Preview mode — exploring seed data
+                </span>
+                <button className="q-btn q-btn--outline q-btn--xs" onClick={exitPreview}>
+                  Exit preview
+                </button>
+              </div>
+            )}
             {view === "today"    && <TodayView    {...shared} />}
             {view === "queue"    && <QueueView    {...shared} />}
             {view === "pipeline" && <PipelineView {...shared} />}

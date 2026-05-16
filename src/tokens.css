@@ -286,6 +286,17 @@ body {
 @keyframes q-spin { to { transform: rotate(360deg); } }
 .q-spin { animation: q-spin 700ms linear infinite; transform-origin: center; }
 
+.q-preview-banner {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 18px;
+  background: linear-gradient(90deg, rgba(139,92,246,0.18), rgba(139,92,246,0.05));
+  border-bottom: 1px solid var(--accent-soft);
+  color: var(--accent-strong);
+  font: 500 12px var(--font-sans);
+  backdrop-filter: blur(8px);
+}
+
 @keyframes q-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(139,92,246,0.45); }
   100% { box-shadow: 0 0 0 18px rgba(139,92,246,0); }
