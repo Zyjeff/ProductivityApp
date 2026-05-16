@@ -1012,6 +1012,40 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp }) {
 
 /* ───── PAGE SHELL ───── */
 
+const captureFocusBus = { focus: () => {} };
+
+function QuickCapture({ onAdd, placeholder = "Capture a task…" }) {
+  const [text, setText] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    captureFocusBus.focus = () => ref.current?.focus();
+    return () => { captureFocusBus.focus = () => {}; };
+  }, []);
+  const submit = () => {
+    const v = text.trim();
+    if (!v) return;
+    onAdd({ title: v, desc: "", notes: "", tags: [], subtasks: [], recurring: "none", priority: "medium" });
+    setText("");
+  };
+  return (
+    <div className="q-capture">
+      <Icon name="plus" size={13} />
+      <input
+        ref={ref}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") submit();
+          else if (e.key === "Escape") { setText(""); ref.current?.blur(); }
+        }}
+        placeholder={placeholder}
+        aria-label="Quick capture task"
+      />
+      <span className="q-kbd" title="Press N to focus">N</span>
+    </div>
+  );
+}
+
 function PageHeader({ eyebrow, title, sub, right }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 24, marginBottom: 24 }}>
@@ -1105,11 +1139,7 @@ function TodayView({
               ? `${allPending.length} pending · ${readyToShip.length} project${readyToShip.length>1?"s":""} ready to ship`
               : `${allPending.length} pending · ${todayPlanTasks.length} on today's plan`
         }
-        right={
-          <button className="q-btn q-btn--primary" onClick={() => { setEditing(null); setOpenNewTask(true); }}>
-            <Icon name="plus" size={13} /> New task <span className="q-kbd" style={{ marginLeft: 4 }}>N</span>
-          </button>
-        }
+        right={<QuickCapture onAdd={handleAdd} />}
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12, marginBottom: 24 }}>
@@ -1307,11 +1337,7 @@ function QueueView({
         eyebrow="All tasks"
         title="Queue"
         sub={`${list.length} ${filter === "pending" ? "pending" : filter}${projectFilter && projectsMap[projectFilter] ? ` · filtered by ${projectsMap[projectFilter].title}` : ""}`}
-        right={
-          <button className="q-btn q-btn--primary" onClick={() => { setEditing(null); setOpenNewTask(true); }}>
-            <Icon name="plus" size={13} /> New task <span className="q-kbd" style={{ marginLeft: 4 }}>N</span>
-          </button>
-        }
+        right={<QuickCapture onAdd={handleAdd} />}
       />
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
@@ -2186,7 +2212,11 @@ export default function App() {
   const [confetti, setConfetti] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [openNewTask, setOpenNewTask] = useState(false);
+  const [levelUp,  setLevelUp]  = useState(null);
   const [ready,    setReady]    = useState(false);
+  const planClearedRef = useRef(false);
+  const prevLvlRef     = useRef(null);
+  const levelUpTimerRef = useRef(null);
   const toastTimerRef = useRef(null);
 
   useEffect(() => {
@@ -2224,6 +2254,50 @@ export default function App() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), 2400);
   }, []);
+
+  // Day cleared: fire only on a rising-edge transition during the session.
+  // On first ready, we initialize the ref to the current state so opening the
+  // app with everything already done doesn't trigger the moment.
+  const planClearedInitRef = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    const todayIso = isoDate(new Date());
+    const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
+    const dailyTasks = tasks.filter(t => t.recurring === "daily");
+    const scheduledIds = todayEntry?.taskIds || [];
+    const planSet = dailyTasks.concat(
+      scheduledIds.map(id => tasks.find(t => t.id === id)).filter(Boolean)
+    );
+    const hasPlan = planSet.length > 0;
+    const allDone = hasPlan && planSet.every(t => t.completed);
+    if (!planClearedInitRef.current) {
+      planClearedInitRef.current = true;
+      planClearedRef.current = allDone;
+      return;
+    }
+    if (!hasPlan) { planClearedRef.current = false; return; }
+    if (allDone && !planClearedRef.current) {
+      planClearedRef.current = true;
+      notify("Day cleared. Solid day.");
+    } else if (!allDone) {
+      planClearedRef.current = false;
+    }
+  }, [tasks, weekPlan, ready, notify]);
+
+  // Level up: detect rising-edge crossings on the level number.
+  useEffect(() => {
+    if (!ready) return;
+    const lvl = getLevelInfo(profile.totalXP).lvl;
+    if (prevLvlRef.current == null) { prevLvlRef.current = lvl; return; }
+    if (lvl > prevLvlRef.current) {
+      const title = LEVEL_NAMES[Math.min(lvl, LEVEL_NAMES.length) - 1] || `Level ${lvl}`;
+      setLevelUp({ lvl, title });
+      if (levelUpTimerRef.current) clearTimeout(levelUpTimerRef.current);
+      levelUpTimerRef.current = setTimeout(() => setLevelUp(null), 2800);
+      setConfetti(true);
+    }
+    prevLvlRef.current = lvl;
+  }, [profile.totalXP, ready]);
 
   const checkAchievements = useCallback((p, t, cur, pr) => {
     const projectsArg = Array.isArray(pr) ? pr : projects;
@@ -2520,7 +2594,14 @@ export default function App() {
       if (inField) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "?" || (e.shiftKey && e.key === "/")) { e.preventDefault(); setShowHelp(h => !h); return; }
-      if (e.key === "n" || e.key === "N") { e.preventDefault(); setOpenNewTask(true); return; }
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        // Prefer focusing the capture bar (Today / Queue views); fall back to
+        // opening the full task form on views that don't render one.
+        if (view === "today" || view === "queue") captureFocusBus.focus();
+        else setOpenNewTask(true);
+        return;
+      }
       const navByKey = NAV_ITEMS.find(n => n.shortcut === e.key);
       if (navByKey) { e.preventDefault(); setView(navByKey.id); }
     };
@@ -2572,6 +2653,12 @@ export default function App() {
           </main>
           {toast && <Toast msg={toast.msg} xp={toast.xp} />}
           {confetti && <ShipConfetti onDone={() => setConfetti(false)} />}
+          {levelUp && (
+            <div className="q-level-up" role="status" aria-live="polite">
+              <span className="q-level-up-glyph">{levelUp.lvl}</span>
+              <span>Level up — <strong style={{ fontWeight: 600 }}>{levelUp.title}</strong></span>
+            </div>
+          )}
           {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
         </div>
       )}
