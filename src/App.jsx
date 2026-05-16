@@ -1,217 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-/* ───────────────────────────────────────────────────────────────────
-   Quest — personal OS for shipping
-   merged from quest + ship-list, redesigned end-to-end
-   ─────────────────────────────────────────────────────────────────── */
-
-const TOKENS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-:root {
-  --bg: #faf7f2;
-  --bg-elev: #ffffff;
-  --bg-soft: #f3ede1;
-  --bg-muted: #ece5d2;
-  --border: #e4dcca;
-  --border-strong: #d4cab2;
-  --text: #1c1b17;
-  --text-muted: #67635a;
-  --text-faint: #9c9685;
-  --accent: #c45a28;
-  --accent-strong: #a64619;
-  --accent-soft: #fbece1;
-  --success: #2c7a4e;
-  --success-soft: #e1f1e8;
-  --danger: #b53b32;
-  --danger-soft: #f7e1dd;
-  --warning: #a86a18;
-  --warning-soft: #f6ead7;
-  --info: #2766a8;
-  --info-soft: #e2ecf6;
-  --r-sm: 4px; --r-md: 6px; --r-lg: 8px;
-  --t-fast: 110ms cubic-bezier(.2,.8,.2,1);
-  --t-med: 170ms cubic-bezier(.2,.8,.2,1);
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-}
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body {
-  background: var(--bg); color: var(--text);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: 'cv11','ss01';
-}
-::placeholder { color: var(--text-faint); }
-::selection { background: var(--accent-soft); color: var(--text); }
-
-.q-input, .q-textarea {
-  width: 100%; background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: var(--r-md);
-  padding: 8px 10px; font: 14px var(--font-sans);
-  transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
-}
-.q-input:hover, .q-textarea:hover { border-color: var(--border-strong); }
-.q-input:focus, .q-textarea:focus {
-  outline: none; border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-.q-textarea { resize: none; line-height: 1.5; font-size: 13px; }
-.q-input--sm { padding: 6px 9px; font-size: 13px; }
-
-.q-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  border: 1px solid transparent; border-radius: var(--r-md);
-  padding: 7px 12px; font: 500 13px var(--font-sans);
-  cursor: pointer; background: transparent; color: var(--text);
-  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
-  user-select: none; white-space: nowrap;
-}
-.q-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); border-color: var(--accent); }
-.q-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-.q-btn--primary { background: var(--text); color: var(--bg); }
-.q-btn--primary:hover:not([disabled]) { background: #000; }
-.q-btn--accent { background: var(--accent); color: #fff; }
-.q-btn--accent:hover:not([disabled]) { background: var(--accent-strong); }
-.q-btn--ghost { color: var(--text-muted); }
-.q-btn--ghost:hover:not([disabled]) { background: var(--bg-soft); color: var(--text); }
-.q-btn--outline { border-color: var(--border); color: var(--text); background: var(--bg-elev); }
-.q-btn--outline:hover:not([disabled]) { border-color: var(--border-strong); background: var(--bg-soft); }
-.q-btn--success { background: var(--success); color: #fff; }
-.q-btn--success:hover:not([disabled]) { background: #1f5c3a; }
-.q-btn--sm { padding: 4px 9px; font-size: 12px; }
-.q-btn--xs { padding: 3px 7px; font-size: 11px; }
-
-.q-icon-btn {
-  background: transparent; border: none; cursor: pointer;
-  color: var(--text-faint); padding: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--r-sm);
-  transition: color var(--t-fast), background var(--t-fast);
-}
-.q-icon-btn:hover { color: var(--text); background: var(--bg-soft); }
-.q-icon-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
-
-.q-card {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-}
-
-.q-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 7px; font: 500 10px var(--font-sans);
-  border-radius: 4px; border: 1px solid var(--border);
-  color: var(--text-muted); background: var(--bg-soft);
-  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
-}
-.q-chip--success { color: var(--success); background: var(--success-soft); border-color: transparent; }
-.q-chip--danger  { color: var(--danger);  background: var(--danger-soft);  border-color: transparent; }
-.q-chip--warning { color: var(--warning); background: var(--warning-soft); border-color: transparent; }
-.q-chip--info    { color: var(--info);    background: var(--info-soft);    border-color: transparent; }
-.q-chip--accent  { color: var(--accent);  background: var(--accent-soft);  border-color: transparent; }
-
-.q-eyebrow {
-  font: 500 10px var(--font-mono);
-  color: var(--text-faint);
-  letter-spacing: 0.18em; text-transform: uppercase;
-}
-
-.q-nav-btn {
-  display: flex; align-items: center; gap: 10px;
-  padding: 7px 10px; font: 500 13px var(--font-sans);
-  border: 1px solid transparent; border-radius: var(--r-md);
-  background: transparent; color: var(--text-muted);
-  cursor: pointer; width: 100%; text-align: left;
-  transition: color var(--t-fast), background var(--t-fast);
-}
-.q-nav-btn:hover { color: var(--text); background: var(--bg-soft); }
-.q-nav-btn--active { color: var(--text); background: var(--bg-soft); }
-.q-nav-btn--active .q-nav-glyph { color: var(--accent); }
-
-.q-nav-glyph {
-  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
-  color: var(--text-faint); flex-shrink: 0;
-}
-
-.q-link {
-  color: var(--accent); cursor: pointer; background: none;
-  border: none; padding: 0; font: 500 12px var(--font-sans);
-}
-.q-link:hover { color: var(--accent-strong); }
-
-.q-kbd {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 18px; height: 18px; padding: 0 5px;
-  background: var(--bg); border: 1px solid var(--border);
-  border-bottom-width: 1.5px; border-radius: 3px;
-  font: 500 10px var(--font-mono); color: var(--text-muted);
-}
-
-.q-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  transition: border-color var(--t-fast), background var(--t-fast);
-}
-.q-row:hover { border-color: var(--border-strong); }
-.q-row--done { opacity: 0.55; }
-.q-row--ready { border-color: var(--success); background: var(--success-soft); }
-
-.q-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
-.q-scroll::-webkit-scrollbar-track { background: transparent; }
-.q-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
-.q-scroll::-webkit-scrollbar-thumb:hover { background: var(--border-strong); background-clip: padding-box; border: 2px solid transparent; }
-
-@keyframes q-fadein { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform: translateY(0); } }
-@keyframes q-confetti {
-  0%   { opacity: 1; transform: translate(0,0) rotate(0deg) scale(1); }
-  100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 140px)) rotate(var(--rot)) scale(0.4); }
-}
-@keyframes q-shimmer { 0% { background-position: -120px 0; } 100% { background-position: 120px 0; } }
-
-.q-fade-in { animation: q-fadein 180ms cubic-bezier(.2,.8,.2,1) both; }
-
-.q-shimmer {
-  background: linear-gradient(90deg, var(--bg-soft) 0%, var(--bg-muted) 50%, var(--bg-soft) 100%);
-  background-size: 200px 100%;
-  animation: q-shimmer 1.2s linear infinite;
-  border-radius: 3px; display: inline-block;
-}
-
-.q-check {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
-  background: var(--bg-elev); cursor: pointer; flex-shrink: 0;
-  transition: border-color var(--t-fast), background var(--t-fast);
-  padding: 0;
-}
-.q-check:hover { border-color: var(--text-muted); }
-.q-check--done {
-  background: var(--success); border-color: var(--success);
-}
-
-.q-check-sq {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 3px;
-  border: 1.5px solid var(--border-strong); background: transparent;
-  cursor: pointer; flex-shrink: 0; padding: 0;
-  transition: border-color var(--t-fast), background var(--t-fast);
-}
-.q-check-sq:hover { border-color: var(--text-muted); }
-.q-check-sq--done { background: var(--accent); border-color: var(--accent); }
-
-@media (max-width: 880px) {
-  .q-sidebar { width: 64px !important; padding: 18px 0 !important; }
-  .q-sidebar .q-nav-label, .q-sidebar .q-sidebar-foot, .q-sidebar .q-brand { display: none !important; }
-  .q-sidebar .q-nav-btn { justify-content: center; padding: 9px 0 !important; }
-}
-`;
-
 /* ───── CONSTANTS ───── */
 
 const LEVEL_THRESHOLDS = [0,100,250,500,900,1500,2400,3700,5500,8000,12000];
@@ -275,7 +63,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -289,11 +77,12 @@ const NAV_ITEMS = [
 /* ───── STORAGE ───── */
 
 async function loadKV(key, fallback) {
-  try {
-    const r = await window.storage.get(key);
-    if (r && r.value) return JSON.parse(r.value);
-  } catch {}
-  return fallback;
+  let r;
+  try { r = await window.storage.get(key); }
+  catch (e) { console.error(`storage.get("${key}") failed:`, e); return fallback; }
+  if (!r || r.value == null) return fallback;
+  try { return JSON.parse(r.value); }
+  catch (e) { console.error(`corrupt JSON in "${key}":`, e, r.value?.slice?.(0, 120)); return fallback; }
 }
 async function saveKV(key, value) {
   try { await window.storage.set(key, JSON.stringify(value)); }
@@ -395,6 +184,23 @@ async function runMigrations() {
     }
   }
 
+  // v2 → v3: weekPlan entries reference scheduled tasks by title (fragile —
+  // rename or duplicate title silently drops/mis-matches them). Convert to
+  // {date, taskIds: [id]}. Unresolvable titles are dropped.
+  if (v < 3) {
+    const wp = await loadKV(KEYS.weekplan, null);
+    const ts = await loadKV(KEYS.tasks, []) || [];
+    if (Array.isArray(wp) && wp.length && wp[0] && wp[0].tasks && !wp[0].taskIds) {
+      const titleToId = new Map();
+      for (const t of ts) if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
+      const converted = wp.map(e => ({
+        date: e.date,
+        taskIds: (e.tasks || []).map(title => titleToId.get(title)).filter(Boolean),
+      })).filter(e => e.taskIds.length);
+      await saveKV(KEYS.weekplan, converted);
+    }
+  }
+
   await saveKV(KEYS.schema, SCHEMA_VERSION);
 }
 
@@ -488,13 +294,18 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     if (isWeekday(d)) dates.push(d);
   }
 
-  // Compute per-date scheduled hours from existingPlan (only used for append).
-  const titleToTask = new Map(tasks.map(t => [t.title, t]));
-  const scheduledTitles = new Set(existingPlan.flatMap(e => e.tasks || []));
+  // Storage shape: {date, taskIds: [id]}. Prompt + AI response use titles
+  // (more readable for Claude); we translate at the boundary.
+  const tasksById = new Map(tasks.map(t => [t.id, t]));
+  const titleToId = new Map();
+  for (const t of allPending) if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
+
+  // Per-date scheduled hours from existingPlan (only used for append).
+  const scheduledIds = new Set(existingPlan.flatMap(e => e.taskIds || []));
   const dateToScheduledHours = {};
   for (const e of existingPlan) {
-    const hrs = (e.tasks || []).reduce((s, title) => {
-      const t = titleToTask.get(title);
+    const hrs = (e.taskIds || []).reduce((s, id) => {
+      const t = tasksById.get(id);
       return s + (t && t.recurring !== "daily" ? (DIFFICULTY[t.difficulty]?.hours || 1.5) : 0);
     }, 0);
     dateToScheduledHours[e.date] = hrs;
@@ -503,13 +314,12 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   // Tasks the model needs to place.
   const tasksToPlan = mode === "optimize"
     ? nonDailyPending
-    : nonDailyPending.filter(t => !scheduledTitles.has(t.title));
+    : nonDailyPending.filter(t => !scheduledIds.has(t.id));
   if (!tasksToPlan.length) return existingPlan;
 
   const sorted = tasksToPlan.slice().sort((a, b) =>
     PRIORITIES[a.priority || "medium"].order - PRIORITIES[b.priority || "medium"].order);
 
-  // Build day descriptors with REMAINING capacity for the prompt.
   const dayLines = dates.map(d => {
     const iso = isoDate(d);
     const wd = weekdayName(d);
@@ -526,9 +336,13 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   let existingBlock = "";
   if (mode !== "optimize" && existingPlan.length) {
     const lines = existingPlan
-      .filter(e => (e.tasks || []).length)
+      .filter(e => (e.taskIds || []).length)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map(e => `- ${e.date}: ${(e.tasks || []).map(t => `"${t}"`).join(", ")}`)
+      .map(e => {
+        const titles = (e.taskIds || []).map(id => tasksById.get(id)?.title).filter(Boolean);
+        return titles.length ? `- ${e.date}: ${titles.map(t => `"${t}"`).join(", ")}` : "";
+      })
+      .filter(Boolean)
       .join("\n");
     if (lines) existingBlock = `\nAlready scheduled (do not move):\n${lines}\n`;
   }
@@ -566,23 +380,28 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     });
     const d = await r.json();
     const parsed = JSON.parse(d.content[0].text.replace(/```\w*|```/g, "").trim());
+    // Convert returned titles back to IDs; drop unresolvable.
     const newEntries = parsed
       .filter(e => e && e.date && Array.isArray(e.tasks) && e.tasks.length)
-      .map(e => ({ date: e.date, tasks: e.tasks }));
+      .map(e => ({
+        date: e.date,
+        taskIds: e.tasks.map(t => titleToId.get(t)).filter(Boolean),
+      }))
+      .filter(e => e.taskIds.length);
 
     if (mode === "optimize") return newEntries;
 
     // Append: merge new entries into existing, preserving order by date.
     const byDate = new Map();
-    for (const e of existingPlan) byDate.set(e.date, [...(e.tasks || [])]);
+    for (const e of existingPlan) byDate.set(e.date, [...(e.taskIds || [])]);
     for (const e of newEntries) {
       const list = byDate.get(e.date) || [];
-      for (const t of e.tasks) if (!list.includes(t)) list.push(t);
+      for (const id of e.taskIds) if (!list.includes(id)) list.push(id);
       byDate.set(e.date, list);
     }
     return Array.from(byDate.entries())
-      .map(([date, tasks]) => ({ date, tasks }))
-      .filter(e => e.tasks.length)
+      .map(([date, taskIds]) => ({ date, taskIds }))
+      .filter(e => e.taskIds.length)
       .sort((a, b) => a.date.localeCompare(b.date));
   } catch {
     return existingPlan.length ? existingPlan : null;
@@ -664,12 +483,18 @@ function fmtWeekLabel(monday) {
     : `${m1} ${monday.getDate()} – ${m2} ${fri.getDate()}, ${monday.getFullYear()}`;
 }
 
-function progressOfProject(p, tasks) {
+function progressOfProject(p, tasksById) {
   const ids = p.childTaskIds || [];
   if (!ids.length) return 0;
-  const children = ids.map(id => tasks.find(t => t.id === id)).filter(Boolean);
-  if (!children.length) return 0;
-  return Math.round((children.filter(c => c.completed).length / children.length) * 100);
+  let total = 0, done = 0;
+  for (const id of ids) {
+    const t = tasksById.get(id);
+    if (!t) continue;
+    total += 1;
+    if (t.completed) done += 1;
+  }
+  if (!total) return 0;
+  return Math.round((done / total) * 100);
 }
 
 /* ───── PRIMITIVES ───── */
@@ -905,7 +730,7 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
   const [desc,      setDesc]      = useState(initial?.desc  || "");
   const [notes,     setNotes]     = useState(initial?.notes || "");
   const [tags,      setTags]      = useState(initial?.tags  || []);
-  const [subs,      setSubs]      = useState(() => (initial?.subtasks || []).map(s => s.title));
+  const [subs,      setSubs]      = useState(() => (initial?.subtasks || []).map(s => ({ k: s.id || uid(), title: s.title })));
   const [recurring, setRecurring] = useState(initial?.recurring || "none");
   const [priority,  setPriority]  = useState(initial?.priority  || "medium");
   const [stIn,      setStIn]      = useState("");
@@ -913,14 +738,14 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
 
   useEffect(() => { if (autoFocus && titleRef.current) titleRef.current.focus(); }, [autoFocus]);
 
-  const addSub = () => { if (!stIn.trim()) return; setSubs(p => p.concat([stIn.trim()])); setStIn(""); };
-  const delSub = (i) => setSubs(p => p.filter((_, j) => j !== i));
+  const addSub = () => { if (!stIn.trim()) return; setSubs(p => p.concat([{ k: uid(), title: stIn.trim() }])); setStIn(""); };
+  const delSub = (k) => setSubs(p => p.filter(s => s.k !== k));
   const toggleTag = (t) => setTags(p => p.indexOf(t) >= 0 ? p.filter(x => x !== t) : p.concat([t]));
 
   const canSubmit = title.trim().length > 0;
   const submit = () => {
     if (!canSubmit) return;
-    onSave({ title, desc, notes, tags, subtasks: subs, recurring, priority });
+    onSave({ title, desc, notes, tags, subtasks: subs.map(s => s.title), recurring, priority });
   };
 
   return (
@@ -997,11 +822,11 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
           />
           {subs.length > 0 && (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              {subs.map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 4px" }}>
+              {subs.map((s) => (
+                <div key={s.k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 4px" }}>
                   <span style={{ width: 12, height: 12, borderRadius: 3, border: "1.5px solid var(--border-strong)", flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", flex: 1 }}>{s}</span>
-                  <button className="q-icon-btn" onClick={() => delSub(i)} aria-label="Remove subtask"><Icon name="close" size={11} /></button>
+                  <span style={{ fontSize: 12, color: "var(--text-muted)", flex: 1 }}>{s.title}</span>
+                  <button className="q-icon-btn" onClick={() => delSub(s.k)} aria-label="Remove subtask"><Icon name="close" size={11} /></button>
                 </div>
               ))}
             </div>
@@ -1205,7 +1030,7 @@ const VIEW_PAD = "32px 40px 48px";
 /* ───── TODAY VIEW ───── */
 
 function TodayView({
-  tasks, projects, projectsMap, profile, lvl, unlocked,
+  tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
   weekPlan, setWeekPlan, completeTask, uncompleteTask,
   addTask, updateTask, deleteTask, toggleSub, splitTask, setView,
   openNewTask, setOpenNewTask,
@@ -1227,14 +1052,15 @@ function TodayView({
 
   const allPending = tasks.filter(t => !t.completed);
   const dailyPending = allPending.filter(t => t.recurring === "daily");
-  const todayDone = tasks.filter(t => t.completed && t.completedAt > Date.now() - 86400000);
+  const todayDateStr = new Date().toDateString();
+  const todayDone = tasks.filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === todayDateStr);
 
   const todayIso = isoDate(new Date());
   const todayPlanData = weekPlan
-    ? (weekPlan.find(d => d.date === todayIso) || { tasks: [] })
+    ? (weekPlan.find(d => d.date === todayIso) || { taskIds: [] })
     : null;
   const todayScheduled = todayPlanData
-    ? (todayPlanData.tasks || []).map(title => tasks.find(t => t.title === title)).filter(Boolean)
+    ? (todayPlanData.taskIds || []).map(id => tasksById.get(id)).filter(Boolean)
     : [];
   const todayPlanTasks = dailyPending.concat(todayScheduled);
   const planXP = todayPlanTasks.reduce((s,t) => s + (t.xp || 0), 0);
@@ -1252,16 +1078,29 @@ function TodayView({
   const handleUpdate = (data) => updateTask(editing.id, data).then(() => setEditing(null));
 
   const activeProjects = projects.filter(p => !p.completedAt);
-  const readyToShip = activeProjects.filter(p => progressOfProject(p, tasks) === 100 && (p.childTaskIds || []).length > 0);
+  const readyToShip = activeProjects.filter(p => progressOfProject(p, tasksById) === 100 && (p.childTaskIds || []).length > 0);
+
+  const hour = new Date().getHours();
+  const planDoneAll = todayPlanTasks.length > 0 && planDone === todayPlanTasks.length;
+  const greeting = (() => {
+    if (planDoneAll)              return "Everything's done. Solid day.";
+    if (allPending.length === 0)  return "Queue empty. Take the win.";
+    if (hour < 5)                 return "Late one.";
+    if (hour < 12)                return "Morning. Let's ship.";
+    if (hour < 14)                return "Midday. Keep moving.";
+    if (hour < 18)                return "Back at it.";
+    if (hour < 22)                return "Evening push.";
+    return "Still here.";
+  })();
 
   return (
     <div style={{ padding: VIEW_PAD, maxWidth: 1180, margin: "0 auto" }}>
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
-        title={`Let's ship, ${(profile.name || "friend").split(" ")[0] || "Jeffrey"}.`}
+        title={greeting}
         sub={
           allPending.length === 0
-            ? "Queue empty. Take the win."
+            ? `${todayDone.length} shipped today${profile.todayXP ? ` · ${profile.todayXP} XP` : ""}`
             : readyToShip.length
               ? `${allPending.length} pending · ${readyToShip.length} project${readyToShip.length>1?"s":""} ready to ship`
               : `${allPending.length} pending · ${todayPlanTasks.length} on today's plan`
@@ -1348,9 +1187,9 @@ function TodayView({
               </Eyebrow>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {activeProjects.slice(0, 5).map(p => {
-                  const pct = progressOfProject(p, tasks);
+                  const pct = progressOfProject(p, tasksById);
                   const total = (p.childTaskIds || []).length;
-                  const done = (p.childTaskIds || []).map(id => tasks.find(t => t.id === id)).filter(t => t && t.completed).length;
+                  const done = (p.childTaskIds || []).map(id => tasksById.get(id)).filter(t => t && t.completed).length;
                   return (
                     <div key={p.id}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -1522,7 +1361,7 @@ function QueueView({
 /* ───── PIPELINE VIEW (ship-list lens) ───── */
 
 function PipelineView({
-  tasks, projects, projectsMap,
+  tasks, projects, projectsMap, tasksById,
   completeTask, uncompleteTask, addTask, addChildToProject,
   removeChildFromProject, deleteTask, createProject, renameProject,
   shipProject, unshipProject, deleteProject, setView,
@@ -1547,7 +1386,7 @@ function PipelineView({
   const shipped = projects.filter(p => p.completedAt).sort((a, b) => (b.shippedAt || b.completedAt || 0) - (a.shippedAt || a.completedAt || 0));
   const filtered = active
     .filter(p => filter === "All" || p.type === filter)
-    .sort((a, b) => progressOfProject(b, tasks) - progressOfProject(a, tasks));
+    .sort((a, b) => progressOfProject(b, tasksById) - progressOfProject(a, tasksById));
 
   const submitNew = () => {
     if (!newName.trim()) return;
@@ -1569,7 +1408,7 @@ function PipelineView({
     setNewTaskName("");
   };
 
-  const readyCount = active.filter(p => progressOfProject(p, tasks) === 100 && (p.childTaskIds || []).length > 0).length;
+  const readyCount = active.filter(p => progressOfProject(p, tasksById) === 100 && (p.childTaskIds || []).length > 0).length;
 
   return (
     <div style={{ padding: VIEW_PAD, maxWidth: 720, margin: "0 auto" }}>
@@ -1632,8 +1471,8 @@ function PipelineView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.map(p => {
-          const pct = progressOfProject(p, tasks);
-          const children = (p.childTaskIds || []).map(id => tasks.find(t => t.id === id)).filter(Boolean);
+          const pct = progressOfProject(p, tasksById);
+          const children = (p.childTaskIds || []).map(id => tasksById.get(id)).filter(Boolean);
           const doneCount = children.filter(c => c.completed).length;
           const total = children.length;
           const isReady = pct === 100 && total > 0;
@@ -1796,12 +1635,12 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTask }) {
+function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
   const [editingCap, setEditingCap] = useState(null);
-  const [draggedTitle, setDraggedTitle] = useState(null);
+  const [draggedId, setDraggedId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
 
@@ -1819,8 +1658,8 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
   const dailyHours = dailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
   const totalH = nonDailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
 
-  const scheduledTitles = new Set((weekPlan || []).flatMap(e => e.tasks || []));
-  const unscheduledCount = nonDailyPending.filter(t => !scheduledTitles.has(t.title)).length;
+  const scheduledIds = new Set((weekPlan || []).flatMap(e => e.taskIds || []));
+  const unscheduledCount = nonDailyPending.filter(t => !scheduledIds.has(t.id)).length;
   const hasPlan = Array.isArray(weekPlan) && weekPlan.length > 0;
 
   const updateCap = (day, val) => {
@@ -1837,21 +1676,21 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
     });
   };
 
-  const moveTask = (taskTitle, targetIso) => {
+  const moveTask = (taskId, targetIso) => {
     const current = Array.isArray(weekPlan) ? weekPlan : [];
     const stripped = current.map(entry => ({
       ...entry,
-      tasks: (entry.tasks || []).filter(t => t !== taskTitle),
-    })).filter(entry => entry.tasks.length > 0 || entry.date === targetIso);
+      taskIds: (entry.taskIds || []).filter(id => id !== taskId),
+    })).filter(entry => entry.taskIds.length > 0 || entry.date === targetIso);
     let found = false;
     const updated = stripped.map(entry => {
       if (entry.date === targetIso) {
         found = true;
-        if (!(entry.tasks || []).includes(taskTitle)) return { ...entry, tasks: [...(entry.tasks || []), taskTitle] };
+        if (!(entry.taskIds || []).includes(taskId)) return { ...entry, taskIds: [...(entry.taskIds || []), taskId] };
       }
       return entry;
     });
-    if (!found) updated.push({ date: targetIso, tasks: [taskTitle] });
+    if (!found) updated.push({ date: targetIso, taskIds: [taskId] });
     updated.sort((a, b) => a.date.localeCompare(b.date));
     setWeekPlan(updated); saveKV(KEYS.weekplan, updated);
   };
@@ -1975,10 +1814,10 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
             {days.map((dateObj) => {
               const iso = isoDate(dateObj);
               const wd = weekdayName(dateObj);
-              const data = (weekPlan || []).find(d => d.date === iso) || { tasks: [] };
+              const data = (weekPlan || []).find(d => d.date === iso) || { taskIds: [] };
               const isToday = iso === todayIso;
               const isPast = iso < todayIso;
-              const scheduledTasks = (data.tasks || []).map(title => tasks.find(t => t.title === title)).filter(Boolean);
+              const scheduledTasks = (data.taskIds || []).map(id => tasksById.get(id)).filter(Boolean);
               const dayScheduledH = scheduledTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
               const dayH = dayScheduledH + dailyHours;
               const cap = caps[wd] || 4;
@@ -1990,7 +1829,7 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
                 <div key={iso}
                   onDragOver={(e) => { e.preventDefault(); setDragOver(iso); }}
                   onDragLeave={() => { if (dragOver === iso) setDragOver(null); }}
-                  onDrop={(e) => { e.preventDefault(); if (draggedTitle) moveTask(draggedTitle, iso); setDraggedTitle(null); setDragOver(null); }}
+                  onDrop={(e) => { e.preventDefault(); if (draggedId) moveTask(draggedId, iso); setDraggedId(null); setDragOver(null); }}
                   className="q-card"
                   style={{
                     padding: 12,
@@ -2037,18 +1876,18 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
                       <div style={{ fontSize: 10, color: "var(--text-faint)", fontStyle: "italic", paddingTop: 2 }}>
                         {dailyPending.length > 0 ? "" : "Free"}
                       </div>
-                    ) : scheduledTasks.map((t, i) => (
-                      <div key={i}
+                    ) : scheduledTasks.map((t) => (
+                      <div key={t.id}
                         draggable={!t.completed}
-                        onDragStart={(e) => { setDraggedTitle(t.title); e.dataTransfer.effectAllowed = "move"; }}
-                        onDragEnd={() => { setDraggedTitle(null); setDragOver(null); }}
+                        onDragStart={(e) => { setDraggedId(t.id); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setDraggedId(null); setDragOver(null); }}
                         style={{
                           fontSize: 11, padding: "5px 7px", borderRadius: "var(--r-sm)",
                           background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
                           border: "1px solid var(--border)",
                           borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
                           color: t.completed ? "var(--text-faint)" : "var(--text)",
-                          opacity: t.completed ? 0.6 : (draggedTitle === t.title ? 0.35 : 1),
+                          opacity: t.completed ? 0.6 : (draggedId === t.id ? 0.35 : 1),
                           cursor: t.completed ? "default" : "grab",
                         }}
                       >
@@ -2089,6 +1928,8 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
 function HabitsView() {
   const [log, setLog] = useState({});
   const [mobileInput, setMobileInput] = useState("");
+  const [editingCounter, setEditingCounter] = useState(null);
+  const [counterDraft, setCounterDraft] = useState("");
   const [ready, setReady] = useState(false);
   useEffect(() => { loadKV(KEYS.screen, {}).then(d => { setLog(d); setReady(true); }); }, []);
 
@@ -2123,13 +1964,47 @@ function HabitsView() {
             { label: "YouTube opens",     key: "ytOpens" },
           ].map(item => {
             const count = entry[item.key] || 0;
+            const isEditing = editingCounter === item.key;
+            const commit = () => {
+              const n = Math.max(0, Math.min(999, parseInt(counterDraft, 10) || 0));
+              patch({ [item.key]: n });
+              setEditingCounter(null); setCounterDraft("");
+            };
             return (
               <div key={item.key} style={{ background: "var(--bg-soft)", borderRadius: "var(--r-md)", padding: "16px 18px", textAlign: "center" }}>
                 <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8 }}>{item.label}</div>
-                <div style={{ fontSize: 32, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--text)", marginBottom: 14, lineHeight: 1 }}>{count}</div>
+                {isEditing ? (
+                  <input
+                    type="number" min="0" max="999" autoFocus
+                    value={counterDraft}
+                    onChange={(e) => setCounterDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commit();
+                      else if (e.key === "Escape") { setEditingCounter(null); setCounterDraft(""); }
+                    }}
+                    className="q-input"
+                    style={{
+                      fontSize: 32, fontWeight: 600, fontFamily: "var(--font-mono)",
+                      textAlign: "center", padding: "0 8px",
+                      lineHeight: 1, height: 40, marginBottom: 14,
+                    }}
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setCounterDraft(String(count)); setEditingCounter(item.key); }}
+                    title="Click to set"
+                    style={{
+                      display: "block", width: "100%", margin: "0 0 14px",
+                      background: "transparent", border: "none", padding: 0,
+                      fontSize: 32, fontWeight: 600, fontFamily: "var(--font-mono)",
+                      color: "var(--text)", lineHeight: 1, cursor: "pointer",
+                    }}
+                  >{count}</button>
+                )}
                 <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
-                  <button className="q-btn q-btn--primary q-btn--sm" onClick={() => { const o = {}; o[item.key] = count + 1; patch(o); }}>+1</button>
-                  {count > 0 && <button className="q-btn q-btn--outline q-btn--sm" onClick={() => { const o = {}; o[item.key] = Math.max(0, count - 1); patch(o); }}>−</button>}
+                  <button className="q-btn q-btn--primary q-btn--sm" onClick={() => { patch({ [item.key]: count + 1 }); }}>+1</button>
+                  {count > 0 && <button className="q-btn q-btn--outline q-btn--sm" onClick={() => { patch({ [item.key]: Math.max(0, count - 1) }); }}>−</button>}
                 </div>
               </div>
             );
@@ -2350,7 +2225,8 @@ export default function App() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2400);
   }, []);
 
-  const checkAchievements = useCallback((p, t, cur) => {
+  const checkAchievements = useCallback((p, t, cur, pr) => {
+    const projectsArg = Array.isArray(pr) ? pr : projects;
     const wk = Date.now() - 7 * 86400000;
     loadKV(KEYS.screen, {}).then(sl => {
       const te = sl[todayKey()] || {};
@@ -2368,7 +2244,7 @@ export default function App() {
         framer3:   t.filter(x => x.completed && x.completedAt > wk && (x.tags || []).indexOf("framer") >= 0).length >= 3,
         speed:     t.some(x => x.completed && x.completedAt && x.createdAt && (x.completedAt - x.createdAt) < 1800000),
         clean_day: (te.xOpens || 0) === 0 && (te.ytOpens || 0) === 0 && te.mobileHours != null && te.mobileHours <= 1,
-        project:   projects.some(pr => pr.completedAt),
+        project:   projectsArg.some(pr2 => pr2.completedAt),
       };
       const newOnes = Object.keys(checks).filter(id => checks[id] && cur.indexOf(id) < 0);
       if (newOnes.length) {
@@ -2499,9 +2375,11 @@ export default function App() {
 
   const deleteTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    if (!window.confirm(`Delete "${task.title}"? This can't be undone.`)) return;
     const upd = tasks.filter(t => t.id !== id);
     setTasks(upd); saveKV(KEYS.tasks, upd);
-    if (task && task.projectId) {
+    if (task.projectId) {
       const updP = projects.map(p => p.id !== task.projectId ? p : { ...p, childTaskIds: (p.childTaskIds || []).filter(x => x !== id) });
       setProjects(updP); saveKV(KEYS.projects, updP);
     }
@@ -2606,7 +2484,7 @@ export default function App() {
     setProjects(next); saveKV(KEYS.projects, next);
     setConfetti(true);
     notify("Shipped: " + (proj?.title || "project"));
-    checkAchievements(profile, tasks, unlocked);
+    checkAchievements(profile, tasks, unlocked, next);
   }, [projects, profile, tasks, unlocked, notify, checkAchievements]);
 
   const unshipProject = useCallback((id) => {
@@ -2617,6 +2495,11 @@ export default function App() {
   const deleteProject = useCallback((id) => {
     const proj = projects.find(p => p.id === id);
     if (!proj) return;
+    const childCount = (proj.childTaskIds || []).length;
+    const msg = childCount
+      ? `Delete "${proj.title}" and its ${childCount} task${childCount > 1 ? "s" : ""}? This can't be undone.`
+      : `Delete "${proj.title}"? This can't be undone.`;
+    if (!window.confirm(msg)) return;
     const childIds = new Set(proj.childTaskIds || []);
     const updT = tasks.filter(t => !childIds.has(t.id));
     const updP = projects.filter(p => p.id !== id);
@@ -2651,9 +2534,14 @@ export default function App() {
     projects.forEach(p => { m[p.id] = p; });
     return m;
   }, [projects]);
+  const tasksById = useMemo(() => {
+    const m = new Map();
+    tasks.forEach(t => m.set(t.id, t));
+    return m;
+  }, [tasks]);
 
   const shared = {
-    tasks, projects, projectsMap, profile, lvl, unlocked,
+    tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
     toggleSub, splitTask, addChildToProject, removeChildFromProject,
@@ -2664,7 +2552,6 @@ export default function App() {
 
   return (
     <>
-      <style>{TOKENS}</style>
       {!ready ? (
         <div style={{
           minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
