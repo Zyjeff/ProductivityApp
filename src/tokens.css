@@ -1,23 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
-  /* surfaces */
-  --bg:           #0a0a0e;
-  --bg-elev:      #121218;
-  --bg-soft:      #1a1a22;
-  --bg-muted:     #232330;
-  --border:       #23232c;
-  --border-strong:#31313c;
+  /* surfaces — sampled from the reference dashboard */
+  --bg:           #0a0a0d;
+  --bg-elev:      #111114;
+  --bg-soft:      #161619;
+  --bg-muted:     #1e1e23;
+  --border:       #1c1c20;        /* nearly invisible — cards float */
+  --border-strong:#26262c;
 
   /* text */
-  --text:         #f4f4f7;
+  --text:         #f3f3f5;
   --text-muted:   #a3a3ac;
-  --text-faint:   #65656e;
+  --text-faint:   #5a5a62;
 
-  /* accent: violet */
-  --accent:       #8b5cf6;
-  --accent-strong:#a78bfa;
-  --accent-soft:  #2a1f4a;
+  /* accent: violet (brighter to match the reference's lavender bullets) */
+  --accent:       #a78bfa;
+  --accent-strong:#c4b5fd;
+  --accent-soft:  #251a48;
 
   /* status (tuned for dark bg) */
   --success:      #4ade80;
@@ -29,7 +29,7 @@
   --info:         #60a5fa;
   --info-soft:    #16223a;
 
-  --r-sm: 4px; --r-md: 6px; --r-lg: 12px;
+  --r-sm: 4px; --r-md: 8px; --r-lg: 14px;
 
   /* project-type accents */
   --proj-template:  #a78bfa;
@@ -121,9 +121,15 @@ body {
 .q-chip--accent  { color: var(--accent-strong);  background: var(--accent-soft);  border-color: transparent; }
 
 .q-eyebrow {
-  font: 500 10px var(--font-mono);
+  font: 500 10.5px var(--font-mono);
   color: var(--text-faint);
-  letter-spacing: 0.18em; text-transform: uppercase;
+  letter-spacing: 0.2em; text-transform: uppercase;
+}
+
+.q-section-title {
+  font: 600 17px var(--font-sans);
+  color: var(--text);
+  letter-spacing: -0.012em;
 }
 
 .q-nav-btn {
@@ -293,6 +299,18 @@ body {
 @keyframes q-spin { to { transform: rotate(360deg); } }
 .q-spin { animation: q-spin 700ms linear infinite; transform-origin: center; }
 
+.q-day-closed {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 22px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  font: 500 12.5px var(--font-sans);
+  color: var(--text-muted);
+}
+
 .q-preview-banner {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between;
@@ -405,25 +423,25 @@ body {
   min-height: 132px;
 }
 .q-stat-top {
-  padding: 18px 20px 4px;
+  padding: 22px 24px 6px;
   flex: 1;
 }
 .q-stat-bottom {
-  height: 48px;
+  height: 52px;
   width: 100%;
   position: relative;
 }
 .q-stat-label {
-  font: 500 10px var(--font-mono);
+  font: 500 10.5px var(--font-mono);
   color: var(--text-faint);
-  letter-spacing: 0.18em; text-transform: uppercase;
-  margin-bottom: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  margin-bottom: 12px;
 }
 .q-stat-value {
-  font: 600 28px var(--font-sans);
+  font: 600 30px var(--font-sans);
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   line-height: 1.05;
 }
 .q-stat-trend {
@@ -491,10 +509,10 @@ body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  padding: 18px 20px;
+  padding: 22px 24px;
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 24px;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 28px;
   align-items: stretch;
 }
 .q-week-hero {

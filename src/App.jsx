@@ -504,6 +504,16 @@ function fmtDate(ts) {
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+function fmtFocusMs(ms) {
+  if (!ms || ms < 1000) return "0m";
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
 function isoDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -1129,6 +1139,19 @@ function TaskRow({
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {task.focusMs > 0 && !done && (
+            <span
+              title="Time focused on this task"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 11, fontFamily: "var(--font-mono)",
+                color: "var(--accent-strong)",
+              }}
+            >
+              <Icon name="focus" size={10} />
+              {fmtFocusMs(task.focusMs)}
+            </span>
+          )}
           {sub.length > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
               {doneSub}/{sub.length}
@@ -1355,11 +1378,11 @@ function ThisWeekCard({ tasks }) {
   return (
     <div className="q-week-card">
       <div className="q-week-hero">
-        <div className="q-eyebrow" style={{ marginBottom: 10 }}>This week</div>
+        <span className="q-section-title" style={{ marginBottom: 14 }}>This week</span>
         <div style={{
-          fontSize: 32, fontWeight: 600, color: "var(--text)",
-          letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums",
-          lineHeight: 1.05,
+          fontSize: 34, fontWeight: 600, color: "var(--text)",
+          letterSpacing: "-0.025em", fontVariantNumeric: "tabular-nums",
+          lineHeight: 1.05, marginTop: 6,
         }}>{data.avg}</div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>tasks / day avg</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, fontFamily: "var(--font-mono)" }}>
@@ -1575,7 +1598,7 @@ function TodayView({
   openNewTask, setOpenNewTask, createProjectFromCapture,
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
-  previewMode,
+  previewMode, dayClosed, reopenDay,
 }) {
   const [editing, setEditing] = useState(null);
   const [exp,     setExp]     = useState(null);
@@ -1676,8 +1699,20 @@ function TodayView({
     setWeeklyDismissed(true);
   };
 
+  const closedTime = dayClosed && dayClosed.closedAt
+    ? new Date(dayClosed.closedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : null;
+
   return (
     <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 1180, margin: "0 auto" }}>
+      {dayClosed && closedTime && (
+        <div className="q-day-closed q-fade-in">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon name="moon" size={13} /> Day closed at {closedTime}
+          </span>
+          <button className="q-link" onClick={reopenDay}>Reopen</button>
+        </div>
+      )}
       {showWeeklyPulse && <WeeklyPulse tasks={tasks} onDismiss={dismissWeekly} />}
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
@@ -1768,19 +1803,18 @@ function TodayView({
           {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
           {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
 
-          <Eyebrow right={
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+            <span className="q-section-title">Today</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <EnergyToggle value={energy} onChange={setEnergy} />
-              {todayDone.length > 0 && (
+              {todayDone.length > 0 && !dayClosed && (
                 <button className="q-link" onClick={() => setEndOfDayOpen(true)} title="Close the day">
                   Close day →
                 </button>
               )}
               <button className="q-link" onClick={() => setView("queue")}>Full queue →</button>
             </div>
-          }>
-            Today's plan
-          </Eyebrow>
+          </div>
           {todayPlanTasks.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {todayPlanTasks.map(t => (
@@ -1938,11 +1972,12 @@ function TodayView({
         </div>
       </div>
 
-      <div className="q-bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 24 }}>
-        <div className="q-card" style={{ padding: "18px 20px" }}>
-          <Eyebrow right={<button className="q-link" onClick={() => setView("pipeline")}>All →</button>}>
-            Projects
-          </Eyebrow>
+      <div className="q-bottom-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 28 }}>
+        <div className="q-card" style={{ padding: "20px 22px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <span className="q-section-title">Projects</span>
+            <button className="q-link" onClick={() => setView("pipeline")}>All →</button>
+          </div>
           {activeProjects.length === 0 ? (
             <div style={{ fontSize: 12.5, color: "var(--text-faint)", padding: "8px 0" }}>
               No active projects yet. Capture one with the project mode.
@@ -2969,9 +3004,10 @@ function WeeklyPulse({ tasks, onDismiss }) {
 
 /* ───── END-OF-DAY RITUAL ───── */
 
-function EndOfDayDialog({ tasks, weekPlan, profile, onClose }) {
+function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
   const [screen, setScreen] = useState({ xOpens: 0, ytOpens: 0, mobileHours: null });
   const [mobile, setMobile] = useState("");
+  const [rollForward, setRollForward] = useState(true);
   useEffect(() => {
     loadKV(KEYS.screen, {}).then(d => {
       setScreen(d[todayKey()] || { xOpens: 0, ytOpens: 0, mobileHours: null });
@@ -3056,8 +3092,22 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose }) {
 
         {scheduledTomorrow.length > 0 && (
           <div style={{ marginBottom: 18 }}>
-            <div className="q-eyebrow" style={{ marginBottom: 8 }}>
-              Rolling to next available day · {scheduledTomorrow.length}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div className="q-eyebrow">
+                Unfinished today · {scheduledTomorrow.length}
+              </div>
+              <label style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={rollForward}
+                  onChange={(e) => setRollForward(e.target.checked)}
+                  style={{ accentColor: "var(--accent)" }}
+                />
+                Roll to next working day
+              </label>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 110, overflowY: "auto" }} className="q-scroll">
               {scheduledTomorrow.map(t => (
@@ -3097,7 +3147,11 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose }) {
           )}
         </div>
 
-        <button className="q-btn q-btn--primary" style={{ width: "100%" }} onClick={onClose}>
+        <button
+          className="q-btn q-btn--primary"
+          style={{ width: "100%" }}
+          onClick={() => onCloseDay({ rollForward: rollForward && scheduledTomorrow.length > 0 })}
+        >
           <Icon name="moon" size={13} /> Close the day
         </button>
         <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 10, textAlign: "center" }}>
@@ -3110,29 +3164,42 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose }) {
 
 /* ───── FOCUS TUNNEL ───── */
 
-function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip }) {
+function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, onSaveTime }) {
+  const initialMs = task?.focusMs || 0;
   const [running, setRunning] = useState(true);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(initialMs);
   const startedAtRef = useRef(null);
-  const baseRef = useRef(0);
+  const baseRef = useRef(initialMs);
+  const taskIdRef = useRef(task?.id);
 
+  // Re-seed when the focused task changes (advance/skip).
   useEffect(() => {
-    baseRef.current = 0;
-    setElapsedMs(0);
+    const seed = task?.focusMs || 0;
+    baseRef.current = seed;
+    setElapsedMs(seed);
     setRunning(true);
-  }, [task?.id]);
+    taskIdRef.current = task?.id;
+  }, [task?.id, task?.focusMs]);
 
   useEffect(() => {
-    if (!running) return;
+    if (!running || !task) return;
     startedAtRef.current = Date.now();
-    const id = setInterval(() => {
+    const tickId = setInterval(() => {
       setElapsedMs(baseRef.current + (Date.now() - startedAtRef.current));
     }, 250);
+    // Persist every 5s while running so a tab close doesn't lose progress.
+    const saveId = setInterval(() => {
+      const cur = baseRef.current + (Date.now() - startedAtRef.current);
+      if (onSaveTime && taskIdRef.current === task.id) onSaveTime(task.id, cur);
+    }, 5000);
     return () => {
-      clearInterval(id);
-      baseRef.current = baseRef.current + (Date.now() - startedAtRef.current);
+      clearInterval(tickId);
+      clearInterval(saveId);
+      const cur = baseRef.current + (Date.now() - startedAtRef.current);
+      baseRef.current = cur;
+      if (onSaveTime && taskIdRef.current === task.id) onSaveTime(task.id, cur);
     };
-  }, [running]);
+  }, [running, task?.id, onSaveTime]);
 
   useEffect(() => {
     const h = (e) => {
@@ -3212,6 +3279,7 @@ export default function App() {
   const [endOfDayOpen, setEndOfDayOpen] = useState(false);
   const [weeklyDismissed, setWeeklyDismissed] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [dayClosed, setDayClosed] = useState(null); // { date, closedAt }
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -3251,6 +3319,11 @@ export default function App() {
       // Preview mode: if a snapshot exists, we're in demo mode.
       const snap = await loadKV(PREVIEW_KEY, null);
       setPreviewMode(!!snap);
+
+      // Day-closed marker
+      const closed = await loadKV("quest_day_closed", null);
+      if (closed && closed.date === isoDate(new Date())) setDayClosed(closed);
+      else setDayClosed(null);
 
       setReady(true);
       const changed = processed.some((x, i) => t[i] && x.completed !== t[i].completed);
@@ -3467,6 +3540,14 @@ export default function App() {
       setProjects(updP); saveKV(KEYS.projects, updP);
     }
   }, [tasks, projects]);
+
+  const updateTaskFocusTime = useCallback((id, ms) => {
+    setTasks(prev => {
+      const next = prev.map(t => t.id === id ? { ...t, focusMs: Math.max(0, Math.round(ms)) } : t);
+      saveKV(KEYS.tasks, next);
+      return next;
+    });
+  }, []);
 
   const toggleSub = useCallback((tid, sid) => {
     const upd = tasks.map(t => t.id !== tid ? t : {
@@ -3731,6 +3812,61 @@ export default function App() {
     notify("Preview mode on");
   }, [previewMode, tasks, projects, profile, unlocked, weekPlan, notify]);
 
+  const rollForwardToday = useCallback(async () => {
+    const todayIso = isoDate(new Date());
+    const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
+    if (!todayEntry) return 0;
+    const unfinished = (todayEntry.taskIds || []).filter(id => {
+      const t = tasks.find(x => x.id === id);
+      return t && !t.completed;
+    });
+    if (!unfinished.length) return 0;
+    // Find next working day (cap > 0)
+    const caps = await loadKV(KEYS.caps, DEFAULT_CAPS);
+    let dayOffset = 1;
+    let targetIso = null;
+    while (dayOffset < 21) {
+      const d = addDays(parseIsoDate(todayIso), dayOffset);
+      const wd = weekdayName(d);
+      if ((caps[wd] || 0) > 0) { targetIso = isoDate(d); break; }
+      dayOffset += 1;
+    }
+    if (!targetIso) return 0;
+    const next = (weekPlan || []).map(e => {
+      if (e.date === todayIso) return { ...e, taskIds: (e.taskIds || []).filter(id => !unfinished.includes(id)) };
+      return e;
+    }).filter(e => (e.taskIds || []).length);
+    const targetEntry = next.find(e => e.date === targetIso);
+    if (targetEntry) {
+      const merged = [...new Set([...(targetEntry.taskIds || []), ...unfinished])];
+      const idx = next.indexOf(targetEntry);
+      next[idx] = { ...targetEntry, taskIds: merged };
+    } else {
+      next.push({ date: targetIso, taskIds: unfinished });
+    }
+    next.sort((a, b) => a.date.localeCompare(b.date));
+    setWeekPlan(next);
+    await saveKV(KEYS.weekplan, next);
+    return unfinished.length;
+  }, [tasks, weekPlan]);
+
+  const closeDay = useCallback(async ({ rollForward }) => {
+    let moved = 0;
+    if (rollForward) moved = await rollForwardToday();
+    const closed = { date: isoDate(new Date()), closedAt: Date.now() };
+    setDayClosed(closed);
+    await saveKV("quest_day_closed", closed);
+    setEndOfDayOpen(false);
+    if (moved > 0) notify(`Day closed · ${moved} task${moved > 1 ? "s" : ""} rolled forward`);
+    else notify("Day closed");
+  }, [rollForwardToday, notify]);
+
+  const reopenDay = useCallback(async () => {
+    setDayClosed(null);
+    await saveKV("quest_day_closed", null);
+    notify("Day reopened");
+  }, [notify]);
+
   const exitPreview = useCallback(async () => {
     const snap = await loadKV(PREVIEW_KEY, null);
     if (!snap) { setPreviewMode(false); return; }
@@ -3766,6 +3902,7 @@ export default function App() {
     endOfDayOpen, setEndOfDayOpen,
     weeklyDismissed, setWeeklyDismissed,
     previewMode,
+    dayClosed, reopenDay,
   };
 
   return (
@@ -3822,6 +3959,7 @@ export default function App() {
               weekPlan={weekPlan}
               profile={profile}
               onClose={() => setEndOfDayOpen(false)}
+              onCloseDay={closeDay}
             />
           )}
           {focusTask && (
@@ -3832,6 +3970,7 @@ export default function App() {
               onComplete={completeFocus}
               onExit={exitFocus}
               onSkip={nextFocusTask ? skipFocus : null}
+              onSaveTime={updateTaskFocusTime}
             />
           )}
         </div>
