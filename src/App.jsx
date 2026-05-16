@@ -275,7 +275,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -374,27 +374,58 @@ async function runMigrations() {
     await saveKV(KEYS.projects, existing.map(p => ({ ...p, type: p.type || "other" })));
   }
 
+  // v1 → v2: weekPlan stored as {week, day} relative to "now" — convert to
+  // absolute ISO dates so the planner can support a full year of scheduling.
+  if (v < 2) {
+    const wp = await loadKV(KEYS.weekplan, null);
+    if (Array.isArray(wp) && wp.length && wp[0] && wp[0].day && !wp[0].date) {
+      const today = new Date();
+      const thisMonday = mondayOf(today);
+      const nextMonday = addDays(thisMonday, 7);
+      const dayIdx = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
+      const converted = wp
+        .map(e => {
+          const base = (e.week || "current") === "next" ? nextMonday : thisMonday;
+          const idx = dayIdx[e.day];
+          if (idx == null) return null;
+          return { date: isoDate(addDays(base, idx)), tasks: e.tasks || [] };
+        })
+        .filter(Boolean);
+      await saveKV(KEYS.weekplan, converted);
+    }
+  }
+
   await saveKV(KEYS.schema, SCHEMA_VERSION);
 }
 
-/* ───── AI ───── */
+/* ───── AI ─────
+   Both calls use Anthropic prompt caching via cache_control on the
+   stable rules prefix. Cache only activates when the prefix exceeds
+   the per-model token threshold (1024 Sonnet, 2048 Haiku); our
+   prefixes are smaller today, so cache_control is a no-op for now
+   but free hygiene against future prompt growth. */
+
+const AI_SCORE_RULES =
+  "You are scoring tasks for a freelance UI/UX dev productivity app. " +
+  "Apply the rules below carefully and return only JSON.\n\n" +
+  "BASE: admin/email=5-15, simple fix=15-30, component/feature=30-60, " +
+  "complex build=60-85, major deliverable=85-100.\n" +
+  "SUBTASKS: 0=no change, 1-2=+3-8, 3-4=+10-18, 5+=+20-30.\n" +
+  "DESCRIPTION: one-liner=no change, paragraph=+5-12, extensive=+10-20.\n" +
+  "DIFFICULTY: easy=simple+no subtasks, medium=some complexity or 1-3 subtasks, " +
+  "hard=complex or 4+ subtasks, epic=major or 6+ subtasks.\n\n" +
+  "Output schema: {\"xp\":<int 5-100>,\"difficulty\":\"easy|medium|hard|epic\"," +
+  "\"reason\":\"<10 words>\"}. No markdown, no commentary.";
 
 async function aiScore(title, desc, subtasks, tags, notes) {
   const subCount = subtasks ? subtasks.length : 0;
   const subList  = subCount ? subtasks.join(", ") : "";
-  const prompt =
-    "XP scoring for a freelance UI/UX dev productivity app. Score this task carefully.\n\n" +
+  const dynamic =
     `Task: "${title}"\n` +
     (desc  ? `Description: ${desc}\n` : "") +
     (notes ? `Notes: ${notes}\n` : "") +
     (subCount ? `Subtasks (${subCount}): ${subList}\n` : "") +
-    (tags && tags.length ? `Tags: ${tags.join(", ")}\n` : "") +
-    "\nScoring rules:\n" +
-    "BASE: admin/email=5-15, simple fix=15-30, component/feature=30-60, complex build=60-85, major deliverable=85-100\n" +
-    "SUBTASKS: 0=no change, 1-2=+3-8, 3-4=+10-18, 5+=+20-30.\n" +
-    "DESCRIPTION: one-liner=no change, paragraph=+5-12, extensive=+10-20\n" +
-    "DIFFICULTY: easy=simple+no subtasks, medium=some complexity or 1-3 subtasks, hard=complex or 4+ subtasks, epic=major or 6+ subtasks\n" +
-    "\nReturn ONLY valid JSON no markdown: {\"xp\":<int 5-100>,\"difficulty\":\"easy|medium|hard|epic\",\"reason\":\"<10 words>\"}";
+    (tags && tags.length ? `Tags: ${tags.join(", ")}\n` : "");
   try {
     const r = await fetch("/api/anthropic", {
       method: "POST",
@@ -402,7 +433,13 @@ async function aiScore(title, desc, subtasks, tags, notes) {
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 120,
-        messages: [{ role: "user", content: prompt }],
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_SCORE_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
       }),
     });
     const d = await r.json();
@@ -412,50 +449,105 @@ async function aiScore(title, desc, subtasks, tags, notes) {
   }
 }
 
-async function aiPlanWeek(tasks, todayName, caps) {
+const AI_PLAN_RULES =
+  "You are a scheduler for Jeffrey (freelance UI/UX dev, Netherlands). " +
+  "Given a list of unscheduled tasks and a set of workdays with their " +
+  "remaining capacity (hours), assign tasks to specific dates.\n\n" +
+  "RULES:\n" +
+  "1. Never exceed a day's REMAINING capacity. Overflow pushes to the next " +
+  "available day.\n" +
+  "2. Fill earlier days before later ones. Don't artificially spread out work " +
+  "across many days when it could finish sooner.\n" +
+  "3. Priority order: urgent > high > medium > low.\n" +
+  "4. Pair hard/focus work with mornings; light/admin work with afternoons.\n" +
+  "5. Daily recurring tasks are NOT in the task list — they're already " +
+  "subtracted from each day's capacity. Do not schedule them.\n" +
+  "6. Tasks already on the calendar (when listed) stay put unless you are " +
+  "explicitly asked to optimize.\n\n" +
+  "Output schema: a JSON array of new assignments, each {\"date\":\"YYYY-MM-DD\"," +
+  "\"tasks\":[\"exact task title\"]}. Include only dates that receive at least " +
+  "one task. No markdown, no commentary.";
+
+async function aiPlanWeek(tasks, caps, opts = {}) {
+  const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize"
+  const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
+  const horizonDays = opts.horizon || 14;
+
   const allPending = tasks.filter(t => !t.completed);
   if (!allPending.length) return null;
-
   const dailyTasks = allPending.filter(t => t.recurring === "daily");
-  const pending    = allPending.filter(t => t.recurring !== "daily");
-  const dailyHours = dailyTasks.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+  const nonDailyPending = allPending.filter(t => t.recurring !== "daily");
+  const dailyHours = dailyTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+  if (!nonDailyPending.length) return existingPlan.length ? existingPlan : [];
 
-  if (!pending.length) return [];
+  // Build the date horizon: next `horizonDays` weekdays starting today.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dates = [];
+  for (let i = 0; dates.length < horizonDays && i < horizonDays * 2 + 10; i++) {
+    const d = addDays(today, i);
+    if (isWeekday(d)) dates.push(d);
+  }
 
-  const fromIdx = Math.max(0, WEEKDAYS.indexOf(todayName));
-  const currentWeekDays = WEEKDAYS.slice(fromIdx);
-  const effectiveCap = (d) => Math.max(0, (caps[d] || 4) - dailyHours);
-  const currentCapStr = currentWeekDays.map(d => `${d}=${effectiveCap(d).toFixed(1)}h`).join(", ");
-  const nextCapStr    = WEEKDAYS.map(d => `${d}=${effectiveCap(d).toFixed(1)}h`).join(", ");
-  const currentCapTotal = currentWeekDays.reduce((s,d) => s + effectiveCap(d), 0);
-  const totalH = pending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
-  const sorted = pending.slice().sort((a,b) =>
-    (PRIORITIES[a.priority||"medium"].order) - (PRIORITIES[b.priority||"medium"].order));
+  // Compute per-date scheduled hours from existingPlan (only used for append).
+  const titleToTask = new Map(tasks.map(t => [t.title, t]));
+  const scheduledTitles = new Set(existingPlan.flatMap(e => e.tasks || []));
+  const dateToScheduledHours = {};
+  for (const e of existingPlan) {
+    const hrs = (e.tasks || []).reduce((s, title) => {
+      const t = titleToTask.get(title);
+      return s + (t && t.recurring !== "daily" ? (DIFFICULTY[t.difficulty]?.hours || 1.5) : 0);
+    }, 0);
+    dateToScheduledHours[e.date] = hrs;
+  }
+
+  // Tasks the model needs to place.
+  const tasksToPlan = mode === "optimize"
+    ? nonDailyPending
+    : nonDailyPending.filter(t => !scheduledTitles.has(t.title));
+  if (!tasksToPlan.length) return existingPlan;
+
+  const sorted = tasksToPlan.slice().sort((a, b) =>
+    PRIORITIES[a.priority || "medium"].order - PRIORITIES[b.priority || "medium"].order);
+
+  // Build day descriptors with REMAINING capacity for the prompt.
+  const dayLines = dates.map(d => {
+    const iso = isoDate(d);
+    const wd = weekdayName(d);
+    const cap = (caps[wd] || 4);
+    const used = (mode === "optimize" ? 0 : (dateToScheduledHours[iso] || 0)) + dailyHours;
+    const remaining = Math.max(0, cap - used);
+    return `- ${iso} ${wd}: cap ${cap}h, remaining ${remaining.toFixed(1)}h`;
+  }).join("\n");
+
   const taskLines = sorted.map(t =>
-    `"${t.title}" [${t.xp}XP,${t.difficulty},~${DIFFICULTY[t.difficulty]?.hours || 1.5}h,${t.priority||"medium"}${t.recurring && t.recurring!=="none" ? ",recur:"+t.recurring : ""}]`
+    `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${DIFFICULTY[t.difficulty]?.hours || 1.5}h, ${t.priority || "medium"}`
   ).join("\n");
-  const dailyNote = dailyTasks.length
-    ? `\nNOTE: ${dailyTasks.length} daily recurring task(s) consume ${dailyHours.toFixed(1)}h every day. Caps above already account for this. Do NOT schedule these.\n`
-    : "";
 
-  const prompt =
-    `Scheduler for Jeffrey (freelance UI/UX dev, Netherlands). Today is ${todayName}.\n\n` +
-    `You have TWO WEEKS available.\n` +
-    `CURRENT WEEK (from today): ${currentWeekDays.join(", ")} — total available ${currentCapTotal.toFixed(1)}h\n` +
-    `  effective caps: ${currentCapStr}\n` +
-    `NEXT WEEK (all 5 days): ${WEEKDAYS.join(", ")}\n` +
-    `  effective caps: ${nextCapStr}\n` +
-    dailyNote +
-    `\nSCHEDULING RULES:\n` +
-    `1. FILL CURRENT WEEK FIRST. Only use next week when current week is full.\n` +
-    `2. Never exceed a day's cap. Push overflow to the next available day.\n` +
-    `3. Urgent first, then high, medium, low.\n` +
-    `4. Morning = focus/hard. Afternoon = admin/easy.\n` +
-    `5. Don't artificially spread.\n` +
-    `6. Pending non-daily work: ~${totalH.toFixed(1)}h across ${pending.length} tasks.\n\n` +
-    `Tasks to schedule (excluding daily):\n${taskLines}\n\n` +
-    `Return ONLY a JSON array, no markdown. Only include days with tasks. Each entry needs a 'week' field:\n` +
-    `[{"week":"current","day":"Monday","tasks":["title1"]},{"week":"next","day":"Tuesday","tasks":["title2"]}]`;
+  let existingBlock = "";
+  if (mode !== "optimize" && existingPlan.length) {
+    const lines = existingPlan
+      .filter(e => (e.tasks || []).length)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(e => `- ${e.date}: ${(e.tasks || []).map(t => `"${t}"`).join(", ")}`)
+      .join("\n");
+    if (lines) existingBlock = `\nAlready scheduled (do not move):\n${lines}\n`;
+  }
+
+  const modeLine = mode === "optimize"
+    ? "Mode: OPTIMIZE — replan all listed tasks from scratch."
+    : mode === "append"
+    ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
+    : "Mode: FRESH — no prior plan exists; place all listed tasks.";
+
+  const totalH = tasksToPlan.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+
+  const dynamic =
+    `Today: ${isoDate(today)} (${weekdayName(today)}).\n` +
+    `${modeLine}\n` +
+    `Daily recurring overhead: ${dailyHours.toFixed(1)}h/day (already subtracted from remaining).\n\n` +
+    `Workdays available:\n${dayLines}\n${existingBlock}\n` +
+    `Tasks to place (total ~${totalH.toFixed(1)}h, ${tasksToPlan.length} tasks):\n${taskLines}`;
+
   try {
     const r = await fetch("/api/anthropic", {
       method: "POST",
@@ -463,13 +555,38 @@ async function aiPlanWeek(tasks, todayName, caps) {
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 1200,
-        messages: [{ role: "user", content: prompt }],
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_PLAN_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
       }),
     });
     const d = await r.json();
     const parsed = JSON.parse(d.content[0].text.replace(/```\w*|```/g, "").trim());
-    return parsed.map(e => ({ week: "current", ...e }));
-  } catch { return null; }
+    const newEntries = parsed
+      .filter(e => e && e.date && Array.isArray(e.tasks) && e.tasks.length)
+      .map(e => ({ date: e.date, tasks: e.tasks }));
+
+    if (mode === "optimize") return newEntries;
+
+    // Append: merge new entries into existing, preserving order by date.
+    const byDate = new Map();
+    for (const e of existingPlan) byDate.set(e.date, [...(e.tasks || [])]);
+    for (const e of newEntries) {
+      const list = byDate.get(e.date) || [];
+      for (const t of e.tasks) if (!list.includes(t)) list.push(t);
+      byDate.set(e.date, list);
+    }
+    return Array.from(byDate.entries())
+      .map(([date, tasks]) => ({ date, tasks }))
+      .filter(e => e.tasks.length)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return existingPlan.length ? existingPlan : null;
+  }
 }
 
 /* ───── HELPERS ───── */
@@ -510,6 +627,41 @@ function processRecurring(tasks) {
 
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function parseIsoDate(s) {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDays(d, n) {
+  const r = new Date(d);
+  r.setDate(d.getDate() + n);
+  r.setHours(0, 0, 0, 0);
+  return r;
+}
+function mondayOf(d) {
+  const dow = d.getDay();
+  const m = new Date(d);
+  m.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  m.setHours(0, 0, 0, 0);
+  return m;
+}
+function isWeekday(d) { const x = d.getDay(); return x >= 1 && x <= 5; }
+function weekdayName(d) { return d.toLocaleDateString("en-US", { weekday: "long" }); }
+function fmtWeekLabel(monday) {
+  const fri = addDays(monday, 4);
+  const sameMonth = monday.getMonth() === fri.getMonth();
+  const m1 = monday.toLocaleDateString("en-US", { month: "short" });
+  const m2 = fri.toLocaleDateString("en-US",   { month: "short" });
+  return sameMonth
+    ? `${m1} ${monday.getDate()} – ${fri.getDate()}, ${monday.getFullYear()}`
+    : `${m1} ${monday.getDate()} – ${m2} ${fri.getDate()}, ${monday.getFullYear()}`;
 }
 
 function progressOfProject(p, tasks) {
@@ -1077,11 +1229,12 @@ function TodayView({
   const dailyPending = allPending.filter(t => t.recurring === "daily");
   const todayDone = tasks.filter(t => t.completed && t.completedAt > Date.now() - 86400000);
 
+  const todayIso = isoDate(new Date());
   const todayPlanData = weekPlan
-    ? (weekPlan.find(d => d.day === tName && (d.week || "current") === "current") || { tasks: [] })
+    ? (weekPlan.find(d => d.date === todayIso) || { tasks: [] })
     : null;
   const todayScheduled = todayPlanData
-    ? todayPlanData.tasks.map(title => tasks.find(t => t.title === title)).filter(Boolean)
+    ? (todayPlanData.tasks || []).map(title => tasks.find(t => t.title === title)).filter(Boolean)
     : [];
   const todayPlanTasks = dailyPending.concat(todayScheduled);
   const planXP = todayPlanTasks.reduce((s,t) => s + (t.xp || 0), 0);
@@ -1089,7 +1242,7 @@ function TodayView({
 
   const generatePlan = () => {
     setPlanLoading(true);
-    aiPlanWeek(tasks, tName, DEFAULT_CAPS).then(p => {
+    aiPlanWeek(tasks, DEFAULT_CAPS, { mode: weekPlan ? "append" : "fresh", existingPlan: weekPlan || [] }).then(p => {
       if (p) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
       setPlanLoading(false);
     });
@@ -1645,25 +1798,30 @@ function PipelineView({
 
 function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTask }) {
   const [loading, setLoading] = useState(false);
+  const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
   const [editingCap, setEditingCap] = useState(null);
   const [draggedTitle, setDraggedTitle] = useState(null);
   const [dragOver, setDragOver] = useState(null);
+  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
 
   useEffect(() => { loadKV(KEYS.caps, DEFAULT_CAPS).then(c => setCaps({ ...DEFAULT_CAPS, ...c })); }, []);
 
   const tName = todayName();
-  const allPending = tasks.filter(t => !t.completed);
-  const dailyPending = allPending.filter(t => t.recurring === "daily");
+  const todayMonday = useMemo(() => mondayOf(new Date()), []);
+  const weekOffset = Math.round((weekStart - todayMonday) / 86400000 / 7);
+  const canPrev = weekOffset > -52;
+  const canNext = weekOffset <  52;
+
+  const allPending     = tasks.filter(t => !t.completed);
+  const dailyPending   = allPending.filter(t => t.recurring === "daily");
   const nonDailyPending = allPending.filter(t => t.recurring !== "daily");
   const dailyHours = dailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
   const totalH = nonDailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
-  const weekCap = WEEKDAYS.reduce((s,d) => s + (caps[d] || 4), 0);
-  const totalCap = weekCap * 2;
-  const todayIdx = WEEKDAYS.indexOf(tName);
-  const today = new Date();
-  const dow = today.getDay();
-  const monday = new Date(today); monday.setDate(today.getDate() + (dow === 0 ? -6 : 1 - dow));
+
+  const scheduledTitles = new Set((weekPlan || []).flatMap(e => e.tasks || []));
+  const unscheduledCount = nonDailyPending.filter(t => !scheduledTitles.has(t.title)).length;
+  const hasPlan = Array.isArray(weekPlan) && weekPlan.length > 0;
 
   const updateCap = (day, val) => {
     const v = Math.max(0.5, Math.min(10, parseFloat(val) || 1));
@@ -1671,157 +1829,70 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
     setCaps(next); saveKV(KEYS.caps, next);
   };
 
-  const generate = () => {
-    setLoading(true);
-    aiPlanWeek(tasks, tName, caps).then(p => {
+  const runPlan = (mode) => {
+    setLoading(true); setLoadMode(mode);
+    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [] }).then(p => {
       if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
-      setLoading(false);
+      setLoading(false); setLoadMode(null);
     });
   };
 
-  const moveTask = (taskTitle, targetWeek, targetDay) => {
-    if (!weekPlan) return;
-    let stripped = weekPlan.map(entry => ({
+  const moveTask = (taskTitle, targetIso) => {
+    const current = Array.isArray(weekPlan) ? weekPlan : [];
+    const stripped = current.map(entry => ({
       ...entry,
-      tasks: entry.tasks.filter(t => t !== taskTitle),
-    })).filter(entry => entry.tasks.length > 0 || (entry.week === targetWeek && entry.day === targetDay));
+      tasks: (entry.tasks || []).filter(t => t !== taskTitle),
+    })).filter(entry => entry.tasks.length > 0 || entry.date === targetIso);
     let found = false;
-    let updated = stripped.map(entry => {
-      if (entry.week === targetWeek && entry.day === targetDay) {
+    const updated = stripped.map(entry => {
+      if (entry.date === targetIso) {
         found = true;
-        if (entry.tasks.indexOf(taskTitle) < 0) return { ...entry, tasks: entry.tasks.concat([taskTitle]) };
+        if (!(entry.tasks || []).includes(taskTitle)) return { ...entry, tasks: [...(entry.tasks || []), taskTitle] };
       }
       return entry;
     });
-    if (!found) updated.push({ week: targetWeek, day: targetDay, tasks: [taskTitle] });
+    if (!found) updated.push({ date: targetIso, tasks: [taskTitle] });
+    updated.sort((a, b) => a.date.localeCompare(b.date));
     setWeekPlan(updated); saveKV(KEYS.weekplan, updated);
   };
 
-  const renderWeek = (weekKey, weekOffset, label) => (
-    <div style={{ marginBottom: 20 }}>
-      <div className="q-eyebrow" style={{ marginBottom: 10 }}>{label}</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
-        {WEEKDAYS.map((day, di) => {
-          const data = weekPlan ? (weekPlan.find(d => d.day === day && (d.week || "current") === weekKey) || { tasks: [] }) : { tasks: [] };
-          const isToday = weekKey === "current" && tName === day;
-          const isPast = weekKey === "current" && todayIdx >= 0 && di < todayIdx;
-          const dateObj = new Date(monday.getTime() + (weekOffset * 7 + di) * 86400000);
-          const scheduledTasks = data.tasks.map(title => tasks.find(t => t.title === title)).filter(Boolean);
-          const dayScheduledH = scheduledTasks.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
-          const dayH = dayScheduledH + dailyHours;
-          const cap = caps[day] || 4;
-          const loadPct = Math.min(Math.round((dayH / cap) * 100), 100);
-          const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
-          const dayXP = scheduledTasks.reduce((s,t) => s + (t.xp || 0), 0) + dailyPending.reduce((s,t) => s + (t.xp || 0), 0);
-          const slotKey = weekKey + "-" + day;
-          const isDragOver = dragOver === slotKey;
-          return (
-            <div key={day}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(slotKey); }}
-              onDragLeave={() => { if (dragOver === slotKey) setDragOver(null); }}
-              onDrop={(e) => { e.preventDefault(); if (draggedTitle) moveTask(draggedTitle, weekKey, day); setDraggedTitle(null); setDragOver(null); }}
-              className="q-card"
-              style={{
-                padding: 12,
-                borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
-                background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
-                opacity: isPast && scheduledTasks.length === 0 && dailyPending.length === 0 ? 0.45 : 1,
-                transition: "border-color var(--t-fast), background var(--t-fast)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: isToday ? "var(--accent)" : "var(--text)" }}>{day.slice(0, 3)}</span>
-                  <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
-                </div>
-                {dayH > 0 && (
-                  <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
-                    {dayH.toFixed(1)}/{cap}h
-                  </span>
-                )}
-              </div>
-              {dayH > 0 && <div style={{ marginBottom: 8 }}><ProgressBar pct={loadPct} tone={loadColor} height={3} /></div>}
-              {dailyPending.length > 0 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
-                  {dailyPending.map((t, i) => {
-                    const isDoneToday = t.completed && isToday;
-                    return (
-                      <div key={"d-"+i} style={{
-                        fontSize: 11, padding: "3px 7px", borderRadius: "var(--r-sm)",
-                        background: "var(--bg-soft)",
-                        borderLeft: "2px solid " + (DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
-                        color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
-                        textDecoration: isDoneToday ? "line-through" : "none",
-                        display: "flex", alignItems: "center", gap: 5,
-                      }}>
-                        <Icon name="recur" size={9} />
-                        <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: scheduledTasks.length === 0 ? 28 : 0 }}>
-                {scheduledTasks.length === 0 ? (
-                  <div style={{ fontSize: 10, color: "var(--text-faint)", fontStyle: "italic", paddingTop: 2 }}>
-                    {dailyPending.length > 0 ? "" : "Free"}
-                  </div>
-                ) : scheduledTasks.map((t, i) => (
-                  <div key={i}
-                    draggable={!t.completed}
-                    onDragStart={(e) => { setDraggedTitle(t.title); e.dataTransfer.effectAllowed = "move"; }}
-                    onDragEnd={() => { setDraggedTitle(null); setDragOver(null); }}
-                    style={{
-                      fontSize: 11, padding: "5px 7px", borderRadius: "var(--r-sm)",
-                      background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
-                      border: "1px solid var(--border)",
-                      borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
-                      color: t.completed ? "var(--text-faint)" : "var(--text)",
-                      opacity: t.completed ? 0.6 : (draggedTitle === t.title ? 0.35 : 1),
-                      cursor: t.completed ? "default" : "grab",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <CompleteButton
-                        done={t.completed}
-                        tone={DIFFICULTY[t.difficulty]?.tone}
-                        onComplete={() => completeTask(t.id)}
-                        onReopen={() => uncompleteTask(t.id)}
-                      />
-                      <span style={{
-                        fontSize: 11, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                        textDecoration: t.completed ? "line-through" : "none",
-                      }}>{t.title}</span>
-                    </div>
-                    <div style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 3, marginLeft: 24 }}>
-                      {t.xp} XP · {DIFFICULTY[t.difficulty]?.hours || 1.5}h
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {dayXP > 0 && <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dayXP} XP</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const days = useMemo(() => {
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push(addDays(weekStart, i));
+    return out;
+  }, [weekStart]);
+
+  const todayIso = isoDate(new Date());
 
   return (
     <div style={{ padding: VIEW_PAD, maxWidth: 1080, margin: "0 auto" }}>
       <PageHeader
         eyebrow="AI scheduler"
-        title="Two-week plan"
-        sub={`${nonDailyPending.length} tasks · ~${totalH.toFixed(1)}h work · ${totalCap}h capacity${dailyPending.length ? ` · ${dailyPending.length} daily (${dailyHours.toFixed(1)}h/day)` : ""}`}
+        title="Plan"
+        sub={`${nonDailyPending.length} pending · ~${totalH.toFixed(1)}h work${unscheduledCount > 0 ? ` · ${unscheduledCount} unscheduled` : ""}${dailyPending.length ? ` · ${dailyPending.length} daily (${dailyHours.toFixed(1)}h/day)` : ""}`}
         right={
-          <button className="q-btn q-btn--primary" disabled={loading || allPending.length === 0} onClick={generate}>
-            {loading ? "Planning…" : weekPlan ? "Regenerate" : "Generate plan"}
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {!hasPlan && (
+              <button className="q-btn q-btn--primary" disabled={loading || allPending.length === 0} onClick={() => runPlan("fresh")}>
+                {loading ? "Planning…" : "Generate plan"}
+              </button>
+            )}
+            {hasPlan && unscheduledCount > 0 && (
+              <button className="q-btn q-btn--primary" disabled={loading} onClick={() => runPlan("append")} title="Schedule unscheduled tasks after existing ones">
+                {loading && loadMode === "append" ? "Scheduling…" : `Schedule ${unscheduledCount} pending`}
+              </button>
+            )}
+            {hasPlan && (
+              <button className="q-btn q-btn--outline" disabled={loading} onClick={() => runPlan("optimize")} title="Replan everything from scratch — may move existing tasks">
+                {loading && loadMode === "optimize" ? "Optimizing…" : "Optimize all"}
+              </button>
+            )}
+          </div>
         }
       />
 
       <div className="q-card" style={{ padding: 14, marginBottom: 18 }}>
-        <Eyebrow>Daily capacity — click to edit (applies to both weeks)</Eyebrow>
+        <Eyebrow>Daily capacity — click to edit (applies every week)</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
           {WEEKDAYS.map(day => {
             const isToday = day === tName;
@@ -1853,17 +1924,159 @@ function PlannerView({ tasks, weekPlan, setWeekPlan, completeTask, uncompleteTas
         </div>
       </div>
 
-      {!weekPlan ? (
+      {/* Week navigator */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            className="q-icon-btn"
+            disabled={!canPrev}
+            onClick={() => canPrev && setWeekStart(addDays(weekStart, -7))}
+            aria-label="Previous week"
+            style={{ padding: 6, opacity: canPrev ? 1 : 0.3 }}
+          >
+            <Icon name="chevron" size={14} />
+            <span style={{ transform: "rotate(90deg)", display: "none" }} />
+          </button>
+          <button
+            className="q-btn q-btn--ghost q-btn--sm"
+            onClick={() => setWeekStart(todayMonday)}
+            disabled={weekOffset === 0}
+          >
+            This week
+          </button>
+          <button
+            className="q-icon-btn"
+            disabled={!canNext}
+            onClick={() => canNext && setWeekStart(addDays(weekStart, 7))}
+            aria-label="Next week"
+            style={{ padding: 6, opacity: canNext ? 1 : 0.3 }}
+          >
+            <Icon name="chevronR" size={14} />
+          </button>
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.005em" }}>
+            {fmtWeekLabel(weekStart)}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+            {weekOffset === 0 ? "current" : weekOffset > 0 ? `+${weekOffset}w` : `${weekOffset}w`}
+          </span>
+        </div>
+      </div>
+
+      {!hasPlan && weekOffset === 0 ? (
         <EmptyState dashed>
           <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text)", marginBottom: 4 }}>No plan yet</div>
-          <div>Fills current week first, overflows to next week. Urgent first. Drag tasks between days to rearrange.</div>
+          <div>Click <strong>Generate plan</strong> to auto-schedule, or drag tasks onto specific days. Navigate forward to plan further into the year.</div>
         </EmptyState>
       ) : (
         <div>
-          {renderWeek("current", 0, "This week")}
-          {renderWeek("next", 1, "Next week")}
-          <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 8 }}>
-            Drag scheduled tasks between days · Daily tasks appear on every day and aren't draggable
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+            {days.map((dateObj) => {
+              const iso = isoDate(dateObj);
+              const wd = weekdayName(dateObj);
+              const data = (weekPlan || []).find(d => d.date === iso) || { tasks: [] };
+              const isToday = iso === todayIso;
+              const isPast = iso < todayIso;
+              const scheduledTasks = (data.tasks || []).map(title => tasks.find(t => t.title === title)).filter(Boolean);
+              const dayScheduledH = scheduledTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+              const dayH = dayScheduledH + dailyHours;
+              const cap = caps[wd] || 4;
+              const loadPct = Math.min(Math.round((dayH / cap) * 100), 100);
+              const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
+              const dayXP = scheduledTasks.reduce((s, t) => s + (t.xp || 0), 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
+              const isDragOver = dragOver === iso;
+              return (
+                <div key={iso}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(iso); }}
+                  onDragLeave={() => { if (dragOver === iso) setDragOver(null); }}
+                  onDrop={(e) => { e.preventDefault(); if (draggedTitle) moveTask(draggedTitle, iso); setDraggedTitle(null); setDragOver(null); }}
+                  className="q-card"
+                  style={{
+                    padding: 12,
+                    borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
+                    background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
+                    opacity: isPast && scheduledTasks.length === 0 && dailyPending.length === 0 ? 0.45 : 1,
+                    transition: "border-color var(--t-fast), background var(--t-fast)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: isToday ? "var(--accent)" : "var(--text)" }}>{wd.slice(0, 3)}</span>
+                      <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
+                    </div>
+                    {dayH > 0 && (
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
+                        {dayH.toFixed(1)}/{cap}h
+                      </span>
+                    )}
+                  </div>
+                  {dayH > 0 && <div style={{ marginBottom: 8 }}><ProgressBar pct={loadPct} tone={loadColor} height={3} /></div>}
+                  {dailyPending.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
+                      {dailyPending.map((t, i) => {
+                        const isDoneToday = t.completed && isToday;
+                        return (
+                          <div key={"d-"+i} style={{
+                            fontSize: 11, padding: "3px 7px", borderRadius: "var(--r-sm)",
+                            background: "var(--bg-soft)",
+                            borderLeft: "2px solid " + (DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
+                            color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
+                            textDecoration: isDoneToday ? "line-through" : "none",
+                            display: "flex", alignItems: "center", gap: 5,
+                          }}>
+                            <Icon name="recur" size={9} />
+                            <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, minHeight: scheduledTasks.length === 0 ? 28 : 0 }}>
+                    {scheduledTasks.length === 0 ? (
+                      <div style={{ fontSize: 10, color: "var(--text-faint)", fontStyle: "italic", paddingTop: 2 }}>
+                        {dailyPending.length > 0 ? "" : "Free"}
+                      </div>
+                    ) : scheduledTasks.map((t, i) => (
+                      <div key={i}
+                        draggable={!t.completed}
+                        onDragStart={(e) => { setDraggedTitle(t.title); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setDraggedTitle(null); setDragOver(null); }}
+                        style={{
+                          fontSize: 11, padding: "5px 7px", borderRadius: "var(--r-sm)",
+                          background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
+                          border: "1px solid var(--border)",
+                          borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
+                          color: t.completed ? "var(--text-faint)" : "var(--text)",
+                          opacity: t.completed ? 0.6 : (draggedTitle === t.title ? 0.35 : 1),
+                          cursor: t.completed ? "default" : "grab",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <CompleteButton
+                            done={t.completed}
+                            tone={DIFFICULTY[t.difficulty]?.tone}
+                            onComplete={() => completeTask(t.id)}
+                            onReopen={() => uncompleteTask(t.id)}
+                          />
+                          <span style={{
+                            fontSize: 11, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            textDecoration: t.completed ? "line-through" : "none",
+                          }}>{t.title}</span>
+                        </div>
+                        <div style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)", marginTop: 3, marginLeft: 24 }}>
+                          {t.xp} XP · {DIFFICULTY[t.difficulty]?.hours || 1.5}h
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {dayXP > 0 && <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dayXP} XP</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 10 }}>
+            Drag scheduled tasks between days · Navigate weeks with ← →
           </div>
         </div>
       )}
