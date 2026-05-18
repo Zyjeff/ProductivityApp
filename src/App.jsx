@@ -2948,8 +2948,8 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                       setDraggedId(null); setDraggedFrom(null); setDragOver(null);
                     }}
                     style={{
-                      borderColor: isDragOver ? "var(--accent)" : isLocked ? "var(--accent-soft)" : isToday ? "var(--accent)" : "var(--border)",
-                      background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
+                      borderColor: isDragOver ? "var(--accent)" : isToday && !isLocked ? "var(--accent)" : "var(--border)",
+                      background: isDragOver ? "var(--accent-soft)" : isLocked ? "var(--bg)" : "var(--bg-elev)",
                       opacity: isOff && items.length === 0 && dailyPending.length === 0
                         ? 0.45
                         : (isPast && items.length === 0 && dailyPending.length === 0 ? 0.5 : 1),
