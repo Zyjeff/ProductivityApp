@@ -522,22 +522,23 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         max_tokens: 3000,
-        // Prefill the assistant response with "[" so the model has to continue
-        // an array — there's no slot to start with prose / chain-of-thought.
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: AI_PLAN_RULES, cache_control: { type: "ephemeral" } },
-              { type: "text", text: dynamic },
-            ],
-          },
-          { role: "assistant", content: "[" },
-        ],
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_PLAN_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
       }),
     });
+    if (!r.ok) {
+      let errBody = "";
+      try { errBody = await r.text(); } catch {}
+      console.error(`aiPlanWeek HTTP ${r.status}:`, errBody.slice(0, 800));
+      return mode === "replan" ? null : (existingPlan.length ? existingPlan : null);
+    }
     const d = await r.json();
-    const rawText = "[" + (d?.content?.[0]?.text || "");
+    const rawText = d?.content?.[0]?.text || "";
     const parsed = extractJsonArray(rawText);
     if (!parsed) {
       console.warn("aiPlanWeek: couldn't extract JSON array from response", rawText.slice(0, 800));
