@@ -64,7 +64,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -217,6 +217,24 @@ async function runMigrations() {
     }
   }
 
+  // v4 → v5: items gain `done` (per-chunk completion). For each existing
+  // item, mirror the parent task's completion so prior visual state holds.
+  if (v < 5) {
+    const wp = await loadKV(KEYS.weekplan, null);
+    const ts = (await loadKV(KEYS.tasks, [])) || [];
+    if (Array.isArray(wp) && wp.length && wp[0] && Array.isArray(wp[0].items)) {
+      const byId = new Map(ts.map(t => [t.id, t]));
+      const converted = wp.map(e => ({
+        date: e.date,
+        items: (e.items || []).map(it => ({
+          ...it,
+          done: typeof it.done === "boolean" ? it.done : !!byId.get(it.taskId)?.completed,
+        })),
+      }));
+      await saveKV(KEYS.weekplan, converted);
+    }
+  }
+
   await saveKV(KEYS.schema, SCHEMA_VERSION);
 }
 
@@ -230,14 +248,19 @@ async function runMigrations() {
 const AI_SCORE_RULES =
   "You are scoring tasks for a freelance UI/UX dev productivity app. " +
   "Apply the rules below carefully and return only JSON.\n\n" +
-  "BASE: admin/email=5-15, simple fix=15-30, component/feature=30-60, " +
+  "BASE XP: admin/email=5-15, simple fix=15-30, component/feature=30-60, " +
   "complex build=60-85, major deliverable=85-100.\n" +
   "SUBTASKS: 0=no change, 1-2=+3-8, 3-4=+10-18, 5+=+20-30.\n" +
   "DESCRIPTION: one-liner=no change, paragraph=+5-12, extensive=+10-20.\n" +
   "DIFFICULTY: easy=simple+no subtasks, medium=some complexity or 1-3 subtasks, " +
-  "hard=complex or 4+ subtasks, epic=major or 6+ subtasks.\n\n" +
+  "hard=complex or 4+ subtasks, epic=major or 6+ subtasks.\n" +
+  "HOURS: realistic focused-work hours to ship this task end-to-end (review " +
+  "the full description, subtasks, notes, tags). Round to 0.25 or 0.5 " +
+  "increments. Typical ranges: easy 0.25-1, medium 1-2.5, hard 2.5-5, " +
+  "epic 5-10. Larger work can exceed a single day — the planner handles " +
+  "splitting later, you just need an honest total.\n\n" +
   "Output schema: {\"xp\":<int 5-100>,\"difficulty\":\"easy|medium|hard|epic\"," +
-  "\"reason\":\"<10 words>\"}. No markdown, no commentary.";
+  "\"hours\":<float 0.25-12>,\"reason\":\"<10 words>\"}. No markdown, no commentary.";
 
 async function aiScore(title, desc, subtasks, tags, notes) {
   const subCount = subtasks ? subtasks.length : 0;
@@ -354,7 +377,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   if (!allPending.length) return null;
   const dailyTasks = allPending.filter(t => t.recurring === "daily");
   const nonDailyPending = allPending.filter(t => t.recurring !== "daily");
-  const dailyHours = dailyTasks.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+  const dailyHours = dailyTasks.reduce((s, t) => s + (taskHours(t)), 0);
   if (!nonDailyPending.length) return existingPlan.length ? existingPlan : [];
 
   // Build the date horizon: next `horizonDays` working days starting today.
@@ -384,13 +407,13 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       if (!t || t.recurring === "daily") return s;
       // If the item has explicit hours (split chunk), use them; otherwise
       // use the task's estimated hours.
-      return s + (it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5));
+      return s + (it.hours != null ? it.hours : (taskHours(t)));
     }, 0);
     dateToScheduledHours[e.date] = hrs;
   }
 
   // Tasks the model needs to place.
-  const tasksToPlan = mode === "optimize"
+  const tasksToPlan = (mode === "optimize" || mode === "replan")
     ? nonDailyPending
     : nonDailyPending.filter(t => !scheduledIds.has(t.id));
   if (!tasksToPlan.length) return existingPlan;
@@ -408,7 +431,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   }).join("\n");
 
   const taskLines = sorted.map(t =>
-    `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${DIFFICULTY[t.difficulty]?.hours || 1.5}h, ${t.priority || "medium"}`
+    `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${taskHours(t)}h, ${t.priority || "medium"}`
   ).join("\n");
 
   let existingBlock = "";
@@ -427,22 +450,33 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       })
       .filter(Boolean)
       .join("\n");
-    if (lines) existingBlock = `\nAlready scheduled (do not move):\n${lines}\n`;
+    if (lines) {
+      const label = mode === "replan"
+        ? "Current plan (rearrange per the user instruction below)"
+        : "Already scheduled (do not move)";
+      existingBlock = `\n${label}:\n${lines}\n`;
+    }
   }
 
   const modeLine = mode === "optimize"
     ? "Mode: OPTIMIZE — replan all listed tasks from scratch."
     : mode === "append"
     ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
+    : mode === "replan"
+    ? "Mode: REPLAN — apply the user instruction below to the current plan. You may reorder, move, split, or leave things as-is; respect day caps and priority order. Return a complete new plan (not a diff)."
     : "Mode: FRESH — no prior plan exists; place all listed tasks.";
 
-  const totalH = tasksToPlan.reduce((s, t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+  const instructionBlock = mode === "replan" && opts.instruction
+    ? `\nUser instruction: ${JSON.stringify(opts.instruction.trim())}\n`
+    : "";
+
+  const totalH = tasksToPlan.reduce((s, t) => s + (taskHours(t)), 0);
 
   const dynamic =
     `Today: ${isoDate(today)} (${weekdayName(today)}).\n` +
     `${modeLine}\n` +
     `Daily recurring overhead: ${dailyHours.toFixed(1)}h/day (already subtracted from remaining).\n\n` +
-    `Workdays available:\n${dayLines}\n${existingBlock}\n` +
+    `Workdays available:\n${dayLines}\n${existingBlock}${instructionBlock}\n` +
     `Tasks to place (total ~${totalH.toFixed(1)}h, ${tasksToPlan.length} tasks):\n${taskLines}`;
 
   try {
@@ -488,7 +522,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     };
     const newEntries = parsed.map(normalizeEntry).filter(Boolean);
 
-    if (mode === "optimize") return newEntries;
+    if (mode === "optimize" || mode === "replan") return newEntries;
 
     // Append: merge new entries into existing, preserving order by date.
     // We dedupe items by taskId-per-day; a new chunk replaces an existing
@@ -549,6 +583,11 @@ function processRecurring(tasks) {
 
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+function taskHours(t) {
+  if (t && typeof t.hours === "number" && t.hours > 0) return t.hours;
+  return DIFFICULTY[t?.difficulty]?.hours || 1.5;
 }
 
 function fmtFocusMs(ms) {
@@ -1231,7 +1270,7 @@ function TaskRow({
               {doneSub}/{sub.length}
             </span>
           )}
-          <span title={`${diff.label} · ${diff.hours}h`} style={{
+          <span title={`${diff.label} · ${taskHours(task)}h`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
             fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500,
             color: "var(--text-muted)",
@@ -1690,7 +1729,10 @@ function TodayView({
   };
 
   const allPending = tasks.filter(t => !t.completed);
-  const dailyPending = allPending.filter(t => t.recurring === "daily");
+  // All daily tasks — completed-today included so the row stays visible
+  // (it disappears via processRecurring on the next calendar day).
+  const dailyAll = tasks.filter(t => t.recurring === "daily");
+  const dailyPending = dailyAll;  // alias for downstream consumers
   const todayDateStr = new Date().toDateString();
   const todayDone = tasks.filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === todayDateStr);
 
@@ -1894,15 +1936,31 @@ function TodayView({
           </div>
           {todayPlanTasks.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {todayPlanTasks.map(t => (
-                <TaskRow key={t.id} task={t}
-                  onComplete={completeTask} onUncomplete={uncompleteTask}
+              {todayPlanTasks.map(t => {
+                // For tasks scheduled on today (in weekPlan items), use chunk-
+                // level completion so a split task only marks today's chunk
+                // done. For daily recurring + non-scheduled tasks, fall back
+                // to direct task completion.
+                const todayItem = todayItems.find(i => i.taskId === t.id);
+                const onCompleteHere = todayItem
+                  ? () => toggleChunkDone(todayIso, t.id, true)
+                  : completeTask;
+                const onUncompleteHere = todayItem
+                  ? () => toggleChunkDone(todayIso, t.id, false)
+                  : uncompleteTask;
+                const renderTask = todayItem
+                  ? { ...t, completed: !!(todayItem.done || t.completed) }
+                  : t;
+                return (
+                <TaskRow key={t.id} task={renderTask}
+                  onComplete={onCompleteHere} onUncomplete={onUncompleteHere}
                   onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                 />
-              ))}
+                );
+              })}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
                 <span>{planDone}/{todayPlanTasks.length} done</span>
                 <span>{planXP} XP planned</span>
@@ -2457,13 +2515,15 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask }) {
+function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
   const [editingCap, setEditingCap] = useState(null);
   const [draggedId, setDraggedId] = useState(null);
   const [draggedFrom, setDraggedFrom] = useState(null);
+  const [replanText, setReplanText] = useState("");
+  const [replanLoading, setReplanLoading] = useState(false);
   const [dragOver, setDragOver] = useState(null);
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
 
@@ -2476,10 +2536,13 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
   const canNext = weekOffset <  52;
 
   const allPending     = tasks.filter(t => !t.completed);
-  const dailyPending   = allPending.filter(t => t.recurring === "daily");
+  // All daily tasks (completed-today included so they stay visible in the
+  // grid; processRecurring re-opens them on the next calendar day).
+  const dailyAll       = tasks.filter(t => t.recurring === "daily");
+  const dailyPending   = dailyAll;  // alias
   const nonDailyPending = allPending.filter(t => t.recurring !== "daily");
-  const dailyHours = dailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
-  const totalH = nonDailyPending.reduce((s,t) => s + (DIFFICULTY[t.difficulty]?.hours || 1.5), 0);
+  const dailyHours = dailyAll.reduce((s,t) => s + (taskHours(t)), 0);
+  const totalH = nonDailyPending.reduce((s,t) => s + (taskHours(t)), 0);
 
   const scheduledIds = new Set((weekPlan || []).flatMap(e => (e.items || []).map(i => i.taskId)));
   const unscheduledCount = nonDailyPending.filter(t => !scheduledIds.has(t.id)).length;
@@ -2497,6 +2560,16 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [] }).then(p => {
       if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
       setLoading(false); setLoadMode(null);
+    });
+  };
+
+  const runReplan = () => {
+    const instruction = replanText.trim();
+    if (!instruction || replanLoading) return;
+    setReplanLoading(true);
+    aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction }).then(p => {
+      if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); setReplanText(""); }
+      setReplanLoading(false);
     });
   };
 
@@ -2684,7 +2757,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                 const dayScheduledH = items.reduce((s, it) => {
                   const t = tasksById.get(it.taskId);
                   if (!t || t.recurring === "daily") return s;
-                  return s + (it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5));
+                  return s + (it.hours != null ? it.hours : (taskHours(t)));
                 }, 0);
                 const dayH = dayScheduledH + dailyHours;
                 const loadPct = isOff ? 0 : (cap > 0 ? Math.min(Math.round((dayH / cap) * 100), 100) : 0);
@@ -2749,32 +2822,33 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                         const splits = splitMap.get(t.id) || [];
                         const isSplit = splits.length > 1;
                         const splitIdx = splits.findIndex(x => x.date === iso);
-                        const itemHours = it.hours != null ? it.hours : (DIFFICULTY[t.difficulty]?.hours || 1.5);
+                        const itemHours = it.hours != null ? it.hours : taskHours(t);
                         const itemNote = it.note;
+                        const chunkDone = !!(it.done || t.completed);
                         return (
                           <div key={it.taskId}
                             className="q-planner-item"
-                            draggable={!t.completed}
+                            draggable={!chunkDone}
                             onDragStart={(e) => { setDraggedId(t.id); setDraggedFrom(iso); e.dataTransfer.effectAllowed = "move"; }}
                             onDragEnd={() => { setDraggedId(null); setDraggedFrom(null); setDragOver(null); }}
                             style={{
-                              background: t.completed ? "var(--bg-soft)" : "var(--bg-elev)",
+                              background: chunkDone ? "var(--bg-soft)" : "var(--bg-elev)",
                               border: "1px solid var(--border)",
-                              borderLeft: "2px solid " + (t.completed ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
-                              color: t.completed ? "var(--text-faint)" : "var(--text)",
-                              opacity: t.completed ? 0.6 : (draggedId === t.id && draggedFrom === iso ? 0.35 : 1),
-                              cursor: t.completed ? "default" : "grab",
+                              borderLeft: "2px solid " + (chunkDone ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
+                              color: chunkDone ? "var(--text-faint)" : "var(--text)",
+                              opacity: chunkDone ? 0.6 : (draggedId === t.id && draggedFrom === iso ? 0.35 : 1),
+                              cursor: chunkDone ? "default" : "grab",
                             }}
                           >
                             <div className="q-planner-item-head">
                               <CompleteButton
-                                done={t.completed}
+                                done={chunkDone}
                                 tone={DIFFICULTY[t.difficulty]?.tone}
-                                onComplete={() => completeTask(t.id)}
-                                onReopen={() => uncompleteTask(t.id)}
+                                onComplete={() => toggleChunkDone(iso, t.id, true)}
+                                onReopen={() => toggleChunkDone(iso, t.id, false)}
                               />
                               <span className="q-planner-item-title" style={{
-                                textDecoration: t.completed ? "line-through" : "none",
+                                textDecoration: chunkDone ? "line-through" : "none",
                               }}>{t.title}</span>
                               {isSplit && (
                                 <span className="q-planner-item-part">{splitIdx + 1}/{splits.length}</span>
@@ -2796,6 +2870,35 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
               })}
             </div>
           ))}
+
+          {hasPlan && (
+            <div className="q-replan-bar q-fade-in">
+              <span className="q-replan-prefix">
+                <Icon name="bolt" size={12} /> Ask
+              </span>
+              <input
+                value={replanText}
+                disabled={replanLoading}
+                onChange={(e) => setReplanText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); runReplan(); }
+                  else if (e.key === "Escape") setReplanText("");
+                }}
+                placeholder={replanLoading
+                  ? "Rearranging…"
+                  : "Push the audit to next week, move design work earlier…"}
+                aria-label="Replan instruction"
+              />
+              <button
+                className="q-btn q-btn--primary q-btn--sm"
+                disabled={!replanText.trim() || replanLoading}
+                onClick={runReplan}
+              >
+                {replanLoading ? "Replanning…" : "Replan"}
+              </button>
+            </div>
+          )}
+
           <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", marginTop: 14 }}>
             Hover a day to expand it · Drag scheduled tasks between days · Splits move chunk-by-chunk
           </div>
@@ -3350,7 +3453,7 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
   const mm = Math.floor((sec % 3600) / 60);
   const ss = sec % 60;
   const timeStr = hh > 0 ? `${hh}:${p2(mm)}:${p2(ss)}` : `${p2(mm)}:${p2(ss)}`;
-  const target = DIFFICULTY[task.difficulty]?.hours || 1.5;
+  const target = taskHours(task);
 
   return (
     <div className="q-focus-overlay" role="dialog" aria-label="Focus mode">
@@ -3611,7 +3714,7 @@ export default function App() {
       desc: data.desc || "", notes: data.notes || "",
       tags: data.tags || [],
       subtasks: (data.subtasks || []).map((s, i) => ({ id: uid() + i, title: s, done: false })),
-      xp: 20, difficulty: "medium", reason: "scoring…",
+      xp: 20, difficulty: "medium", hours: 1.5, reason: "scoring…",
       recurring: data.recurring || "none",
       priority: data.priority || "medium",
       projectId: data.projectId || null,
@@ -3628,7 +3731,13 @@ export default function App() {
     aiScore(data.title, data.desc, data.subtasks, data.tags, data.notes).then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === optimistic.id
-          ? { ...t, xp: sc.xp || 20, difficulty: sc.difficulty || "medium", reason: sc.reason || "auto" }
+          ? {
+              ...t,
+              xp: sc.xp || 20,
+              difficulty: sc.difficulty || "medium",
+              hours: typeof sc.hours === "number" && sc.hours > 0 ? sc.hours : (DIFFICULTY[sc.difficulty || "medium"]?.hours || 1.5),
+              reason: sc.reason || "auto",
+            }
           : t);
         saveKV(KEYS.tasks, next);
         return next;
@@ -3652,7 +3761,13 @@ export default function App() {
     return aiScore(data.title, data.desc, data.subtasks, data.tags, data.notes).then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === id
-          ? { ...t, xp: sc.xp || existing.xp, difficulty: sc.difficulty || existing.difficulty, reason: sc.reason || existing.reason }
+          ? {
+              ...t,
+              xp: sc.xp || existing.xp,
+              difficulty: sc.difficulty || existing.difficulty,
+              hours: typeof sc.hours === "number" && sc.hours > 0 ? sc.hours : existing.hours,
+              reason: sc.reason || existing.reason,
+            }
           : t);
         saveKV(KEYS.tasks, next);
         return next;
@@ -3687,6 +3802,31 @@ export default function App() {
     setTasks(upd); saveKV(KEYS.tasks, upd);
   }, [tasks]);
 
+  // Per-chunk completion. For non-split tasks (one chunk in the plan), the
+  // chunk's done state and the task's completed state stay in lock-step. For
+  // split tasks, flipping a chunk only updates that chunk; the parent task
+  // auto-completes once every chunk is done.
+  const toggleChunkDone = useCallback((date, taskId, newDone) => {
+    const updPlan = (weekPlan || []).map(e => {
+      if (e.date !== date) return e;
+      return {
+        ...e,
+        items: (e.items || []).map(it =>
+          it.taskId === taskId ? { ...it, done: newDone } : it
+        ),
+      };
+    });
+    setWeekPlan(updPlan); saveKV(KEYS.weekplan, updPlan);
+
+    const allItems = updPlan.flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
+    const allDone = allItems.length > 0 && allItems.every(i => i.done);
+    const someDone = allItems.some(i => i.done);
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    if (allDone && !task.completed) completeTask(taskId);
+    else if (!someDone && task.completed) uncompleteTask(taskId);
+  }, [weekPlan, tasks, completeTask, uncompleteTask]);
+
   const splitTask = useCallback((taskId) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !task.subtasks || task.subtasks.length === 0) return;
@@ -3714,7 +3854,15 @@ export default function App() {
       setTasks(prev => {
         const map = Object.fromEntries(updates.map(u => [u.id, u.sc]));
         const next = prev.map(t => map[t.id]
-          ? { ...t, xp: map[t.id].xp || 15, difficulty: map[t.id].difficulty || "medium", reason: map[t.id].reason || "auto" }
+          ? {
+              ...t,
+              xp: map[t.id].xp || 15,
+              difficulty: map[t.id].difficulty || "medium",
+              hours: typeof map[t.id].hours === "number" && map[t.id].hours > 0
+                ? map[t.id].hours
+                : (DIFFICULTY[map[t.id].difficulty || "medium"]?.hours || 1.5),
+              reason: map[t.id].reason || "auto",
+            }
           : t);
         saveKV(KEYS.tasks, next);
         return next;
@@ -3756,7 +3904,15 @@ export default function App() {
         setTasks(prev => {
           const map = Object.fromEntries(updates.map(u => [u.id, u.sc]));
           const next = prev.map(t => map[t.id]
-            ? { ...t, xp: map[t.id].xp || 15, difficulty: map[t.id].difficulty || "medium", reason: map[t.id].reason || "auto" }
+            ? {
+                ...t,
+                xp: map[t.id].xp || 15,
+                difficulty: map[t.id].difficulty || "medium",
+                hours: typeof map[t.id].hours === "number" && map[t.id].hours > 0
+                  ? map[t.id].hours
+                  : (DIFFICULTY[map[t.id].difficulty || "medium"]?.hours || 1.5),
+                reason: map[t.id].reason || "auto",
+              }
             : t);
           saveKV(KEYS.tasks, next);
           return next;
@@ -3781,7 +3937,13 @@ export default function App() {
     aiScore(data.title, "", [], [], "").then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === child.id
-          ? { ...t, xp: sc.xp || 15, difficulty: sc.difficulty || "medium", reason: sc.reason || "auto" }
+          ? {
+              ...t,
+              xp: sc.xp || 15,
+              difficulty: sc.difficulty || "medium",
+              hours: typeof sc.hours === "number" && sc.hours > 0 ? sc.hours : (DIFFICULTY[sc.difficulty || "medium"]?.hours || 1.5),
+              reason: sc.reason || "auto",
+            }
           : t);
         saveKV(KEYS.tasks, next);
         return next;
@@ -4025,7 +4187,8 @@ export default function App() {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
-    toggleSub, splitTask, addChildToProject, removeChildFromProject,
+    toggleSub, splitTask, toggleChunkDone,
+    addChildToProject, removeChildFromProject,
     createProject, renameProject, shipProject, unshipProject, deleteProject,
     createProjectFromCapture,
     setView,

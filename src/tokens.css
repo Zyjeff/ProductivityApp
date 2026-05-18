@@ -299,6 +299,36 @@ body {
 @keyframes q-spin { to { transform: rotate(360deg); } }
 .q-spin { animation: q-spin 700ms linear infinite; transform-origin: center; }
 
+/* ───── Replan chat bar ───── */
+.q-replan-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 18px;
+  padding: 8px 10px 8px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.q-replan-bar:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.q-replan-prefix {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 500 11px var(--font-mono);
+  color: var(--accent-strong);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.q-replan-bar input {
+  flex: 1; min-width: 0;
+  border: none; outline: none; background: transparent;
+  font: 13.5px var(--font-sans); color: var(--text);
+  padding: 4px 0;
+}
+.q-replan-bar input::placeholder { color: var(--text-faint); }
+.q-replan-bar input:disabled { color: var(--text-faint); }
+
 /* ───── Multi-week planner ───── */
 .q-planner-week {
   display: flex; gap: 8px;
