@@ -452,11 +452,17 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const sorted = tasksToPlan.slice().sort((a, b) =>
     PRIORITIES[a.priority || "medium"].order - PRIORITIES[b.priority || "medium"].order);
 
+  // For optimize + replan we plan from scratch, so the visible "remaining"
+  // capacity is full minus daily overhead — NOT minus the existing plan's
+  // hours. (Previously replan inherited the append calc here, so the AI
+  // saw "0h remaining" on days that were already populated in the existing
+  // plan and pushed everything to later weeks, leaving gaps.)
+  const ignoreExistingForCapacity = mode === "optimize" || mode === "replan";
   const dayLines = dates.map(d => {
     const iso = isoDate(d);
     const wd = weekdayName(d);
     const cap = (caps[wd] || 4);
-    const used = (mode === "optimize" ? 0 : (dateToScheduledHours[iso] || 0)) + dailyHours;
+    const used = (ignoreExistingForCapacity ? 0 : (dateToScheduledHours[iso] || 0)) + dailyHours;
     const remaining = Math.max(0, cap - used);
     return `- ${iso} ${wd}: cap ${cap}h, remaining ${remaining.toFixed(1)}h`;
   }).join("\n");
@@ -534,16 +540,29 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     }
     const d = await r.json();
     const rawText = d?.content?.[0]?.text || "";
+    if (mode === "replan") {
+      console.group(`[aiPlanWeek/${mode}]`);
+      console.log("instruction:", opts.instruction);
+      console.log("raw AI response:\n" + rawText);
+    }
     const parsed = extractJsonArray(rawText);
     if (!parsed) {
       console.warn("aiPlanWeek: couldn't extract JSON array from response", rawText.slice(0, 800));
+      if (mode === "replan") console.groupEnd();
       return mode === "replan" ? null : (existingPlan.length ? existingPlan : null);
     }
+    if (mode === "replan") console.log("parsed entries:", JSON.parse(JSON.stringify(parsed)));
     // Accept both shapes — the model occasionally returns the older
     // {tasks:[...]} format. Normalize to items[].
-    let drops = 0;
+    const droppedTitles = [];
+    const droppedDates = [];
+    const isoRe = /^\d{4}-\d{2}-\d{2}$/;
     const normalizeEntry = (e) => {
-      if (!e || !e.date) return null;
+      if (!e) return null;
+      if (!e.date || typeof e.date !== "string" || !isoRe.test(e.date)) {
+        droppedDates.push(e?.date);
+        return null;
+      }
       const rawItems = Array.isArray(e.items)
         ? e.items
         : Array.isArray(e.tasks)
@@ -552,9 +571,9 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       const items = rawItems
         .map(it => {
           const title = it && it.title;
-          if (!title) { drops += 1; return null; }
+          if (!title) { droppedTitles.push("(empty title)"); return null; }
           const id = resolveTitle(title);
-          if (!id) { drops += 1; return null; }
+          if (!id) { droppedTitles.push(title); return null; }
           const out = { taskId: id, done: false };
           if (typeof it.hours === "number" && it.hours > 0) out.hours = Math.round(it.hours * 10) / 10;
           if (typeof it.note === "string" && it.note.trim()) out.note = it.note.trim().slice(0, 80);
@@ -564,6 +583,12 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       return items.length ? { date: e.date, items } : null;
     };
     const newEntries = parsed.map(normalizeEntry).filter(Boolean);
+    if (mode === "replan") {
+      console.log("normalized entries:", JSON.parse(JSON.stringify(newEntries)));
+      if (droppedTitles.length) console.warn("dropped (title didn't resolve):", droppedTitles);
+      if (droppedDates.length) console.warn("dropped (bad date format):", droppedDates);
+      console.groupEnd();
+    }
 
     if (mode === "replan") {
       // Defensive: if the model wiped or significantly dropped items, keep
