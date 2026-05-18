@@ -76,6 +76,7 @@ const NAV_ITEMS = [
 ];
 
 const PREVIEW_KEY = "quest_preview_snapshot";
+const LOCKS_KEY = "quest_locks";
 
 /* ───── STORAGE ───── */
 
@@ -394,6 +395,23 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize"
   const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
   const horizonDays = opts.horizon || 14;
+  const lockedDates = opts.lockedDates instanceof Set
+    ? opts.lockedDates
+    : new Set(Array.isArray(opts.lockedDates) ? opts.lockedDates : []);
+
+  // Items on locked days are immovable. We pull them out of the AI's view
+  // entirely (locked dates are never listed as availability slots) and merge
+  // them back into the final plan after the model responds. Tasks already on
+  // locked days are excluded from tasksToPlan so the AI doesn't try to
+  // schedule them somewhere else.
+  const frozenByDate = new Map();
+  const frozenTaskIds = new Set();
+  for (const e of existingPlan) {
+    if (lockedDates.has(e.date) && (e.items || []).length) {
+      frozenByDate.set(e.date, e.items.map(it => ({ ...it })));
+      for (const it of e.items) frozenTaskIds.add(it.taskId);
+    }
+  }
 
   const allPending = tasks.filter(t => !t.completed);
   if (!allPending.length) return null;
@@ -410,7 +428,8 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   for (let i = 0; dates.length < horizonDays && i < horizonDays * 2 + 14; i++) {
     const d = addDays(today, i);
     const wd = weekdayName(d);
-    if ((caps[wd] || 0) > 0) dates.push(d);
+    const iso = isoDate(d);
+    if ((caps[wd] || 0) > 0 && !lockedDates.has(iso)) dates.push(d);
   }
   if (!dates.length) return existingPlan;
 
@@ -443,10 +462,12 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     dateToScheduledHours[e.date] = hrs;
   }
 
-  // Tasks the model needs to place.
-  const tasksToPlan = (mode === "optimize" || mode === "replan")
+  // Tasks the model needs to place. Tasks already on locked days are
+  // frozen and excluded so the model doesn't try to relocate them.
+  const baseToPlan = (mode === "optimize" || mode === "replan")
     ? nonDailyPending
     : nonDailyPending.filter(t => !scheduledIds.has(t.id));
+  const tasksToPlan = baseToPlan.filter(t => !frozenTaskIds.has(t.id));
   if (!tasksToPlan.length) return existingPlan;
 
   const sorted = tasksToPlan.slice().sort((a, b) =>
@@ -590,14 +611,40 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       console.groupEnd();
     }
 
+    // Merge any frozen (locked-day) entries back into the result for modes
+    // that planned from scratch. The AI never saw those dates so it can't
+    // have produced overlapping items.
+    const mergeFrozen = (entries) => {
+      const byDate = new Map();
+      for (const e of entries) byDate.set(e.date, [...e.items]);
+      for (const [date, items] of frozenByDate.entries()) {
+        if (byDate.has(date)) {
+          const list = byDate.get(date);
+          const have = new Set(list.map(i => i.taskId));
+          for (const it of items) if (!have.has(it.taskId)) list.push(it);
+        } else {
+          byDate.set(date, [...items]);
+        }
+      }
+      return Array.from(byDate.entries())
+        .map(([date, items]) => ({ date, items }))
+        .filter(e => e.items.length)
+        .sort((a, b) => a.date.localeCompare(b.date));
+    };
+
     if (mode === "replan") {
       // Defensive: if the model wiped or significantly dropped items, keep
-      // the existing plan instead of clobbering with nothing.
+      // the existing plan instead of clobbering with nothing. Frozen tasks
+      // were already pulled out of the count on both sides.
       const newUniqueIds = new Set(newEntries.flatMap(e => e.items.map(i => i.taskId)));
-      const existingIds = new Set(existingPlan.flatMap(e => (e.items || []).map(i => i.taskId)));
-      if (newUniqueIds.size === 0 || (existingIds.size > 0 && newUniqueIds.size < existingIds.size * 0.5)) {
+      const existingIds = new Set(
+        existingPlan.flatMap(e => (e.items || []).map(i => i.taskId))
+                    .filter(id => !frozenTaskIds.has(id))
+      );
+      if (existingIds.size > 0 && (newUniqueIds.size === 0 || newUniqueIds.size < existingIds.size * 0.5)) {
         console.warn("aiPlanWeek replan: refusing to apply — result drops too many tasks", {
-          existingIds: existingIds.size, newUniqueIds: newUniqueIds.size, drops, rawText: rawText.slice(0, 500),
+          existingIds: existingIds.size, newUniqueIds: newUniqueIds.size,
+          droppedTitles, droppedDates, rawText: rawText.slice(0, 500),
         });
         return null; // signal "no change applied"
       }
@@ -609,13 +656,14 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
           if (it.done) prevDone.set(`${e.date}:${it.taskId}`, true);
         }
       }
-      const merged = newEntries.map(e => ({
+      const stamped = newEntries.map(e => ({
         ...e,
         items: e.items.map(it => prevDone.get(`${e.date}:${it.taskId}`) ? { ...it, done: true } : it),
       }));
-      return merged;
+      return mergeFrozen(stamped);
     }
-    if (mode === "optimize") return newEntries;
+    if (mode === "optimize") return mergeFrozen(newEntries);
+    if (mode === "fresh") return mergeFrozen(newEntries);
 
     // Append: merge new entries into existing, preserving order by date.
     // We dedupe items by taskId-per-day; a new chunk replaces an existing
@@ -1069,6 +1117,8 @@ function Icon({ name, size = 14 }) {
     case "bolt":     return <svg {...common}><path d="M9 2L4 10h3l-1 4 5-8H8l1-4z" fill="currentColor" stroke="none" /></svg>;
     case "moon":     return <svg {...common}><path d="M13 9a5 5 0 11-6-6 4 4 0 006 6z" /></svg>;
     case "ring":     return <svg {...common}><circle cx="8" cy="8" r="5" strokeDasharray="6 4" /></svg>;
+    case "lock":     return <svg {...common}><rect x="3.5" y="7.5" width="9" height="6" rx="1" /><path d="M5.5 7.5V5a2.5 2.5 0 015 0v2.5" /></svg>;
+    case "unlock":   return <svg {...common}><rect x="3.5" y="7.5" width="9" height="6" rx="1" /><path d="M5.5 7.5V5a2.5 2.5 0 014.95-.5" /></svg>;
     case "queue":    return <svg {...common}><path d="M3 5h10M3 8h10M3 11h7" /></svg>;
     case "ship":     return <svg {...common}><path d="M2 11l1.5 2.5h9L14 11M3 8l5-5 5 5M8 3v8" /></svg>;
     case "calendar": return <svg {...common}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></svg>;
@@ -2609,7 +2659,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify }) {
+function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -2649,9 +2699,14 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     setCaps(next); saveKV(KEYS.caps, next);
   };
 
+  const lockedDateSet = useMemo(
+    () => new Set(Object.keys(dayLocks || {}).filter(k => dayLocks[k])),
+    [dayLocks]
+  );
+
   const runPlan = (mode) => {
     setLoading(true); setLoadMode(mode);
-    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [] }).then(p => {
+    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [], lockedDates: lockedDateSet }).then(p => {
       if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
       setLoading(false); setLoadMode(null);
     });
@@ -2661,7 +2716,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     const instruction = replanText.trim();
     if (!instruction || replanLoading) return;
     setReplanLoading(true);
-    aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction }).then(p => {
+    aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction, lockedDates: lockedDateSet }).then(p => {
       setReplanLoading(false);
       if (p == null) {
         if (notify) notify("Couldn't apply that — try rephrasing");
@@ -2873,13 +2928,27 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                 }, 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
                 const isDragOver = dragOver === iso;
 
+                const isLocked = !!(dayLocks && dayLocks[iso]);
+
                 return (
-                  <div key={iso} className="q-planner-day"
-                    onDragOver={(e) => { e.preventDefault(); setDragOver(iso); }}
+                  <div key={iso} className={"q-planner-day" + (isLocked ? " q-planner-day--locked" : "")}
+                    onDragOver={(e) => {
+                      if (isLocked) return;
+                      e.preventDefault(); setDragOver(iso);
+                    }}
                     onDragLeave={() => { if (dragOver === iso) setDragOver(null); }}
-                    onDrop={(e) => { e.preventDefault(); if (draggedId) moveTask(draggedId, iso, draggedFrom); setDraggedId(null); setDraggedFrom(null); setDragOver(null); }}
+                    onDrop={(e) => {
+                      if (isLocked) {
+                        if (notify) notify("That day is locked");
+                        setDraggedId(null); setDraggedFrom(null); setDragOver(null);
+                        return;
+                      }
+                      e.preventDefault();
+                      if (draggedId) moveTask(draggedId, iso, draggedFrom);
+                      setDraggedId(null); setDraggedFrom(null); setDragOver(null);
+                    }}
                     style={{
-                      borderColor: isDragOver ? "var(--accent)" : isToday ? "var(--accent)" : "var(--border)",
+                      borderColor: isDragOver ? "var(--accent)" : isLocked ? "var(--accent-soft)" : isToday ? "var(--accent)" : "var(--border)",
                       background: isDragOver ? "var(--accent-soft)" : "var(--bg-elev)",
                       opacity: isOff && items.length === 0 && dailyPending.length === 0
                         ? 0.45
@@ -2892,11 +2961,22 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                         <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{dateObj.getDate()}</span>
                         {isOff && <span style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>off</span>}
                       </div>
-                      {!isOff && dayH > 0 && (
-                        <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
-                          {dayH.toFixed(1)}/{cap}h
-                        </span>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {!isOff && dayH > 0 && (
+                          <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500, color: loadColor }}>
+                            {dayH.toFixed(1)}/{cap}h
+                          </span>
+                        )}
+                        <button
+                          className={"q-planner-lock" + (isLocked ? " is-locked" : "")}
+                          onClick={(e) => { e.stopPropagation(); toggleDayLock(iso); }}
+                          title={isLocked ? "Locked — click to unlock" : "Lock day (planner will skip it)"}
+                          aria-label={isLocked ? "Unlock day" : "Lock day"}
+                          aria-pressed={isLocked}
+                        >
+                          <Icon name={isLocked ? "lock" : "unlock"} size={11} />
+                        </button>
+                      </div>
                     </div>
                     {!isOff && dayH > 0 && <div style={{ margin: "0 0 8px" }}><ProgressBar pct={loadPct} tone={loadColor} height={3} /></div>}
                     {dailyPending.length > 0 && (
@@ -3619,6 +3699,7 @@ export default function App() {
   const [weeklyDismissed, setWeeklyDismissed] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
   const [dayClosed, setDayClosed] = useState(null); // { date, closedAt }
+  const [dayLocks, setDayLocks] = useState({}); // { "YYYY-MM-DD": true }
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -3663,6 +3744,10 @@ export default function App() {
       const closed = await loadKV("quest_day_closed", null);
       if (closed && closed.date === isoDate(new Date())) setDayClosed(closed);
       else setDayClosed(null);
+
+      // Day locks
+      const locks = await loadKV(LOCKS_KEY, {});
+      setDayLocks(locks && typeof locks === "object" ? locks : {});
 
       setReady(true);
       const changed = processed.some((x, i) => t[i] && x.completed !== t[i].completed);
@@ -4260,6 +4345,16 @@ export default function App() {
     else notify("Day closed");
   }, [rollForwardToday, notify]);
 
+  const toggleDayLock = useCallback((iso) => {
+    setDayLocks(prev => {
+      const next = { ...prev };
+      if (next[iso]) delete next[iso];
+      else next[iso] = true;
+      saveKV(LOCKS_KEY, next);
+      return next;
+    });
+  }, []);
+
   const reopenDay = useCallback(async () => {
     setDayClosed(null);
     await saveKV("quest_day_closed", null);
@@ -4303,6 +4398,7 @@ export default function App() {
     weeklyDismissed, setWeeklyDismissed,
     previewMode,
     dayClosed, reopenDay,
+    dayLocks, toggleDayLock,
   };
 
   return (

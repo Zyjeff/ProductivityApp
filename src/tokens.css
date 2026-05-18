@@ -344,6 +344,25 @@ body {
               background var(--t-fast);
 }
 .q-planner-day:hover { flex: 3 1 0; }
+.q-planner-day--locked {
+  background:
+    repeating-linear-gradient(135deg,
+      transparent 0,
+      transparent 8px,
+      rgba(167,139,250,0.05) 8px,
+      rgba(167,139,250,0.05) 16px),
+    var(--bg-elev);
+}
+.q-planner-lock {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-faint);
+  padding: 3px; border-radius: 3px;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.q-planner-lock:hover { color: var(--text); background: var(--bg-soft); }
+.q-planner-lock.is-locked { color: var(--accent-strong); }
+.q-planner-lock.is-locked:hover { background: var(--accent-soft); }
 .q-planner-day-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 6px; margin-bottom: 6px;
