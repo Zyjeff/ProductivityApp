@@ -483,7 +483,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       .join("\n");
     if (lines) {
       const label = mode === "replan"
-        ? "Current plan (rearrange per the user instruction below)"
+        ? "Current plan (context only — you may rearrange entirely; the density and priority rules above still apply)"
         : "Already scheduled (do not move)";
       existingBlock = `\n${label}:\n${lines}\n`;
     }
@@ -494,16 +494,11 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     : mode === "append"
     ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
     : mode === "replan"
-    ? "Mode: REPLAN — You MUST apply the user instruction below to the current plan and return the full revised schedule.\n" +
-      "- Include EVERY task that is currently scheduled (do not drop tasks that the user didn't ask to remove).\n" +
-      "- You may move tasks to different dates, change the order, split tasks, or merge split chunks — whatever the instruction implies.\n" +
-      "- Use the EXACT task titles from the 'Tasks to place' list below; do not invent new titles or rewrite existing ones.\n" +
-      "- Return a complete new plan in items[] form — not a diff, not commentary, not an empty array.\n" +
-      "- If the instruction is ambiguous, make a reasonable interpretation and still return the full revised plan."
+    ? "Mode: REPLAN — replan all listed tasks from scratch, honoring the additional user request below as a top-priority constraint. Otherwise apply the same density and priority rules as a full optimization (rule 3 still applies — pack earliest days first, no gaps before later scheduled days)."
     : "Mode: FRESH — no prior plan exists; place all listed tasks.";
 
   const instructionBlock = mode === "replan" && opts.instruction
-    ? `\nUser instruction: ${JSON.stringify(opts.instruction.trim())}\n`
+    ? `\nUser request: ${JSON.stringify(opts.instruction.trim())}\n`
     : "";
 
   const totalH = tasksToPlan.reduce((s, t) => s + (taskHours(t)), 0);
