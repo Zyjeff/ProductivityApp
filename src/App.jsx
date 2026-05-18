@@ -294,6 +294,23 @@ async function aiScore(title, desc, subtasks, tags, notes) {
   }
 }
 
+function extractJsonArray(text) {
+  if (!text) return null;
+  const stripped = String(text).replace(/```\w*|```/g, "").trim();
+  // Direct attempt
+  try { const j = JSON.parse(stripped); if (Array.isArray(j)) return j; } catch {}
+  // Fall back: find the first '[' and the matching final ']'
+  const first = stripped.indexOf("[");
+  const last = stripped.lastIndexOf("]");
+  if (first === -1 || last === -1 || last <= first) return null;
+  try { const j = JSON.parse(stripped.slice(first, last + 1)); if (Array.isArray(j)) return j; } catch {}
+  return null;
+}
+
+function normalizeTitleKey(s) {
+  return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 const AI_PLAN_RULES =
   "You are a scheduler for Jeffrey (freelance UI/UX dev, Netherlands). " +
   "Given a list of unscheduled tasks and a set of workdays with their " +
@@ -393,10 +410,19 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   if (!dates.length) return existingPlan;
 
   // Storage shape: {date, items:[{taskId,hours?,note?}]}. Prompt + AI use
-  // titles (more readable for Claude); we translate at the boundary.
+  // titles (more readable for Claude); we translate at the boundary using
+  // a normalized-key map so casing/punctuation differences in the model
+  // output don't lose items.
   const tasksById = new Map(tasks.map(t => [t.id, t]));
   const titleToId = new Map();
-  for (const t of allPending) if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
+  const normTitleToId = new Map();
+  for (const t of allPending) {
+    if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
+    const key = normalizeTitleKey(t.title);
+    if (key && !normTitleToId.has(key)) normTitleToId.set(key, t.id);
+  }
+  const resolveTitle = (title) =>
+    titleToId.get(title) || normTitleToId.get(normalizeTitleKey(title)) || null;
 
   // Per-date scheduled hours from existingPlan (only used for append).
   const scheduledIds = new Set(existingPlan.flatMap(e => (e.items || []).map(i => i.taskId)));
@@ -463,7 +489,12 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     : mode === "append"
     ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
     : mode === "replan"
-    ? "Mode: REPLAN — apply the user instruction below to the current plan. You may reorder, move, split, or leave things as-is; respect day caps and priority order. Return a complete new plan (not a diff)."
+    ? "Mode: REPLAN — You MUST apply the user instruction below to the current plan and return the full revised schedule.\n" +
+      "- Include EVERY task that is currently scheduled (do not drop tasks that the user didn't ask to remove).\n" +
+      "- You may move tasks to different dates, change the order, split tasks, or merge split chunks — whatever the instruction implies.\n" +
+      "- Use the EXACT task titles from the 'Tasks to place' list below; do not invent new titles or rewrite existing ones.\n" +
+      "- Return a complete new plan in items[] form — not a diff, not commentary, not an empty array.\n" +
+      "- If the instruction is ambiguous, make a reasonable interpretation and still return the full revised plan."
     : "Mode: FRESH — no prior plan exists; place all listed tasks.";
 
   const instructionBlock = mode === "replan" && opts.instruction
@@ -496,9 +527,15 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       }),
     });
     const d = await r.json();
-    const parsed = JSON.parse(d.content[0].text.replace(/```\w*|```/g, "").trim());
+    const rawText = d?.content?.[0]?.text || "";
+    const parsed = extractJsonArray(rawText);
+    if (!parsed) {
+      console.warn("aiPlanWeek: couldn't extract JSON array from response", rawText.slice(0, 500));
+      return existingPlan.length ? existingPlan : null;
+    }
     // Accept both shapes — the model occasionally returns the older
     // {tasks:[...]} format. Normalize to items[].
+    let drops = 0;
     const normalizeEntry = (e) => {
       if (!e || !e.date) return null;
       const rawItems = Array.isArray(e.items)
@@ -509,10 +546,10 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       const items = rawItems
         .map(it => {
           const title = it && it.title;
-          if (!title) return null;
-          const id = titleToId.get(title);
-          if (!id) return null;
-          const out = { taskId: id };
+          if (!title) { drops += 1; return null; }
+          const id = resolveTitle(title);
+          if (!id) { drops += 1; return null; }
+          const out = { taskId: id, done: false };
           if (typeof it.hours === "number" && it.hours > 0) out.hours = Math.round(it.hours * 10) / 10;
           if (typeof it.note === "string" && it.note.trim()) out.note = it.note.trim().slice(0, 80);
           return out;
@@ -522,7 +559,32 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     };
     const newEntries = parsed.map(normalizeEntry).filter(Boolean);
 
-    if (mode === "optimize" || mode === "replan") return newEntries;
+    if (mode === "replan") {
+      // Defensive: if the model wiped or significantly dropped items, keep
+      // the existing plan instead of clobbering with nothing.
+      const newUniqueIds = new Set(newEntries.flatMap(e => e.items.map(i => i.taskId)));
+      const existingIds = new Set(existingPlan.flatMap(e => (e.items || []).map(i => i.taskId)));
+      if (newUniqueIds.size === 0 || (existingIds.size > 0 && newUniqueIds.size < existingIds.size * 0.5)) {
+        console.warn("aiPlanWeek replan: refusing to apply — result drops too many tasks", {
+          existingIds: existingIds.size, newUniqueIds: newUniqueIds.size, drops, rawText: rawText.slice(0, 500),
+        });
+        return null; // signal "no change applied"
+      }
+      // Preserve per-chunk `done` values from the previous plan where the
+      // model retained the assignment unchanged.
+      const prevDone = new Map();
+      for (const e of existingPlan) {
+        for (const it of (e.items || [])) {
+          if (it.done) prevDone.set(`${e.date}:${it.taskId}`, true);
+        }
+      }
+      const merged = newEntries.map(e => ({
+        ...e,
+        items: e.items.map(it => prevDone.get(`${e.date}:${it.taskId}`) ? { ...it, done: true } : it),
+      }));
+      return merged;
+    }
+    if (mode === "optimize") return newEntries;
 
     // Append: merge new entries into existing, preserving order by date.
     // We dedupe items by taskId-per-day; a new chunk replaces an existing
@@ -540,8 +602,9 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       .map(([date, items]) => ({ date, items }))
       .filter(e => e.items.length)
       .sort((a, b) => a.date.localeCompare(b.date));
-  } catch {
-    return existingPlan.length ? existingPlan : null;
+  } catch (e) {
+    console.error("aiPlanWeek failed:", e);
+    return mode === "replan" ? null : (existingPlan.length ? existingPlan : null);
   }
 }
 
@@ -2515,7 +2578,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone }) {
+function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -2568,8 +2631,19 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     if (!instruction || replanLoading) return;
     setReplanLoading(true);
     aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction }).then(p => {
-      if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); setReplanText(""); }
       setReplanLoading(false);
+      if (p == null) {
+        if (notify) notify("Couldn't apply that — try rephrasing");
+        return;
+      }
+      setWeekPlan(p);
+      saveKV(KEYS.weekplan, p);
+      setReplanText("");
+      if (notify) notify("Plan updated");
+    }).catch(e => {
+      console.error("Replan error:", e);
+      setReplanLoading(false);
+      if (notify) notify("Replan failed — check the console");
     });
   };
 
@@ -4185,7 +4259,7 @@ export default function App() {
 
   const shared = {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
-    weekPlan, setWeekPlan,
+    weekPlan, setWeekPlan, notify,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
     toggleSub, splitTask, toggleChunkDone,
     addChildToProject, removeChildFromProject,
