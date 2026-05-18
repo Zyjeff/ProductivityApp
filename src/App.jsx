@@ -732,6 +732,17 @@ function taskHours(t) {
   return DIFFICULTY[t?.difficulty]?.hours || 1.5;
 }
 
+// Focus time recorded in `task.focusMs` is the running total since the last
+// reset. For daily-recurring tasks the "instance" resets each day, so any
+// focusMs whose focusDate doesn't match today is stale and reads as 0.
+// (Weekly recurring is left alone for now — its cycle is longer than a day
+// so the stale risk is much smaller.)
+function effectiveFocusMs(t) {
+  if (!t || !t.focusMs) return 0;
+  if (t.recurring === "daily" && t.focusDate && t.focusDate !== isoDate(new Date())) return 0;
+  return t.focusMs;
+}
+
 function fmtFocusMs(ms) {
   if (!ms || ms < 1000) return "0m";
   const totalMin = Math.floor(ms / 60000);
@@ -1396,19 +1407,23 @@ function TaskRow({
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          {task.focusMs > 0 && !done && (
-            <span
-              title="Time focused on this task"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
-                fontSize: 11, fontFamily: "var(--font-mono)",
-                color: "var(--accent-strong)",
-              }}
-            >
-              <Icon name="focus" size={10} />
-              {fmtFocusMs(task.focusMs)}
-            </span>
-          )}
+          {(() => {
+            const fm = effectiveFocusMs(task);
+            if (!(fm > 0) || done) return null;
+            return (
+              <span
+                title={task.recurring === "daily" ? "Time focused today" : "Time focused on this task"}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, fontFamily: "var(--font-mono)",
+                  color: "var(--accent-strong)",
+                }}
+              >
+                <Icon name="focus" size={10} />
+                {fmtFocusMs(fm)}
+              </span>
+            );
+          })()}
           {sub.length > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
               {doneSub}/{sub.length}
@@ -3584,7 +3599,7 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
 /* ───── FOCUS TUNNEL ───── */
 
 function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, onSaveTime }) {
-  const initialMs = task?.focusMs || 0;
+  const initialMs = effectiveFocusMs(task);
   const [running, setRunning] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(initialMs);
   const startedAtRef = useRef(null);
@@ -3593,7 +3608,7 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
 
   // Re-seed when the focused task changes (advance/skip).
   useEffect(() => {
-    const seed = task?.focusMs || 0;
+    const seed = effectiveFocusMs(task);
     baseRef.current = seed;
     setElapsedMs(seed);
     setRunning(true);
@@ -3979,7 +3994,10 @@ export default function App() {
 
   const updateTaskFocusTime = useCallback((id, ms) => {
     setTasks(prev => {
-      const next = prev.map(t => t.id === id ? { ...t, focusMs: Math.max(0, Math.round(ms)) } : t);
+      const today = isoDate(new Date());
+      const next = prev.map(t => t.id === id
+        ? { ...t, focusMs: Math.max(0, Math.round(ms)), focusDate: today }
+        : t);
       saveKV(KEYS.tasks, next);
       return next;
     });
