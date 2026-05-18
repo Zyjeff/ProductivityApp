@@ -312,6 +312,11 @@ function normalizeTitleKey(s) {
 }
 
 const AI_PLAN_RULES =
+  "OUTPUT FORMAT — STRICT. Your entire response is a single JSON array. " +
+  "Do NOT think out loud, do NOT include any prose, headers, code fences, " +
+  "explanations, or commentary before, between, or after the JSON. The " +
+  "response starts with `[` and ends with `]`. If you need to reason, do " +
+  "it internally and only output the final array.\n\n" +
   "You are a scheduler for Jeffrey (freelance UI/UX dev, Netherlands). " +
   "Given a list of unscheduled tasks and a set of workdays with their " +
   "remaining capacity (hours), assign tasks to specific dates.\n\n" +
@@ -516,22 +521,27 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1200,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: AI_PLAN_RULES, cache_control: { type: "ephemeral" } },
-            { type: "text", text: dynamic },
-          ],
-        }],
+        max_tokens: 3000,
+        // Prefill the assistant response with "[" so the model has to continue
+        // an array — there's no slot to start with prose / chain-of-thought.
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: AI_PLAN_RULES, cache_control: { type: "ephemeral" } },
+              { type: "text", text: dynamic },
+            ],
+          },
+          { role: "assistant", content: "[" },
+        ],
       }),
     });
     const d = await r.json();
-    const rawText = d?.content?.[0]?.text || "";
+    const rawText = "[" + (d?.content?.[0]?.text || "");
     const parsed = extractJsonArray(rawText);
     if (!parsed) {
-      console.warn("aiPlanWeek: couldn't extract JSON array from response", rawText.slice(0, 500));
-      return existingPlan.length ? existingPlan : null;
+      console.warn("aiPlanWeek: couldn't extract JSON array from response", rawText.slice(0, 800));
+      return mode === "replan" ? null : (existingPlan.length ? existingPlan : null);
     }
     // Accept both shapes — the model occasionally returns the older
     // {tasks:[...]} format. Normalize to items[].
