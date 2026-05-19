@@ -1130,6 +1130,7 @@ function Icon({ name, size = 14 }) {
     case "ring":     return <svg {...common}><circle cx="8" cy="8" r="5" strokeDasharray="6 4" /></svg>;
     case "lock":     return <svg {...common}><rect x="3.5" y="7.5" width="9" height="6" rx="1" /><path d="M5.5 7.5V5a2.5 2.5 0 015 0v2.5" /></svg>;
     case "unlock":   return <svg {...common}><rect x="3.5" y="7.5" width="9" height="6" rx="1" /><path d="M5.5 7.5V5a2.5 2.5 0 014.95-.5" /></svg>;
+    case "reset":    return <svg {...common}><path d="M3 8a5 5 0 109-3" /><path d="M9 2L12 5L9 8" /></svg>;
     case "queue":    return <svg {...common}><path d="M3 5h10M3 8h10M3 11h7" /></svg>;
     case "ship":     return <svg {...common}><path d="M2 11l1.5 2.5h9L14 11M3 8l5-5 5 5M8 3v8" /></svg>;
     case "calendar": return <svg {...common}><rect x="2.5" y="3.5" width="11" height="10" rx="1.5" /><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3" /></svg>;
@@ -3606,14 +3607,21 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
   const baseRef = useRef(initialMs);
   const taskIdRef = useRef(task?.id);
 
-  // Re-seed when the focused task changes (advance/skip).
+  // Re-seed ONLY when the focused task itself changes (advance / skip).
+  // Depending on task.focusMs would re-fire on every save we make (since
+  // the saved value flows back into the task prop), which would reset
+  // baseRef while startedAt stays put — the timer would compound itself
+  // and the running flag would flip back to true on every save (breaking
+  // pause). The actual focusMs delta is tracked locally in baseRef; we
+  // don't need to react to writes we just made ourselves.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const seed = effectiveFocusMs(task);
     baseRef.current = seed;
     setElapsedMs(seed);
     setRunning(true);
     taskIdRef.current = task?.id;
-  }, [task?.id, task?.focusMs]);
+  }, [task?.id]);
 
   useEffect(() => {
     if (!running || !task) return;
@@ -3646,6 +3654,13 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
     return () => window.removeEventListener("keydown", h);
   }, [onExit]);
 
+  const handleReset = () => {
+    baseRef.current = 0;
+    startedAtRef.current = Date.now();
+    setElapsedMs(0);
+    if (onSaveTime && task) onSaveTime(task.id, 0);
+  };
+
   if (!task) return null;
   const sec = Math.floor(elapsedMs / 1000);
   const p2 = (n) => String(n).padStart(2, "0");
@@ -3675,9 +3690,17 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
         </div>
         <h1 className="q-focus-title">{task.title}</h1>
         <div className="q-focus-timer">{timeStr}</div>
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
           <button className="q-btn q-btn--outline" onClick={() => setRunning(r => !r)} style={{ minWidth: 130 }}>
             {running ? "Pause" : "Resume"} <span className="q-kbd" style={{ marginLeft: 4 }}>Space</span>
+          </button>
+          <button
+            className="q-btn q-btn--ghost"
+            onClick={handleReset}
+            title="Reset timer to 00:00"
+            disabled={elapsedMs === 0}
+          >
+            <Icon name="reset" size={13} /> Reset
           </button>
           <button className="q-btn q-btn--success" onClick={onComplete}>
             <Icon name="check" size={13} /> Mark complete
