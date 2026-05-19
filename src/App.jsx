@@ -710,12 +710,12 @@ function getLevelInfo(xp) {
   };
 }
 
-function processRecurring(tasks) {
-  const today = new Date().toDateString();
+function processRecurring(tasks, dayStartHour = 0) {
+  const today = effectiveTodayDateStr(dayStartHour);
   const now = Date.now();
   return tasks.map(t => {
     if (!t.recurring || t.recurring === "none" || !t.completed) return t;
-    if (t.recurring === "daily" && new Date(t.completedAt || 0).toDateString() !== today)
+    if (t.recurring === "daily" && effectiveDateStrOf(t.completedAt || 0, dayStartHour) !== today)
       return { ...t, completed: false, completedAt: null };
     if (t.recurring === "weekly" && t.completedAt && (now - t.completedAt) >= 7 * 86400000)
       return { ...t, completed: false, completedAt: null };
@@ -726,6 +726,23 @@ function processRecurring(tasks) {
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
+
+// Day-rollover hour. With hour=0 (midnight), the "day" turns over at 00:00.
+// With hour=4, the user's day rolls at 4am, so 1am still counts as the
+// previous day. All "today"-derived comparisons (completion grouping, daily
+// recurrence reset, focus-time reset, screen-log key, day-closed marker)
+// should respect this.
+function effectiveToday(hour = 0, d = new Date()) {
+  if (!hour) return d;
+  const out = new Date(d);
+  if (out.getHours() < hour) out.setDate(out.getDate() - 1);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+function effectiveTodayIso(hour = 0) { return isoDate(effectiveToday(hour)); }
+function effectiveTodayDateStr(hour = 0) { return effectiveToday(hour).toDateString(); }
+function effectiveDateStrOf(ms, hour = 0) { return effectiveToday(hour, new Date(ms)).toDateString(); }
+function effectiveIsoOf(ms, hour = 0) { return isoDate(effectiveToday(hour, new Date(ms))); }
 
 function taskHours(t) {
   if (t && typeof t.hours === "number" && t.hours > 0) return t.hours;
@@ -739,9 +756,9 @@ function taskHours(t) {
 // session) without needing per-chunk storage. Single-instance tasks lose
 // their cross-day cumulative count, which matches the "today" framing the
 // badge already implies.
-function effectiveFocusMs(t) {
+function effectiveFocusMs(t, dayStartHour = 0) {
   if (!t || !t.focusMs) return 0;
-  if (t.focusDate && t.focusDate !== isoDate(new Date())) return 0;
+  if (t.focusDate && t.focusDate !== effectiveTodayIso(dayStartHour)) return 0;
   return t.focusMs;
 }
 
@@ -1351,7 +1368,7 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
 function TaskRow({
   task, projectName,
   onComplete, onUncomplete, onDelete, onEdit, onToggleSub, onSplit, onFocus,
-  compact, expanded, onToggleExpand,
+  compact, expanded, onToggleExpand, dayStartHour = 0,
 }) {
   const done = task.completed;
   const ageDays = task.createdAt ? Math.floor((Date.now() - task.createdAt) / 86400000) : 0;
@@ -1411,7 +1428,7 @@ function TaskRow({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           {(() => {
-            const fm = effectiveFocusMs(task);
+            const fm = effectiveFocusMs(task, dayStartHour);
             if (!(fm > 0) || done) return null;
             return (
               <span
@@ -1496,7 +1513,7 @@ function TaskRow({
 
 /* ───── SIDEBAR ───── */
 
-function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnterPreview, onExitPreview }) {
+function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnterPreview, onExitPreview, dayStartHour, onChangeDayStartHour }) {
   return (
     <aside className="q-sidebar" style={{
       width: 200, flexShrink: 0, height: "100vh",
@@ -1556,6 +1573,32 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnter
             </button>
           )}
         </div>
+        <label
+          style={{
+            marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 8, fontSize: 11, color: "var(--text-faint)",
+          }}
+          title="At what hour does your day roll over? Set to 4 if you work past midnight and want 1am to still count as today."
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Icon name="moon" size={11} /> day rolls at
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+            <input
+              type="number" min="0" max="23"
+              value={dayStartHour}
+              onChange={(e) => onChangeDayStartHour && onChangeDayStartHour(e.target.value)}
+              style={{
+                width: 34, textAlign: "right",
+                padding: "2px 4px",
+                background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: 3,
+                color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11,
+              }}
+              aria-label="Day rollover hour"
+            />
+            <span style={{ fontFamily: "var(--font-mono)" }}>:00</span>
+          </span>
+        </label>
       </div>
     </aside>
   );
@@ -1874,6 +1917,7 @@ function TodayView({
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
   previewMode, dayClosed, reopenDay,
+  dayStartHour = 0,
 }) {
   const [editing, setEditing] = useState(null);
   const [exp,     setExp]     = useState(null);
@@ -1883,7 +1927,7 @@ function TodayView({
   useEffect(() => { loadKV(KEYS.screen, {}).then(setScreenLog); }, []);
 
   const tName = todayName();
-  const today = todayKey();
+  const today = effectiveTodayIso(dayStartHour);
   const entry = screenLog[today] || { xOpens: 0, ytOpens: 0, mobileHours: null };
   const patchScreen = (obj) => {
     const next = { ...screenLog, [today]: { ...entry, ...obj } };
@@ -1895,10 +1939,10 @@ function TodayView({
   // (it disappears via processRecurring on the next calendar day).
   const dailyAll = tasks.filter(t => t.recurring === "daily");
   const dailyPending = dailyAll;  // alias for downstream consumers
-  const todayDateStr = new Date().toDateString();
-  const todayDone = tasks.filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === todayDateStr);
+  const todayDateStr = effectiveTodayDateStr(dayStartHour);
+  const todayDone = tasks.filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === todayDateStr);
 
-  const todayIso = isoDate(new Date());
+  const todayIso = effectiveTodayIso(dayStartHour);
   const todayPlanData = weekPlan
     ? (weekPlan.find(d => d.date === todayIso) || { items: [] })
     : null;
@@ -2111,6 +2155,7 @@ function TodayView({
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
+                  dayStartHour={dayStartHour}
                 />
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
@@ -2304,7 +2349,7 @@ function QueueView({
   tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
   deleteTask, toggleSub, splitTask, createProjectFromCapture, setView,
-  openNewTask, setOpenNewTask,
+  openNewTask, setOpenNewTask, dayStartHour = 0,
 }) {
   const [filter, setFilter] = useState("pending");
   const [sortBy, setSortBy] = useState("priority");
@@ -2382,6 +2427,7 @@ function QueueView({
               onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
+              dayStartHour={dayStartHour}
             />
           ))}
         </div>
@@ -2667,7 +2713,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock }) {
+function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -2800,7 +2846,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
     return map;
   }, [weekPlan]);
 
-  const todayIso = isoDate(new Date());
+  const todayIso = effectiveTodayIso(dayStartHour);
 
   return (
     <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 1080, margin: "0 auto" }}>
@@ -3132,7 +3178,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
 
 /* ───── HABITS VIEW ───── */
 
-function HabitsView() {
+function HabitsView({ dayStartHour = 0 }) {
   const [log, setLog] = useState({});
   const [mobileInput, setMobileInput] = useState("");
   const [editingCounter, setEditingCounter] = useState(null);
@@ -3140,7 +3186,7 @@ function HabitsView() {
   const [ready, setReady] = useState(false);
   useEffect(() => { loadKV(KEYS.screen, {}).then(d => { setLog(d); setReady(true); }); }, []);
 
-  const today = todayKey();
+  const today = effectiveTodayIso(dayStartHour);
   const entry = log[today] || { xOpens: 0, ytOpens: 0, mobileHours: null };
   const patch = (obj) => {
     const next = { ...log, [today]: { ...entry, ...obj } };
@@ -3460,20 +3506,20 @@ function WeeklyPulse({ tasks, onDismiss }) {
 
 /* ───── END-OF-DAY RITUAL ───── */
 
-function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
+function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay, dayStartHour = 0 }) {
   const [screen, setScreen] = useState({ xOpens: 0, ytOpens: 0, mobileHours: null });
   const [mobile, setMobile] = useState("");
   const [rollForward, setRollForward] = useState(true);
   useEffect(() => {
     loadKV(KEYS.screen, {}).then(d => {
-      setScreen(d[todayKey()] || { xOpens: 0, ytOpens: 0, mobileHours: null });
+      setScreen(d[effectiveTodayIso(dayStartHour)] || { xOpens: 0, ytOpens: 0, mobileHours: null });
     });
-  }, []);
+  }, [dayStartHour]);
 
-  const todayStr = new Date().toDateString();
-  const todayIso = isoDate(new Date());
+  const todayStr = effectiveTodayDateStr(dayStartHour);
+  const todayIso = effectiveTodayIso(dayStartHour);
   const completedToday = tasks.filter(t => t.completed && t.completedAt &&
-    new Date(t.completedAt).toDateString() === todayStr);
+    effectiveDateStrOf(t.completedAt, dayStartHour) === todayStr);
   const xpToday = completedToday.reduce((s, t) => s + (t.xp || 0), 0);
   const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
   const scheduledTomorrow = (todayEntry?.items || [])
@@ -3484,7 +3530,7 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
     if (!mobile) return;
     const hrs = parseFloat(mobile) || 0;
     loadKV(KEYS.screen, {}).then(d => {
-      const next = { ...d, [todayKey()]: { ...screen, mobileHours: hrs } };
+      const next = { ...d, [effectiveTodayIso(dayStartHour)]: { ...screen, mobileHours: hrs } };
       saveKV(KEYS.screen, next);
       setScreen({ ...screen, mobileHours: hrs });
       setMobile("");
@@ -3620,8 +3666,8 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay }) {
 
 /* ───── FOCUS TUNNEL ───── */
 
-function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, onSaveTime }) {
-  const initialMs = effectiveFocusMs(task);
+function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, onSaveTime, dayStartHour = 0 }) {
+  const initialMs = effectiveFocusMs(task, dayStartHour);
   const [running, setRunning] = useState(true);
   const [elapsedMs, setElapsedMs] = useState(initialMs);
   const startedAtRef = useRef(null);
@@ -3637,7 +3683,7 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
   // don't need to react to writes we just made ourselves.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const seed = effectiveFocusMs(task);
+    const seed = effectiveFocusMs(task, dayStartHour);
     baseRef.current = seed;
     setElapsedMs(seed);
     setRunning(true);
@@ -3759,6 +3805,7 @@ export default function App() {
   const [previewMode, setPreviewMode] = useState(false);
   const [dayClosed, setDayClosed] = useState(null); // { date, closedAt }
   const [dayLocks, setDayLocks] = useState({}); // { "YYYY-MM-DD": true }
+  const [dayStartHour, setDayStartHour] = useState(0); // 0-23, when the "day" rolls over
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -3768,6 +3815,12 @@ export default function App() {
   useEffect(() => {
     (async () => {
       await runMigrations();
+      // Load the day-rollover hour first so every downstream "today"
+      // computation respects it.
+      const rawHour = await loadKV("quest_day_start_hour", 0);
+      const dsh = typeof rawHour === "number" && rawHour >= 0 && rawHour <= 23 ? rawHour : 0;
+      setDayStartHour(dsh);
+
       const [t, p, a, w, pr] = await Promise.all([
         loadKV(KEYS.tasks, []),
         loadKV(KEYS.profile, { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
@@ -3775,15 +3828,15 @@ export default function App() {
         loadKV(KEYS.weekplan, null),
         loadKV(KEYS.projects, []),
       ]);
-      const todayStr = new Date().toDateString();
-      const yesterStr = new Date(Date.now() - 86400000).toDateString();
+      const todayStr = effectiveTodayDateStr(dsh);
+      const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dsh);
       let streak = p.streak || 0;
       let todayXP = p.todayXP || 0;
       if (p.lastDate !== todayStr) {
         todayXP = 0;
         if (p.lastDate !== yesterStr) streak = 0;
       }
-      const processed = processRecurring(t);
+      const processed = processRecurring(t, dsh);
       setTasks(processed);
       setProjects(pr || []);
       setProfile({ ...p, todayXP, streak });
@@ -3801,7 +3854,7 @@ export default function App() {
 
       // Day-closed marker
       const closed = await loadKV("quest_day_closed", null);
-      if (closed && closed.date === isoDate(new Date())) setDayClosed(closed);
+      if (closed && closed.date === effectiveTodayIso(dsh)) setDayClosed(closed);
       else setDayClosed(null);
 
       // Day locks
@@ -3826,7 +3879,7 @@ export default function App() {
   const planClearedInitRef = useRef(false);
   useEffect(() => {
     if (!ready) return;
-    const todayIso = isoDate(new Date());
+    const todayIso = effectiveTodayIso(dayStartHour);
     const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
     const dailyTasks = tasks.filter(t => t.recurring === "daily");
     const scheduledIds = todayEntry?.taskIds || [];
@@ -3847,7 +3900,7 @@ export default function App() {
     } else if (!allDone) {
       planClearedRef.current = false;
     }
-  }, [tasks, weekPlan, ready, notify]);
+  }, [tasks, weekPlan, ready, notify, dayStartHour]);
 
   // Level up: detect rising-edge crossings on the level number.
   useEffect(() => {
@@ -3868,7 +3921,7 @@ export default function App() {
     const projectsArg = Array.isArray(pr) ? pr : projects;
     const wk = Date.now() - 7 * 86400000;
     loadKV(KEYS.screen, {}).then(sl => {
-      const te = sl[todayKey()] || {};
+      const te = sl[effectiveTodayIso(dayStartHour)] || {};
       const checks = {
         first:     p.completedCount >= 1,
         five:      p.completedCount >= 5,
@@ -3894,13 +3947,13 @@ export default function App() {
         if (def) notify("Trophy: " + def.title);
       }
     });
-  }, [projects, notify]);
+  }, [projects, notify, dayStartHour]);
 
   const completeTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
     if (!task || task.completed) return;
-    const todayStr  = new Date().toDateString();
-    const yesterStr = new Date(Date.now() - 86400000).toDateString();
+    const todayStr  = effectiveTodayDateStr(dayStartHour);
+    const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dayStartHour);
     const upd = tasks.map(t => t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t);
     const np = {
       ...profile,
@@ -3929,13 +3982,13 @@ export default function App() {
         }
       }
     }
-  }, [tasks, profile, unlocked, projects, notify, checkAchievements]);
+  }, [tasks, profile, unlocked, projects, notify, checkAchievements, dayStartHour]);
 
   const uncompleteTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
     if (!task || !task.completed) return;
-    const todayStr = new Date().toDateString();
-    const wasToday = task.completedAt && new Date(task.completedAt).toDateString() === todayStr;
+    const todayStr = effectiveTodayDateStr(dayStartHour);
+    const wasToday = task.completedAt && effectiveDateStrOf(task.completedAt, dayStartHour) === todayStr;
     const upd = tasks.map(t => t.id === id ? { ...t, completed: false, completedAt: null } : t);
     const np = {
       ...profile,
@@ -3954,7 +4007,7 @@ export default function App() {
         setProjects(updP); saveKV(KEYS.projects, updP);
       }
     }
-  }, [tasks, profile, projects, notify]);
+  }, [tasks, profile, projects, notify, dayStartHour]);
 
   const addTask = useCallback((data) => {
     const optimistic = {
@@ -4038,14 +4091,14 @@ export default function App() {
 
   const updateTaskFocusTime = useCallback((id, ms) => {
     setTasks(prev => {
-      const today = isoDate(new Date());
+      const today = effectiveTodayIso(dayStartHour);
       const next = prev.map(t => t.id === id
         ? { ...t, focusMs: Math.max(0, Math.round(ms)), focusDate: today }
         : t);
       saveKV(KEYS.tasks, next);
       return next;
     });
-  }, []);
+  }, [dayStartHour]);
 
   const toggleSub = useCallback((tid, sid) => {
     const upd = tasks.map(t => t.id !== tid ? t : {
@@ -4308,7 +4361,7 @@ export default function App() {
 
   // Focus tunnel state
   const focusTask = focusTaskId ? tasksById.get(focusTaskId) : null;
-  const todayIso = isoDate(new Date());
+  const todayIso = effectiveTodayIso(dayStartHour);
   const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
   const nextFocusId = useMemo(() => {
     if (!focusTaskId) return null;
@@ -4364,7 +4417,7 @@ export default function App() {
   }, [previewMode, tasks, projects, profile, unlocked, weekPlan, notify]);
 
   const rollForwardToday = useCallback(async () => {
-    const todayIso = isoDate(new Date());
+    const todayIso = effectiveTodayIso(dayStartHour);
     const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
     if (!todayEntry) return 0;
     const unfinishedItems = (todayEntry.items || []).filter(it => {
@@ -4400,18 +4453,25 @@ export default function App() {
     setWeekPlan(next);
     await saveKV(KEYS.weekplan, next);
     return unfinishedItems.length;
-  }, [tasks, weekPlan]);
+  }, [tasks, weekPlan, dayStartHour]);
 
   const closeDay = useCallback(async ({ rollForward }) => {
     let moved = 0;
     if (rollForward) moved = await rollForwardToday();
-    const closed = { date: isoDate(new Date()), closedAt: Date.now() };
+    const closed = { date: effectiveTodayIso(dayStartHour), closedAt: Date.now() };
     setDayClosed(closed);
     await saveKV("quest_day_closed", closed);
     setEndOfDayOpen(false);
     if (moved > 0) notify(`Day closed · ${moved} task${moved > 1 ? "s" : ""} rolled forward`);
     else notify("Day closed");
-  }, [rollForwardToday, notify]);
+  }, [rollForwardToday, notify, dayStartHour]);
+
+  const updateDayStartHour = useCallback((raw) => {
+    const n = parseInt(raw, 10);
+    const safe = isNaN(n) ? 0 : Math.max(0, Math.min(23, n));
+    setDayStartHour(safe);
+    saveKV("quest_day_start_hour", safe);
+  }, []);
 
   const toggleDayLock = useCallback((iso) => {
     setDayLocks(prev => {
@@ -4467,6 +4527,7 @@ export default function App() {
     previewMode,
     dayClosed, reopenDay,
     dayLocks, toggleDayLock,
+    dayStartHour, updateDayStartHour,
   };
 
   return (
@@ -4489,6 +4550,8 @@ export default function App() {
             previewMode={previewMode}
             onEnterPreview={enterPreview}
             onExitPreview={exitPreview}
+            dayStartHour={dayStartHour}
+            onChangeDayStartHour={updateDayStartHour}
           />
           <main className="q-scroll" style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
             {previewMode && (
@@ -4505,7 +4568,7 @@ export default function App() {
             {view === "queue"    && <QueueView    {...shared} />}
             {view === "pipeline" && <PipelineView {...shared} />}
             {view === "planner"  && <PlannerView  {...shared} />}
-            {view === "habits"   && <HabitsView   />}
+            {view === "habits"   && <HabitsView   dayStartHour={dayStartHour} />}
             {view === "trophies" && <TrophiesView unlocked={unlocked} />}
           </main>
           {toast && <Toast msg={toast.msg} xp={toast.xp} />}
@@ -4524,6 +4587,7 @@ export default function App() {
               profile={profile}
               onClose={() => setEndOfDayOpen(false)}
               onCloseDay={closeDay}
+              dayStartHour={dayStartHour}
             />
           )}
           {focusTask && (
@@ -4535,6 +4599,7 @@ export default function App() {
               onExit={exitFocus}
               onSkip={nextFocusTask ? skipFocus : null}
               onSaveTime={updateTaskFocusTime}
+              dayStartHour={dayStartHour}
             />
           )}
         </div>
