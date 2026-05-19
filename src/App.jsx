@@ -3114,7 +3114,7 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
                         const itemHours = it.hours != null ? it.hours : taskHours(t);
                         const itemNote = it.note;
                         const chunkDone = !!(it.done || t.completed);
-                        const project = t.projectId && projectsMap ? projectsMap.get(t.projectId) : null;
+                        const project = t.projectId && projectsMap ? projectsMap[t.projectId] : null;
                         return (
                           <div key={it.taskId}
                             className="q-planner-item"
