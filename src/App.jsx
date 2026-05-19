@@ -732,14 +732,16 @@ function taskHours(t) {
   return DIFFICULTY[t?.difficulty]?.hours || 1.5;
 }
 
-// Focus time recorded in `task.focusMs` is the running total since the last
-// reset. For daily-recurring tasks the "instance" resets each day, so any
-// focusMs whose focusDate doesn't match today is stale and reads as 0.
-// (Weekly recurring is left alone for now — its cycle is longer than a day
-// so the stale risk is much smaller.)
+// Focus time on `task.focusMs` is treated as "time focused today" everywhere
+// it's surfaced, so any value whose focusDate isn't the current day reads
+// as stale and returns 0. This covers daily-recurring tasks (next day's
+// instance starts fresh) and split tasks (each day's chunk is its own
+// session) without needing per-chunk storage. Single-instance tasks lose
+// their cross-day cumulative count, which matches the "today" framing the
+// badge already implies.
 function effectiveFocusMs(t) {
   if (!t || !t.focusMs) return 0;
-  if (t.recurring === "daily" && t.focusDate && t.focusDate !== isoDate(new Date())) return 0;
+  if (t.focusDate && t.focusDate !== isoDate(new Date())) return 0;
   return t.focusMs;
 }
 
@@ -2988,6 +2990,9 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                     {dailyPending.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
                         {dailyPending.map((t, i) => {
+                          // Daily recurrences only have a meaningful "done"
+                          // state on today's column — future / past columns
+                          // are informational ("this happens every day").
                           const isDoneToday = t.completed && isToday;
                           return (
                             <div key={"d-"+i} className="q-planner-item q-planner-item--daily" style={{
@@ -2995,7 +3000,33 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                               color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
                               textDecoration: isDoneToday ? "line-through" : "none",
                             }}>
-                              <Icon name="recur" size={9} />
+                              {isToday ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    t.completed ? uncompleteTask(t.id) : completeTask(t.id);
+                                  }}
+                                  title={t.completed ? "Mark as not done" : "Complete daily for today"}
+                                  aria-label={t.completed ? "Reopen daily task" : "Complete daily task"}
+                                  style={{
+                                    width: 13, height: 13, borderRadius: "50%",
+                                    border: "1.5px solid " + (t.completed ? "var(--success)" : "var(--border-strong)"),
+                                    background: t.completed ? "var(--success)" : "transparent",
+                                    cursor: "pointer", padding: 0, flexShrink: 0,
+                                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                    transition: "border-color var(--t-fast), background var(--t-fast)",
+                                  }}
+                                >
+                                  {t.completed && (
+                                    <svg width="7" height="7" viewBox="0 0 12 12" aria-hidden>
+                                      <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                                    </svg>
+                                  )}
+                                </button>
+                              ) : (
+                                <Icon name="recur" size={9} />
+                              )}
                               <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
                             </div>
                           );
