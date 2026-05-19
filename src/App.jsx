@@ -1449,13 +1449,15 @@ function TaskRow({
               {doneSub}/{sub.length}
             </span>
           )}
-          <span title={`${diff.label} · ${taskHours(task)}h`} style={{
+          <span title={`${diff.label} · ${taskHours(task)}h estimated · ${task.xp} XP`} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
             fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500,
             color: "var(--text-muted)",
           }}>
             <DifficultyPip d={task.difficulty} />
-            {task.xp} XP
+            <span>{taskHours(task)}h</span>
+            <span style={{ color: "var(--text-faint)" }}>·</span>
+            <span>{task.xp} XP</span>
           </span>
           {!compact && !done && onFocus && (
             <button
@@ -1673,24 +1675,29 @@ const PROJECT_TYPE_COLOR = {
 };
 function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_COLOR.other; }
 
-function ThisWeekCard({ tasks }) {
+function ThisWeekCard({ tasks, dayStartHour = 0 }) {
   const data = useMemo(() => {
-    const monday = mondayOf(new Date());
-    const todayIso = isoDate(new Date());
+    // Anchor the week on the effective "today" so the rollover-hour user
+    // sees consistent groupings everywhere.
+    const monday = mondayOf(effectiveToday(dayStartHour));
+    const todayIso = effectiveTodayIso(dayStartHour);
     const labels = ["M","T","W","T","F","S","S"];
     const days = [];
     for (let i = 0; i < 7; i++) {
       const d = addDays(monday, i);
       const dStr = d.toDateString();
       const iso = isoDate(d);
-      const count = tasks.filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === dStr).length;
+      const count = tasks.filter(t =>
+        t.completed && t.completedAt &&
+        effectiveDateStrOf(t.completedAt, dayStartHour) === dStr
+      ).length;
       days.push({ iso, label: labels[i], count, isToday: iso === todayIso, inPast: iso < todayIso, isCurrent: iso === todayIso });
     }
     const elapsedDays = Math.max(1, days.filter(d => d.iso <= todayIso).length);
     const total = days.reduce((s, d) => s + d.count, 0);
     const avg = (total / elapsedDays).toFixed(1);
     return { days, total, avg };
-  }, [tasks]);
+  }, [tasks, dayStartHour]);
   const max = Math.max(1, ...data.days.map(d => d.count));
 
   return (
@@ -1972,17 +1979,19 @@ function TodayView({
 
   const trendStats = useMemo(() => {
     // 14 days of history; the last 7 power trend calcs, the full 14 power
-    // the streak histogram.
+    // the streak histogram. Anchored on effective today so the day-rollover
+    // hour applies consistently across all aggregates.
+    const anchor = effectiveToday(dayStartHour);
     const days14 = [];
     for (let i = 13; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
+      const d = new Date(anchor); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
       days14.push(d.toDateString());
     }
     const xpByDay14 = days14.map(s => tasks
-      .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s)
+      .filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === s)
       .reduce((sum, t) => sum + (t.xp || 0), 0));
     const doneByDay14 = days14.map(s => tasks
-      .filter(t => t.completed && t.completedAt && new Date(t.completedAt).toDateString() === s).length);
+      .filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === s).length);
 
     const lastWeek = xpByDay14.slice(0, 7);
     const thisWeek = xpByDay14.slice(7, 14);
@@ -2001,7 +2010,7 @@ function TodayView({
       xpTrend:   trend(lastWeek, thisWeek),
       doneTrend: trend(lastWeekDone, thisWeekDone),
     };
-  }, [tasks]);
+  }, [tasks, dayStartHour]);
 
   const hour = new Date().getHours();
   const planDoneAll = todayPlanTasks.length > 0 && planDone === todayPlanTasks.length;
@@ -2016,10 +2025,10 @@ function TodayView({
     return "Still here.";
   })();
 
-  const dow = new Date().getDay();
+  const dow = effectiveToday(dayStartHour).getDay();
   const showWeeklyPulse = !weeklyDismissed && (previewMode || dow === 1 || dow === 2);
   const dismissWeekly = () => {
-    const wid = isoDate(mondayOf(new Date()));
+    const wid = isoDate(mondayOf(effectiveToday(dayStartHour)));
     saveKV("quest_pulse_dismissed", wid);
     setWeeklyDismissed(true);
   };
@@ -2038,7 +2047,7 @@ function TodayView({
           <button className="q-link" onClick={reopenDay}>Reopen</button>
         </div>
       )}
-      {showWeeklyPulse && <WeeklyPulse tasks={tasks} onDismiss={dismissWeekly} />}
+      {showWeeklyPulse && <WeeklyPulse tasks={tasks} onDismiss={dismissWeekly} dayStartHour={dayStartHour} />}
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         title={greeting}
@@ -2142,22 +2151,34 @@ function TodayView({
           </div>
           {todayPlanTasks.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {todayPlanTasks.map(t => (
-                // The Today view's check circle always operates on the whole
-                // task. Per-chunk completion lives in the Planner where you
-                // can see chunks side-by-side; surfacing it here led to a
-                // confusing "I clicked complete and nothing happened" state
-                // because the circle would visually stay done after toggling
-                // today's chunk while the task itself remained pending.
-                <TaskRow key={t.id} task={t}
-                  onComplete={completeTask} onUncomplete={uncompleteTask}
+              {todayPlanTasks.map(t => {
+                // Tasks that have a chunk on today's plan complete chunk-by-
+                // chunk: clicking the circle marks ONLY today's chunk done,
+                // and the parent task auto-completes once every chunk across
+                // all days is done. The circle's visual reflects the chunk's
+                // state, not the whole task's. Daily-recurring + non-
+                // scheduled tasks fall back to direct task completion.
+                const todayItem = todayItems.find(i => i.taskId === t.id);
+                const onCompleteHere = todayItem
+                  ? () => toggleChunkDone(todayIso, t.id, true)
+                  : completeTask;
+                const onUncompleteHere = todayItem
+                  ? () => toggleChunkDone(todayIso, t.id, false)
+                  : uncompleteTask;
+                const renderTask = todayItem
+                  ? { ...t, completed: !!(todayItem.done || t.completed) }
+                  : t;
+                return (
+                <TaskRow key={t.id} task={renderTask}
+                  onComplete={onCompleteHere} onUncomplete={onUncompleteHere}
                   onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                   dayStartHour={dayStartHour}
                 />
-              ))}
+                );
+              })}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
                 <span>{planDone}/{todayPlanTasks.length} done</span>
                 <span>{planXP} XP planned</span>
@@ -2337,7 +2358,7 @@ function TodayView({
             </div>
           )}
         </div>
-        <ThisWeekCard tasks={tasks} />
+        <ThisWeekCard tasks={tasks} dayStartHour={dayStartHour} />
       </div>
     </div>
   );
@@ -2713,7 +2734,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -3093,6 +3114,7 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                         const itemHours = it.hours != null ? it.hours : taskHours(t);
                         const itemNote = it.note;
                         const chunkDone = !!(it.done || t.completed);
+                        const project = t.projectId && projectsMap ? projectsMap.get(t.projectId) : null;
                         return (
                           <div key={it.taskId}
                             className="q-planner-item"
@@ -3122,6 +3144,18 @@ function PlannerView({ tasks, tasksById, weekPlan, setWeekPlan, completeTask, un
                                 <span className="q-planner-item-part">{splitIdx + 1}/{splits.length}</span>
                               )}
                             </div>
+                            {project && (
+                              <div className="q-planner-item-project" title={project.title} style={{
+                                fontSize: 10,
+                                color: "var(--text-faint)",
+                                fontFamily: "var(--font-mono)",
+                                marginTop: 2,
+                                marginLeft: 19,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}>{project.title}</div>
+                            )}
                             {isSplit && itemNote && (
                               <div className="q-planner-item-note">{itemNote}</div>
                             )}
@@ -3428,23 +3462,29 @@ function ShortcutHelp({ onClose }) {
 
 /* ───── WEEKLY PULSE ───── */
 
-function WeeklyPulse({ tasks, onDismiss }) {
+function WeeklyPulse({ tasks, onDismiss, dayStartHour = 0 }) {
   const stats = useMemo(() => {
-    const thisMonday = mondayOf(new Date());
+    // Anchor on effective today so the day-rollover hour shifts the week
+    // window — a 4am rollover means Mon 03:00 still counts toward Sunday.
+    const thisMonday = mondayOf(effectiveToday(dayStartHour));
     const lastWeekStart = addDays(thisMonday, -7);
-    const lastWeekEnd   = thisMonday;
+    const lastWeekEndStr = thisMonday.toDateString();
+    const lastWeekDayStrs = new Set();
+    for (let i = 0; i < 7; i++) {
+      lastWeekDayStrs.add(addDays(lastWeekStart, i).toDateString());
+    }
     const lw = tasks.filter(t => {
       if (!t.completed || !t.completedAt) return false;
-      const d = new Date(t.completedAt);
-      return d >= lastWeekStart && d < lastWeekEnd;
+      const s = effectiveDateStrOf(t.completedAt, dayStartHour);
+      return lastWeekDayStrs.has(s) && s !== lastWeekEndStr;
     });
     const days = [
       { label: "Mon" }, { label: "Tue" }, { label: "Wed" },
       { label: "Thu" }, { label: "Fri" }, { label: "Sat" }, { label: "Sun" },
     ].map(d => ({ ...d, count: 0, xp: 0 }));
     for (const t of lw) {
-      const d = new Date(t.completedAt);
-      const wd = d.getDay();
+      const eff = effectiveToday(dayStartHour, new Date(t.completedAt));
+      const wd = eff.getDay();
       const idx = wd === 0 ? 6 : wd - 1;
       days[idx].count += 1;
       days[idx].xp += (t.xp || 0);
@@ -3455,7 +3495,7 @@ function WeeklyPulse({ tasks, onDismiss }) {
       xp: lw.reduce((s, t) => s + (t.xp || 0), 0),
       days, best,
     };
-  }, [tasks]);
+  }, [tasks, dayStartHour]);
 
   if (stats.total === 0) return null;
   const maxCount = Math.max(1, ...stats.days.map(d => d.count));
@@ -4112,7 +4152,10 @@ export default function App() {
   // split tasks, flipping a chunk only updates that chunk; the parent task
   // auto-completes once every chunk is done. Uses the functional setter so
   // rapid sequential toggles read the latest weekPlan instead of stale
-  // closure state (otherwise the last click wins and earlier ones revert).
+  // closure state.
+  // XP fires once per task (when allDone transitions true). For intermediate
+  // chunk transitions we surface a quiet "Chunk done · 2/3" toast so you get
+  // acknowledgement even though the parent task isn't done yet.
   const toggleChunkDone = useCallback((date, taskId, newDone) => {
     let nextPlan = null;
     setWeekPlan(prev => {
@@ -4132,11 +4175,20 @@ export default function App() {
     const allItems = (nextPlan || []).flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
     const allDone = allItems.length > 0 && allItems.every(i => i.done);
     const someDone = allItems.some(i => i.done);
+    const doneCount = allItems.filter(i => i.done).length;
+    const total = allItems.length;
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
-    if (allDone && !task.completed) completeTask(taskId);
-    else if (!someDone && task.completed) uncompleteTask(taskId);
-  }, [tasks, completeTask, uncompleteTask]);
+    if (allDone && !task.completed) {
+      completeTask(taskId);
+    } else if (!someDone && task.completed) {
+      uncompleteTask(taskId);
+    } else if (newDone && total > 1) {
+      notify(`Chunk done · ${doneCount}/${total}`);
+    } else if (!newDone && total > 1 && someDone) {
+      notify(`Chunk reopened · ${doneCount}/${total}`);
+    }
+  }, [tasks, completeTask, uncompleteTask, notify]);
 
   const splitTask = useCallback((taskId) => {
     const task = tasks.find(t => t.id === taskId);
