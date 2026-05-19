@@ -4157,22 +4157,26 @@ export default function App() {
   // chunk transitions we surface a quiet "Chunk done · 2/3" toast so you get
   // acknowledgement even though the parent task isn't done yet.
   const toggleChunkDone = useCallback((date, taskId, newDone) => {
-    let nextPlan = null;
-    setWeekPlan(prev => {
-      const upd = (prev || []).map(e => {
-        if (e.date !== date) return e;
-        return {
-          ...e,
-          items: (e.items || []).map(it =>
-            it.taskId === taskId ? { ...it, done: newDone } : it
-          ),
-        };
-      });
-      nextPlan = upd;
-      saveKV(KEYS.weekplan, upd);
-      return upd;
+    // Compute the next plan synchronously from current state. We can't read
+    // it out of a functional setWeekPlan(prev => ...) updater because React
+    // 18 defers the updater until batch processing — `nextPlan` would still
+    // be null when the completion check below runs. The trade-off vs. a
+    // functional updater is theoretical: a user would have to double-click
+    // within one render cycle to lose an update.
+    const prev = weekPlan || [];
+    const upd = prev.map(e => {
+      if (e.date !== date) return e;
+      return {
+        ...e,
+        items: (e.items || []).map(it =>
+          it.taskId === taskId ? { ...it, done: newDone } : it
+        ),
+      };
     });
-    const allItems = (nextPlan || []).flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
+    setWeekPlan(upd);
+    saveKV(KEYS.weekplan, upd);
+
+    const allItems = upd.flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
     const allDone = allItems.length > 0 && allItems.every(i => i.done);
     const someDone = allItems.some(i => i.done);
     const doneCount = allItems.filter(i => i.done).length;
@@ -4188,7 +4192,7 @@ export default function App() {
     } else if (!newDone && total > 1 && someDone) {
       notify(`Chunk reopened · ${doneCount}/${total}`);
     }
-  }, [tasks, completeTask, uncompleteTask, notify]);
+  }, [weekPlan, tasks, completeTask, uncompleteTask, notify]);
 
   const splitTask = useCallback((taskId) => {
     const task = tasks.find(t => t.id === taskId);
