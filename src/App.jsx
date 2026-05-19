@@ -2096,31 +2096,21 @@ function TodayView({
           </div>
           {todayPlanTasks.length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {todayPlanTasks.map(t => {
-                // For tasks scheduled on today (in weekPlan items), use chunk-
-                // level completion so a split task only marks today's chunk
-                // done. For daily recurring + non-scheduled tasks, fall back
-                // to direct task completion.
-                const todayItem = todayItems.find(i => i.taskId === t.id);
-                const onCompleteHere = todayItem
-                  ? () => toggleChunkDone(todayIso, t.id, true)
-                  : completeTask;
-                const onUncompleteHere = todayItem
-                  ? () => toggleChunkDone(todayIso, t.id, false)
-                  : uncompleteTask;
-                const renderTask = todayItem
-                  ? { ...t, completed: !!(todayItem.done || t.completed) }
-                  : t;
-                return (
-                <TaskRow key={t.id} task={renderTask}
-                  onComplete={onCompleteHere} onUncomplete={onUncompleteHere}
+              {todayPlanTasks.map(t => (
+                // The Today view's check circle always operates on the whole
+                // task. Per-chunk completion lives in the Planner where you
+                // can see chunks side-by-side; surfacing it here led to a
+                // confusing "I clicked complete and nothing happened" state
+                // because the circle would visually stay done after toggling
+                // today's chunk while the task itself remained pending.
+                <TaskRow key={t.id} task={t}
+                  onComplete={completeTask} onUncomplete={uncompleteTask}
                   onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                 />
-                );
-              })}
+              ))}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
                 <span>{planDone}/{todayPlanTasks.length} done</span>
                 <span>{planXP} XP planned</span>
@@ -4036,27 +4026,33 @@ export default function App() {
   // Per-chunk completion. For non-split tasks (one chunk in the plan), the
   // chunk's done state and the task's completed state stay in lock-step. For
   // split tasks, flipping a chunk only updates that chunk; the parent task
-  // auto-completes once every chunk is done.
+  // auto-completes once every chunk is done. Uses the functional setter so
+  // rapid sequential toggles read the latest weekPlan instead of stale
+  // closure state (otherwise the last click wins and earlier ones revert).
   const toggleChunkDone = useCallback((date, taskId, newDone) => {
-    const updPlan = (weekPlan || []).map(e => {
-      if (e.date !== date) return e;
-      return {
-        ...e,
-        items: (e.items || []).map(it =>
-          it.taskId === taskId ? { ...it, done: newDone } : it
-        ),
-      };
+    let nextPlan = null;
+    setWeekPlan(prev => {
+      const upd = (prev || []).map(e => {
+        if (e.date !== date) return e;
+        return {
+          ...e,
+          items: (e.items || []).map(it =>
+            it.taskId === taskId ? { ...it, done: newDone } : it
+          ),
+        };
+      });
+      nextPlan = upd;
+      saveKV(KEYS.weekplan, upd);
+      return upd;
     });
-    setWeekPlan(updPlan); saveKV(KEYS.weekplan, updPlan);
-
-    const allItems = updPlan.flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
+    const allItems = (nextPlan || []).flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
     const allDone = allItems.length > 0 && allItems.every(i => i.done);
     const someDone = allItems.some(i => i.done);
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     if (allDone && !task.completed) completeTask(taskId);
     else if (!someDone && task.completed) uncompleteTask(taskId);
-  }, [weekPlan, tasks, completeTask, uncompleteTask]);
+  }, [tasks, completeTask, uncompleteTask]);
 
   const splitTask = useCallback((taskId) => {
     const task = tasks.find(t => t.id === taskId);
