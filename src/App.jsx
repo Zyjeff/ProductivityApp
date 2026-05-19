@@ -1918,7 +1918,7 @@ const VIEW_PAD = "32px 40px 48px";
 
 function TodayView({
   tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
-  weekPlan, setWeekPlan, completeTask, uncompleteTask,
+  weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone,
   addTask, updateTask, deleteTask, toggleSub, splitTask, setView,
   openNewTask, setOpenNewTask, createProjectFromCapture,
   startFocus, energy, setEnergy,
