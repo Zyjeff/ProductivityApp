@@ -356,14 +356,20 @@ const AI_PLAN_RULES =
   "remaining capacity, split it across consecutive days. For each chunk, " +
   "provide hours and a one-line note describing what specifically happens " +
   "that day. Split chunks should sum to the task's total estimate.\n" +
-  "3. Fill earlier days before later ones. Don't artificially spread out work " +
-  "across many days when it could finish sooner.\n" +
+  "3. Default: fill earlier days before later ones — don't artificially spread " +
+  "work when it could finish sooner. EXCEPTION: if the user's request " +
+  "explicitly specifies a timeline (\"spread over 3 months\", \"by end of " +
+  "October\", \"a few per week until X\"), honor it as a top-priority " +
+  "constraint and distribute accordingly across the requested range. You may " +
+  "still split tasks across consecutive days within that range.\n" +
   "4. Priority order: urgent > high > medium > low.\n" +
   "5. Pair hard/focus work with mornings; light/admin work with afternoons.\n" +
   "6. Daily recurring tasks are NOT in the task list — they're already " +
   "subtracted from each day's capacity. Do not schedule them.\n" +
   "7. Tasks already on the calendar (when listed) stay put unless you are " +
-  "explicitly asked to optimize.\n\n" +
+  "explicitly asked to optimize.\n" +
+  "8. You may schedule onto any date in the workdays-available list, " +
+  "including months out — choose the date(s) that best fit the request.\n\n" +
   "Output schema: a JSON array of day entries, each {\"date\":\"YYYY-MM-DD\"," +
   "\"items\":[...]}. Each item is one of:\n" +
   "  {\"title\":\"exact task title\"}                                — task fits in one day\n" +
@@ -490,17 +496,20 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const dailyHours = dailyTasks.reduce((s, t) => s + (taskHours(t)), 0);
   if (!nonDailyPending.length) return existingPlan.length ? existingPlan : [];
 
-  // Dynamic horizon: scale workdays seen by the AI to actual workload so the
-  // planner doesn't bottom out at ~3 weeks when there's more work than fits.
-  // Previously horizonDays was hardcoded to 14, which produced a "wall" where
-  // any task beyond the 14-workday window got crammed into the last visible
-  // day instead of spilling forward.
+  // Horizon: how many workdays the AI sees as available. Two failure modes
+  // we're balancing:
+  //   1. Too short — the AI runs out of room and crams overflow into the
+  //      last visible day. Old behavior at horizon=14.
+  //   2. Too long — the prompt balloons and the model has more decisions
+  //      to make than necessary.
   //
-  // Math: avg daily cap minus the daily-recurring overhead is the "effective"
-  // headroom per workday. Total task hours / that headroom is the minimum
-  // workdays needed; add a 14-workday buffer so the model has slack to honor
-  // priority and density rules. Capped at 120 workdays (~6 months) to keep
-  // the prompt manageable.
+  // We pick the max of three signals:
+  //   - workload: ceil(totalHours / effectiveDailyCap) + 14 workdays slack
+  //   - mode floor: 60 (fresh/append/optimize) or 90 (replan, since the
+  //     user's instruction might explicitly call for a longer timeline
+  //     like "spread this over 3 months")
+  //   - opts.horizon override (rarely used in-app)
+  // Capped at 120 workdays (~6 months) to keep prompt size bounded.
   const workingCaps = WEEK_ALL.map(w => caps[w] || 0).filter(c => c > 0);
   const avgCap = workingCaps.length
     ? workingCaps.reduce((s, c) => s + c, 0) / workingCaps.length
@@ -508,9 +517,10 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const effectiveDailyCap = Math.max(0.5, avgCap - dailyHours);
   const totalNeededHours = nonDailyPending.reduce((s, t) => s + taskHours(t), 0);
   const workloadDays = Math.ceil(totalNeededHours / effectiveDailyCap);
+  const modeFloor = mode === "replan" ? 90 : 60;
   const horizonDays = opts.horizon != null
     ? opts.horizon
-    : Math.min(120, Math.max(14, workloadDays + 14));
+    : Math.min(120, Math.max(modeFloor, workloadDays + 14));
 
   // Loop limit needs slack for sparse caps (e.g., only Monday is a workday).
   const calendarLimit = horizonDays * 3 + 14;
@@ -617,7 +627,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     : mode === "append"
     ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
     : mode === "replan"
-    ? "Mode: REPLAN — replan all listed tasks from scratch, honoring the additional user request below as a top-priority constraint. Otherwise apply the same density and priority rules as a full optimization (rule 3 still applies — pack earliest days first, no gaps before later scheduled days)."
+    ? "Mode: REPLAN — replan all listed tasks from scratch, honoring the additional user request below as a top-priority constraint. The request may explicitly specify a timeline (\"spread over 3 months\", \"start next week\", \"finish by Oct 31\") — when it does, distribute tasks across that range per rule 3's EXCEPTION, picking dates from the workdays-available list. Without a timeline hint, default to packing earliest days first."
     : "Mode: FRESH — no prior plan exists; place all listed tasks.";
 
   const instructionBlock = mode === "replan" && opts.instruction
@@ -3514,7 +3524,7 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
                 }}
                 placeholder={replanLoading
                   ? "Rearranging…"
-                  : "Push the audit to next week, move design work earlier…"}
+                  : "Spread Acme project over 3 months, push audit to next week…"}
                 aria-label="Replan instruction"
               />
               <button
