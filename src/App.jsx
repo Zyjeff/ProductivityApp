@@ -33,6 +33,24 @@ const PROJECT_TYPE_LABEL_TO_ID = {
   "Client":   "client",   "Side Project": "side",
 };
 
+// 10 hand-picked palette swatches — distinguishable on dark bg, not loud.
+// Stable order so the swatch row in the editor renders deterministically.
+const PROJECT_PALETTE = [
+  "#a78bfa", // violet (accent)
+  "#60a5fa", // blue
+  "#34d399", // emerald
+  "#fbbf24", // amber
+  "#f87171", // red
+  "#f472b6", // pink
+  "#22d3ee", // cyan
+  "#a3e635", // lime
+  "#fb923c", // orange
+  "#94a3b8", // slate
+];
+function pickProjectColor() {
+  return PROJECT_PALETTE[Math.floor(Math.random() * PROJECT_PALETTE.length)];
+}
+
 const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday"];
 const WEEK_ALL  = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const DEFAULT_CAPS = { Monday:4, Tuesday:4, Wednesday:4, Thursday:4, Friday:3, Saturday:0, Sunday:0 };
@@ -64,7 +82,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -236,6 +254,17 @@ async function runMigrations() {
     }
   }
 
+  // v5 → v6: projects gain a `color` from PROJECT_PALETTE. Existing projects
+  // without one get a random pick so the new color chip has something to
+  // show. Future projects assign on creation.
+  if (v < 6) {
+    const ps = (await loadKV(KEYS.projects, [])) || [];
+    if (Array.isArray(ps) && ps.some(p => !p.color)) {
+      const next = ps.map(p => p.color ? p : { ...p, color: pickProjectColor() });
+      await saveKV(KEYS.projects, next);
+    }
+  }
+
   await saveKV(KEYS.schema, SCHEMA_VERSION);
 }
 
@@ -398,6 +427,17 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const lockedDates = opts.lockedDates instanceof Set
     ? opts.lockedDates
     : new Set(Array.isArray(opts.lockedDates) ? opts.lockedDates : []);
+  // Project lookup so the AI sees the project a task belongs to. This lets
+  // replan instructions like "push the Acme stuff to next week" actually
+  // resolve to specific tasks.
+  const projectsById = opts.projectsById instanceof Map
+    ? opts.projectsById
+    : new Map(Array.isArray(opts.projects) ? opts.projects.map(p => [p.id, p]) : []);
+  const projectTitleOf = (t) => {
+    if (!t?.projectId) return null;
+    const p = projectsById.get(t.projectId);
+    return p?.title || null;
+  };
 
   // Items on locked days are immovable. We pull them out of the AI's view
   // entirely (locked dates are never listed as availability slots) and merge
@@ -488,9 +528,11 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     return `- ${iso} ${wd}: cap ${cap}h, remaining ${remaining.toFixed(1)}h`;
   }).join("\n");
 
-  const taskLines = sorted.map(t =>
-    `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${taskHours(t)}h, ${t.priority || "medium"}`
-  ).join("\n");
+  const taskLines = sorted.map(t => {
+    const proj = projectTitleOf(t);
+    const projPart = proj ? `, project: "${proj}"` : "";
+    return `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${taskHours(t)}h, ${t.priority || "medium"}${projPart}`;
+  }).join("\n");
 
   let existingBlock = "";
   if (mode !== "optimize" && existingPlan.length) {
@@ -501,8 +543,10 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
         const parts = (e.items || []).map(it => {
           const t = tasksById.get(it.taskId);
           if (!t) return null;
-          if (it.hours != null && it.note) return `"${t.title}" (${it.hours}h: ${it.note})`;
-          return `"${t.title}"`;
+          const proj = projectTitleOf(t);
+          const projPart = proj ? ` [${proj}]` : "";
+          if (it.hours != null && it.note) return `"${t.title}"${projPart} (${it.hours}h: ${it.note})`;
+          return `"${t.title}"${projPart}`;
         }).filter(Boolean);
         return parts.length ? `- ${e.date}: ${parts.join(", ")}` : "";
       })
@@ -1249,6 +1293,15 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
   const [subs,      setSubs]      = useState(() => (initial?.subtasks || []).map(s => ({ k: s.id || uid(), title: s.title })));
   const [recurring, setRecurring] = useState(initial?.recurring || "none");
   const [priority,  setPriority]  = useState(initial?.priority  || "medium");
+  // Manual hours/XP overrides — only show on edit (no estimate exists until AI
+  // scores a fresh task). When the user edits hours, scale XP using the prior
+  // XP-per-hour ratio so the relationship stays honest. Editing XP directly
+  // is also allowed and decouples from the ratio.
+  const initialHours = isEdit ? (typeof initial?.hours === "number" ? initial.hours : (DIFFICULTY[initial?.difficulty]?.hours || 1.5)) : null;
+  const initialXp = isEdit ? (initial?.xp || 20) : null;
+  const [hours,     setHours]     = useState(initialHours);
+  const [xp,        setXp]        = useState(initialXp);
+  const [scoreOverridden, setScoreOverridden] = useState(false);
   const [stIn,      setStIn]      = useState("");
   const titleRef = useRef(null);
 
@@ -1258,10 +1311,36 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
   const delSub = (k) => setSubs(p => p.filter(s => s.k !== k));
   const toggleTag = (t) => setTags(p => p.indexOf(t) >= 0 ? p.filter(x => x !== t) : p.concat([t]));
 
+  const adjustHours = (newH) => {
+    const h = Math.max(0.25, Math.min(24, parseFloat(newH) || 0));
+    if (!h) return;
+    // Scale XP proportionally so the per-hour ratio is preserved.
+    const prevH = hours || initialHours || 1.5;
+    const ratio = (xp || initialXp || 20) / prevH;
+    const newXp = Math.max(5, Math.min(200, Math.round(h * ratio)));
+    setHours(h);
+    setXp(newXp);
+    setScoreOverridden(true);
+  };
+  const adjustXp = (newX) => {
+    const x = Math.max(5, Math.min(200, parseInt(newX, 10) || 0));
+    if (!x) return;
+    setXp(x);
+    setScoreOverridden(true);
+  };
+
   const canSubmit = title.trim().length > 0;
   const submit = () => {
     if (!canSubmit) return;
-    onSave({ title, desc, notes, tags, subtasks: subs.map(s => s.title), recurring, priority });
+    const payload = { title, desc, notes, tags, subtasks: subs.map(s => s.title), recurring, priority };
+    // Only ship manual overrides when the user actually touched them.
+    // This keeps the AI rescore path intact for description-only edits.
+    if (scoreOverridden && hours != null && xp != null) {
+      payload.hours = hours;
+      payload.xp = xp;
+      payload.manualScore = true;
+    }
+    onSave(payload);
   };
 
   return (
@@ -1318,6 +1397,39 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
           </div>
         </div>
 
+        {isEdit && hours != null && xp != null && (
+          <div>
+            <div className="q-eyebrow" style={{ marginBottom: 6 }}>
+              Estimate {scoreOverridden ? "(manual)" : "(AI scored)"}
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                <span style={{ fontFamily: "var(--font-mono)" }}>Hours</span>
+                <input
+                  type="number" min="0.25" max="24" step="0.25"
+                  value={hours}
+                  onChange={(e) => adjustHours(e.target.value)}
+                  className="q-input q-input--sm"
+                  style={{ width: 80, textAlign: "center", fontFamily: "var(--font-mono)" }}
+                />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                <span style={{ fontFamily: "var(--font-mono)" }}>XP</span>
+                <input
+                  type="number" min="5" max="200" step="5"
+                  value={xp}
+                  onChange={(e) => adjustXp(e.target.value)}
+                  className="q-input q-input--sm"
+                  style={{ width: 80, textAlign: "center", fontFamily: "var(--font-mono)" }}
+                />
+              </label>
+              <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+                {(xp / (hours || 1)).toFixed(0)} XP/h
+              </span>
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="q-eyebrow" style={{ marginBottom: 6 }}>Tags</div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -1366,7 +1478,7 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
 /* ───── TASK ROW ───── */
 
 function TaskRow({
-  task, projectName,
+  task, projectName, projectColor,
   onComplete, onUncomplete, onDelete, onEdit, onToggleSub, onSplit, onFocus,
   compact, expanded, onToggleExpand, dayStartHour = 0,
 }) {
@@ -1421,7 +1533,23 @@ function TaskRow({
           </div>
           {(task.tags?.length || projectName) && (
             <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
-              {projectName && <Chip kind="accent">{projectName}</Chip>}
+              {projectName && (
+                <Chip
+                  kind={projectColor ? undefined : "accent"}
+                  style={projectColor ? {
+                    color: projectColor,
+                    borderColor: projectColor,
+                    background: "transparent",
+                  } : undefined}
+                >
+                  <span style={{
+                    display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+                    background: projectColor || "var(--accent)",
+                    marginRight: 5, verticalAlign: "middle",
+                  }} />
+                  {projectName}
+                </Chip>
+              )}
               {(task.tags || []).map(tag => <Chip key={tag}>{tag}</Chip>)}
             </div>
           )}
@@ -1961,11 +2089,18 @@ function TodayView({
     .filter(t => t && !todayScheduledSeen.has(t.id) && todayScheduledSeen.add(t.id));
   const todayPlanTasks = sortForEnergy(dailyPending.concat(todayScheduled), energy);
   const planXP = todayPlanTasks.reduce((s,t) => s + (t.xp || 0), 0);
-  const planDone = todayPlanTasks.filter(t => t.completed).length;
+  // Count a split chunk on today as "done for today" even if the parent task
+  // isn't fully complete yet — otherwise users see "0/3 done" while every
+  // chunk for the day is checked.
+  const planDone = todayPlanTasks.filter(t => {
+    if (t.completed) return true;
+    const it = todayItems.find(i => i.taskId === t.id);
+    return !!it?.done;
+  }).length;
 
   const generatePlan = () => {
     setPlanLoading(true);
-    aiPlanWeek(tasks, DEFAULT_CAPS, { mode: weekPlan ? "append" : "fresh", existingPlan: weekPlan || [] }).then(p => {
+    aiPlanWeek(tasks, DEFAULT_CAPS, { mode: weekPlan ? "append" : "fresh", existingPlan: weekPlan || [], projects }).then(p => {
       if (p) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
       setPlanLoading(false);
     });
@@ -2174,6 +2309,7 @@ function TodayView({
                   onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
+                  projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                   dayStartHour={dayStartHour}
                 />
@@ -2341,7 +2477,7 @@ function TodayView({
                 const pct = progressOfProject(p, tasksById);
                 const total = (p.childTaskIds || []).length;
                 const done = (p.childTaskIds || []).map(id => tasksById.get(id)).filter(t => t && t.completed).length;
-                const color = pct === 100 ? "var(--success)" : projectColor(p.type);
+                const color = pct === 100 ? "var(--success)" : (p.color || projectColor(p.type));
                 return (
                   <div key={p.id} className="q-proj-row">
                     <div className="q-proj-head">
@@ -2447,6 +2583,7 @@ function QueueView({
               onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
               onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
+              projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
               dayStartHour={dayStartHour}
             />
@@ -2463,7 +2600,7 @@ function PipelineView({
   tasks, projects, projectsMap, tasksById,
   completeTask, uncompleteTask, addTask, addChildToProject,
   removeChildFromProject, deleteTask, createProject, renameProject,
-  shipProject, unshipProject, deleteProject, setView,
+  updateProjectColor, shipProject, unshipProject, deleteProject, setView,
 }) {
   const [filter, setFilter] = useState("All");
   const [expandedId, setExpandedId] = useState(null);
@@ -2576,7 +2713,8 @@ function PipelineView({
           const total = children.length;
           const isReady = pct === 100 && total > 0;
           const isOpen = expandedId === p.id;
-          const tone = isReady ? "var(--success)" : "var(--accent)";
+          const projColor = p.color || PROJECT_PALETTE[0];
+          const tone = isReady ? "var(--success)" : projColor;
           const typeLbl = PROJECT_TYPES.find(t => t.id === p.type)?.label || "Other";
           return (
             <div key={p.id} className="q-card" style={{
@@ -2669,10 +2807,29 @@ function PipelineView({
                     </button>
                   )}
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }} title="Project color">
+                      {PROJECT_PALETTE.map(c => (
+                        <button
+                          key={c}
+                          onClick={() => updateProjectColor(p.id, c)}
+                          aria-label={"Set color " + c}
+                          style={{
+                            width: 16, height: 16, borderRadius: "50%",
+                            background: c,
+                            border: projColor === c
+                              ? "2px solid var(--text)"
+                              : "1px solid var(--border)",
+                            cursor: "pointer", padding: 0,
+                            transition: "transform var(--t-fast)",
+                            transform: projColor === c ? "scale(1.1)" : "none",
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div style={{ flex: 1 }} />
                     <button className="q-btn q-btn--ghost q-btn--sm" onClick={() => startRename(p)}>Rename</button>
                     <button className="q-btn q-btn--ghost q-btn--sm" onClick={() => deleteProject(p.id)} style={{ color: "var(--danger)" }}>Delete</button>
-                    <div style={{ flex: 1 }} />
                     {isReady && (
                       <button className="q-btn q-btn--success" onClick={() => shipProject(p.id)}>
                         <Icon name="ship" size={13} /> Ship it
@@ -2734,7 +2891,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -2745,6 +2902,9 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
   const [replanLoading, setReplanLoading] = useState(false);
   const [dragOver, setDragOver] = useState(null);
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  // Holds the pre-replan snapshot so the user can revert if the AI made a
+  // mess. Cleared on dismiss or after the next non-undo plan change.
+  const [undoSnapshot, setUndoSnapshot] = useState(null);
 
   useEffect(() => { loadKV(KEYS.caps, DEFAULT_CAPS).then(c => setCaps({ ...DEFAULT_CAPS, ...c })); }, []);
 
@@ -2781,8 +2941,13 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
 
   const runPlan = (mode) => {
     setLoading(true); setLoadMode(mode);
-    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [], lockedDates: lockedDateSet }).then(p => {
-      if (p != null) { setWeekPlan(p); saveKV(KEYS.weekplan, p); }
+    // Snapshot before any plan-modifying call so we can revert if it's bad.
+    const snapshot = weekPlan ? JSON.parse(JSON.stringify(weekPlan)) : [];
+    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [], lockedDates: lockedDateSet, projects }).then(p => {
+      if (p != null) {
+        setWeekPlan(p); saveKV(KEYS.weekplan, p);
+        if (mode === "optimize") setUndoSnapshot(snapshot);
+      }
       setLoading(false); setLoadMode(null);
     });
   };
@@ -2791,7 +2956,8 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
     const instruction = replanText.trim();
     if (!instruction || replanLoading) return;
     setReplanLoading(true);
-    aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction, lockedDates: lockedDateSet }).then(p => {
+    const snapshot = weekPlan ? JSON.parse(JSON.stringify(weekPlan)) : [];
+    aiPlanWeek(tasks, caps, { mode: "replan", existingPlan: weekPlan || [], instruction, lockedDates: lockedDateSet, projects }).then(p => {
       setReplanLoading(false);
       if (p == null) {
         if (notify) notify("Couldn't apply that — try rephrasing");
@@ -2799,6 +2965,7 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
       }
       setWeekPlan(p);
       saveKV(KEYS.weekplan, p);
+      setUndoSnapshot(snapshot);
       setReplanText("");
       if (notify) notify("Plan updated");
     }).catch(e => {
@@ -2806,6 +2973,14 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
       setReplanLoading(false);
       if (notify) notify("Replan failed — check the console");
     });
+  };
+
+  const undoReplan = () => {
+    if (!undoSnapshot) return;
+    setWeekPlan(undoSnapshot);
+    saveKV(KEYS.weekplan, undoSnapshot);
+    setUndoSnapshot(null);
+    if (notify) notify("Plan restored");
   };
 
   // Move a specific item-chunk from sourceIso to targetIso. If sourceIso is
@@ -2999,7 +3174,15 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
                 const loadColor = loadPct > 90 ? "var(--danger)" : loadPct > 65 ? "var(--warning)" : "var(--success)";
                 const dayXP = items.reduce((s, it) => {
                   const t = tasksById.get(it.taskId);
-                  return s + (t?.xp || 0);
+                  if (!t) return s;
+                  // Per-chunk XP share so split tasks don't inflate the
+                  // total — same math as toggleChunkDone.
+                  const allChunks = (weekPlan || []).flatMap(e => (e.items || []).filter(i => i.taskId === it.taskId));
+                  const totalH = allChunks.reduce((sm, x) => sm + (x.hours != null ? x.hours : taskHours(t)), 0) || taskHours(t);
+                  const myH = it.hours != null ? it.hours : taskHours(t);
+                  return s + (allChunks.length > 1
+                    ? Math.max(1, Math.round((t.xp || 0) * myH / totalH))
+                    : (t.xp || 0));
                 }, 0) + dailyPending.reduce((s, t) => s + (t.xp || 0), 0);
                 const isDragOver = dragOver === iso;
 
@@ -3147,20 +3330,35 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
                             {project && (
                               <div className="q-planner-item-project" title={project.title} style={{
                                 fontSize: 10,
-                                color: "var(--text-faint)",
+                                color: chunkDone ? "var(--text-faint)" : (project.color || "var(--text-faint)"),
                                 fontFamily: "var(--font-mono)",
                                 marginTop: 2,
                                 marginLeft: 19,
                                 whiteSpace: "nowrap",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
-                              }}>{project.title}</div>
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                              }}>
+                                <span style={{
+                                  width: 5, height: 5, borderRadius: "50%",
+                                  background: project.color || "var(--text-faint)",
+                                  flexShrink: 0, opacity: chunkDone ? 0.4 : 1,
+                                }} />
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{project.title}</span>
+                              </div>
                             )}
                             {isSplit && itemNote && (
                               <div className="q-planner-item-note">{itemNote}</div>
                             )}
                             <div className="q-planner-item-meta">
-                              {t.xp} XP · {itemHours}h{isSplit ? " (chunk)" : ""}
+                              {(() => {
+                                if (!isSplit) return `${t.xp} XP · ${itemHours}h`;
+                                const totalH = splits.reduce((s, x) => s + (x.item.hours != null ? x.item.hours : taskHours(t)), 0) || taskHours(t);
+                                const chunkXp = Math.max(1, Math.round((t.xp || 0) * itemHours / totalH));
+                                return `${chunkXp} XP · ${itemHours}h (chunk)`;
+                              })()}
                             </div>
                           </div>
                         );
@@ -3198,6 +3396,29 @@ function PlannerView({ tasks, tasksById, projectsMap, weekPlan, setWeekPlan, com
               >
                 {replanLoading ? "Replanning…" : "Replan"}
               </button>
+            </div>
+          )}
+
+          {undoSnapshot && (
+            <div className="q-fade-in" style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "8px 14px", marginTop: 8,
+              background: "var(--bg-elev)",
+              border: "1px dashed var(--border-strong)",
+              borderRadius: "var(--r-md)",
+              fontSize: 12, color: "var(--text-muted)",
+            }}>
+              <Icon name="bolt" size={12} />
+              <span style={{ flex: 1 }}>Plan changed — not what you wanted?</span>
+              <button className="q-btn q-btn--ghost q-btn--sm" onClick={undoReplan}>
+                Undo
+              </button>
+              <button
+                className="q-icon-btn"
+                onClick={() => setUndoSnapshot(null)}
+                aria-label="Dismiss undo"
+                title="Dismiss"
+              ><Icon name="close" size={11} /></button>
             </div>
           )}
 
@@ -4100,6 +4321,9 @@ export default function App() {
       saveKV(KEYS.tasks, next);
       return next;
     });
+    // If the user manually overrode hours/XP in the editor, skip the AI
+    // rescore — we already saved their values above and they'd be clobbered.
+    if (data.manualScore) return Promise.resolve();
     return aiScore(data.title, data.desc, data.subtasks, data.tags, data.notes).then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === id
@@ -4159,10 +4383,7 @@ export default function App() {
   const toggleChunkDone = useCallback((date, taskId, newDone) => {
     // Compute the next plan synchronously from current state. We can't read
     // it out of a functional setWeekPlan(prev => ...) updater because React
-    // 18 defers the updater until batch processing — `nextPlan` would still
-    // be null when the completion check below runs. The trade-off vs. a
-    // functional updater is theoretical: a user would have to double-click
-    // within one render cycle to lose an update.
+    // 18 defers the updater until batch processing.
     const prev = weekPlan || [];
     const upd = prev.map(e => {
       if (e.date !== date) return e;
@@ -4176,23 +4397,117 @@ export default function App() {
     setWeekPlan(upd);
     saveKV(KEYS.weekplan, upd);
 
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
     const allItems = upd.flatMap(e => (e.items || []).filter(i => i.taskId === taskId));
     const allDone = allItems.length > 0 && allItems.every(i => i.done);
     const someDone = allItems.some(i => i.done);
     const doneCount = allItems.filter(i => i.done).length;
     const total = allItems.length;
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-    if (allDone && !task.completed) {
-      completeTask(taskId);
-    } else if (!someDone && task.completed) {
-      uncompleteTask(taskId);
-    } else if (newDone && total > 1) {
-      notify(`Chunk done · ${doneCount}/${total}`);
-    } else if (!newDone && total > 1 && someDone) {
-      notify(`Chunk reopened · ${doneCount}/${total}`);
+
+    // Per-chunk XP: each chunk pays its share of total XP, weighted by its
+    // estimated hours. So a 60 XP task split across 3 equal-hour chunks gives
+    // 20 XP per chunk. The final chunk also flips the task to "completed" —
+    // but it does NOT pay extra XP, because the sum of chunk shares equals
+    // the total task XP.
+    const dayEntry = upd.find(e => e.date === date);
+    const thisItem = dayEntry?.items.find(i => i.taskId === taskId);
+    const thisItemHours = thisItem && thisItem.hours != null ? thisItem.hours : taskHours(task);
+    const totalChunkHours = allItems.reduce(
+      (s, it) => s + (it.hours != null ? it.hours : taskHours(task)),
+      0,
+    ) || taskHours(task);
+    let chunkXp = total > 1
+      ? Math.max(1, Math.round(task.xp * thisItemHours / totalChunkHours))
+      : task.xp;
+
+    // Distribution rounding: when the last chunk completes the task, top up
+    // its share so the user has been credited exactly task.xp total.
+    if (allDone && total > 1) {
+      const otherShare = allItems
+        .filter(it => it !== thisItem && it.done)
+        .reduce((s, it) => {
+          const h = it.hours != null ? it.hours : taskHours(task);
+          return s + Math.max(1, Math.round(task.xp * h / totalChunkHours));
+        }, 0);
+      const topUp = Math.max(0, task.xp - otherShare);
+      // Use whichever is larger so we don't underpay the final chunk.
+      chunkXp = newDone ? Math.max(chunkXp, topUp) : chunkXp;
     }
-  }, [weekPlan, tasks, completeTask, uncompleteTask, notify]);
+
+    const wasCompleted = !!task.completed;
+    const willBeCompleted = allDone;
+    const xpDelta = newDone ? chunkXp : -chunkXp;
+
+    // Profile update — XP, streak, and last-active date track the date the
+    // chunk was completed on (the rollover-hour-aware "today" if applicable).
+    const isToday = date === effectiveTodayIso(dayStartHour);
+    const todayStr = effectiveTodayDateStr(dayStartHour);
+    const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dayStartHour);
+    const todayXpBase = (profile.lastDate === todayStr ? profile.todayXP : 0);
+    let np = { ...profile };
+    np.totalXP = Math.max(0, profile.totalXP + xpDelta);
+    if (isToday && newDone) {
+      np.todayXP = Math.max(0, todayXpBase + xpDelta);
+      np.streak = profile.lastDate === todayStr ? profile.streak
+                : profile.lastDate === yesterStr ? profile.streak + 1
+                : 1;
+      np.lastDate = todayStr;
+    } else if (isToday && !newDone) {
+      np.todayXP = Math.max(0, profile.todayXP + xpDelta);
+    }
+
+    // Task completion transitions update tasks[] and completedCount.
+    let updT = tasks;
+    let countDelta = 0;
+    if (willBeCompleted && !wasCompleted) {
+      countDelta = 1;
+      updT = tasks.map(t => t.id === taskId ? { ...t, completed: true, completedAt: Date.now() } : t);
+    } else if (!willBeCompleted && wasCompleted) {
+      countDelta = -1;
+      updT = tasks.map(t => t.id === taskId ? { ...t, completed: false, completedAt: null } : t);
+    }
+    np.completedCount = Math.max(0, profile.completedCount + countDelta);
+
+    setProfile(np); saveKV(KEYS.profile, np);
+    if (updT !== tasks) { setTasks(updT); saveKV(KEYS.tasks, updT); }
+
+    // Notify with the actual XP delta so the toast shows accurate values
+    // even for partial chunks.
+    if (willBeCompleted && !wasCompleted) {
+      notify("Task complete", chunkXp);
+    } else if (!willBeCompleted && wasCompleted) {
+      notify("Task reopened", -chunkXp);
+    } else if (newDone && total > 1) {
+      notify(`Chunk done · ${doneCount}/${total}`, chunkXp);
+    } else if (!newDone && total > 1 && someDone) {
+      notify(`Chunk reopened · ${doneCount}/${total}`, -chunkXp);
+    } else if (newDone) {
+      notify("Task complete", chunkXp);
+    } else {
+      notify("Task reopened", -chunkXp);
+    }
+
+    // Achievements + project ready-to-ship — only on the transition into
+    // completed, matching completeTask's prior behavior.
+    if (willBeCompleted && !wasCompleted) {
+      checkAchievements(np, updT, unlocked);
+      if (task.projectId) {
+        const proj = projects.find(p => p.id === task.projectId);
+        if (proj && !proj.completedAt) {
+          const allTaskDone = (proj.childTaskIds || []).every(cid => {
+            if (cid === taskId) return true;
+            const child = updT.find(t => t.id === cid);
+            return child ? child.completed : true;
+          });
+          if (allTaskDone && (proj.childTaskIds || []).length > 0) {
+            notify("Ready to ship: " + proj.title);
+          }
+        }
+      }
+    }
+  }, [weekPlan, tasks, profile, unlocked, projects, notify, checkAchievements, dayStartHour]);
 
   const splitTask = useCallback((taskId) => {
     const task = tasks.find(t => t.id === taskId);
@@ -4200,7 +4515,7 @@ export default function App() {
     const projectId = "p-" + uid();
     const proj = {
       id: projectId, title: task.title, desc: task.desc || "", notes: task.notes || "",
-      tags: task.tags || [], type: "other",
+      tags: task.tags || [], type: "other", color: pickProjectColor(),
       createdAt: Date.now(), completedAt: null, shippedAt: null, childTaskIds: [],
     };
     const tmpChildren = task.subtasks.map((sub, i) => ({
@@ -4243,7 +4558,7 @@ export default function App() {
       id: projectId,
       title: (data.title || "Untitled project").trim(),
       desc: data.description || "",
-      notes: "", tags: [], type: "other",
+      notes: "", tags: [], type: "other", color: pickProjectColor(),
       createdAt: Date.now(), completedAt: null, shippedAt: null,
       childTaskIds: [],
     };
@@ -4332,7 +4647,7 @@ export default function App() {
     const id = "p-" + uid();
     const proj = {
       id, title: title.trim(), desc: "", notes: "", tags: [],
-      type: type || "other",
+      type: type || "other", color: pickProjectColor(),
       createdAt: Date.now(), completedAt: null, shippedAt: null, childTaskIds: [],
     };
     const next = [proj, ...projects];
@@ -4342,6 +4657,11 @@ export default function App() {
 
   const renameProject = useCallback((id, title) => {
     const next = projects.map(p => p.id === id ? { ...p, title } : p);
+    setProjects(next); saveKV(KEYS.projects, next);
+  }, [projects]);
+
+  const updateProjectColor = useCallback((id, color) => {
+    const next = projects.map(p => p.id === id ? { ...p, color } : p);
     setProjects(next); saveKV(KEYS.projects, next);
   }, [projects]);
 
@@ -4431,6 +4751,7 @@ export default function App() {
   }, [focusTaskId, todayEntry, tasksById, tasks]);
   const nextFocusTask = nextFocusId ? tasksById.get(nextFocusId) : null;
   const focusProjectName = focusTask?.projectId ? projectsMap[focusTask.projectId]?.title : null;
+  const focusProjectColor = focusTask?.projectId ? projectsMap[focusTask.projectId]?.color : null;
 
   const startFocus = useCallback((id) => setFocusTaskId(id), []);
   const exitFocus  = useCallback(() => setFocusTaskId(null), []);
@@ -4573,7 +4894,7 @@ export default function App() {
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
     toggleSub, splitTask, toggleChunkDone,
     addChildToProject, removeChildFromProject,
-    createProject, renameProject, shipProject, unshipProject, deleteProject,
+    createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
     createProjectFromCapture,
     setView,
     openNewTask, setOpenNewTask,
@@ -4651,6 +4972,7 @@ export default function App() {
               task={focusTask}
               nextTask={nextFocusTask}
               projectName={focusProjectName}
+              projectColor={focusProjectColor}
               onComplete={completeFocus}
               onExit={exitFocus}
               onSkip={nextFocusTask ? skipFocus : null}
