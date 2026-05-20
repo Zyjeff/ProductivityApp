@@ -444,12 +444,43 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   // them back into the final plan after the model responds. Tasks already on
   // locked days are excluded from tasksToPlan so the AI doesn't try to
   // schedule them somewhere else.
+  //
+  // Done chunks (it.done === true) get the same treatment — they represent
+  // work the user already paid XP for, so replan/optimize should leave them
+  // exactly where they are. If a task has at least one done chunk, the whole
+  // task freezes (rescheduling the undone chunks elsewhere would orphan the
+  // done ones and look weird).
   const frozenByDate = new Map();
   const frozenTaskIds = new Set();
+  const addToFrozen = (date, item) => {
+    if (!frozenByDate.has(date)) frozenByDate.set(date, []);
+    frozenByDate.get(date).push({ ...item });
+  };
+  // First pass: identify tasks the replanner must not touch.
+  //   1) Any task with a done chunk anywhere — user paid XP for at least one
+  //      slice, so the whole task freezes (so the undone siblings don't get
+  //      relocated and orphan the done one).
+  //   2) Any fully-completed task — the user explicitly wants finished work
+  //      preserved on the planner in place, not removed.
+  const completedTaskIds = new Set(tasks.filter(t => t.completed).map(t => t.id));
   for (const e of existingPlan) {
-    if (lockedDates.has(e.date) && (e.items || []).length) {
-      frozenByDate.set(e.date, e.items.map(it => ({ ...it })));
-      for (const it of e.items) frozenTaskIds.add(it.taskId);
+    for (const it of (e.items || [])) {
+      if (it.done) frozenTaskIds.add(it.taskId);
+      if (completedTaskIds.has(it.taskId)) frozenTaskIds.add(it.taskId);
+    }
+  }
+  for (const e of existingPlan) {
+    const items = e.items || [];
+    if (!items.length) continue;
+    if (lockedDates.has(e.date)) {
+      for (const it of items) addToFrozen(e.date, it);
+      for (const it of items) frozenTaskIds.add(it.taskId);
+      continue;
+    }
+    // Freeze any chunk that belongs to a "frozen task" so the whole task
+    // stays intact across days.
+    for (const it of items) {
+      if (frozenTaskIds.has(it.taskId)) addToFrozen(e.date, it);
     }
   }
 
@@ -756,14 +787,26 @@ function getLevelInfo(xp) {
 
 function processRecurring(tasks, dayStartHour = 0) {
   const today = effectiveTodayDateStr(dayStartHour);
+  const todayIso = effectiveTodayIso(dayStartHour);
   const now = Date.now();
   return tasks.map(t => {
-    if (!t.recurring || t.recurring === "none" || !t.completed) return t;
-    if (t.recurring === "daily" && effectiveDateStrOf(t.completedAt || 0, dayStartHour) !== today)
-      return { ...t, completed: false, completedAt: null };
-    if (t.recurring === "weekly" && t.completedAt && (now - t.completedAt) >= 7 * 86400000)
-      return { ...t, completed: false, completedAt: null };
-    return t;
+    let next = t;
+    if (t.recurring === "daily" && t.completed
+        && effectiveDateStrOf(t.completedAt || 0, dayStartHour) !== today) {
+      next = { ...next, completed: false, completedAt: null };
+    }
+    if (t.recurring === "weekly" && t.completed && t.completedAt
+        && (now - t.completedAt) >= 7 * 86400000) {
+      next = { ...next, completed: false, completedAt: null };
+    }
+    // Stale focus time is "today's focus" semantics — wipe yesterday's value
+    // so a new day starts at 0:00. effectiveFocusMs already returns 0 for
+    // stale data, but clearing the stored field makes downstream code safer
+    // (e.g., the focus tunnel re-mount, future migrations).
+    if (next.focusDate && next.focusDate !== todayIso) {
+      next = { ...next, focusMs: 0, focusDate: null };
+    }
+    return next;
   });
 }
 
@@ -802,7 +845,10 @@ function taskHours(t) {
 // badge already implies.
 function effectiveFocusMs(t, dayStartHour = 0) {
   if (!t || !t.focusMs) return 0;
-  if (t.focusDate && t.focusDate !== effectiveTodayIso(dayStartHour)) return 0;
+  // No focusDate means we don't know when this was logged — treat as stale
+  // so it doesn't bleed across days. Same for any mismatch with today.
+  if (!t.focusDate) return 0;
+  if (t.focusDate !== effectiveTodayIso(dayStartHour)) return 0;
   return t.focusMs;
 }
 
@@ -2891,7 +2937,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -2905,6 +2951,11 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
   // Holds the pre-replan snapshot so the user can revert if the AI made a
   // mess. Cleared on dismiss or after the next non-undo plan change.
   const [undoSnapshot, setUndoSnapshot] = useState(null);
+  // Currently-edited task — opens TaskForm in a modal-ish card.
+  const [editing, setEditing] = useState(null);
+  const handleUpdate = (d) => updateTask
+    ? updateTask(editing.id, d).then(() => setEditing(null))
+    : setEditing(null);
 
   useEffect(() => { loadKV(KEYS.caps, DEFAULT_CAPS).then(c => setCaps({ ...DEFAULT_CAPS, ...c })); }, []);
 
@@ -3046,6 +3097,16 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
 
   return (
     <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 1080, margin: "0 auto" }}>
+      {editing && (
+        <div style={{ marginBottom: 18 }}>
+          <TaskForm
+            initial={editing}
+            isEdit
+            onSave={handleUpdate}
+            onCancel={() => setEditing(null)}
+          />
+        </div>
+      )}
       <PageHeader
         eyebrow="AI scheduler"
         title="Plan"
@@ -3244,12 +3305,18 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
                           // state on today's column — future / past columns
                           // are informational ("this happens every day").
                           const isDoneToday = t.completed && isToday;
+                          const proj = t.projectId && projectsMap ? projectsMap[t.projectId] : null;
                           return (
-                            <div key={"d-"+i} className="q-planner-item q-planner-item--daily" style={{
-                              borderLeft: "2px solid " + (DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
-                              color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
-                              textDecoration: isDoneToday ? "line-through" : "none",
-                            }}>
+                            <div key={"d-"+i}
+                              className="q-planner-item q-planner-item--daily"
+                              onClick={() => setEditing(t)}
+                              title="Click to edit"
+                              style={{
+                                borderLeft: "2px solid " + (proj?.color || DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
+                                color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
+                                textDecoration: isDoneToday ? "line-through" : "none",
+                                cursor: "pointer",
+                              }}>
                               {isToday ? (
                                 <button
                                   type="button"
@@ -3298,19 +3365,34 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
                         const itemNote = it.note;
                         const chunkDone = !!(it.done || t.completed);
                         const project = t.projectId && projectsMap ? projectsMap[t.projectId] : null;
+                        // Faint project tint behind the card so you can scan
+                        // which projects are in play at a glance. 8-digit hex
+                        // alpha (~10% opacity) keeps text legibility intact.
+                        const tintHex = project?.color ? `${project.color}1A` : null;
+                        const baseBg = chunkDone ? "var(--bg-soft)" : "var(--bg-elev)";
+                        const itemBg = tintHex && !chunkDone
+                          ? `linear-gradient(${tintHex}, ${tintHex}), ${baseBg}`
+                          : baseBg;
                         return (
                           <div key={it.taskId}
                             className="q-planner-item"
                             draggable={!chunkDone}
                             onDragStart={(e) => { setDraggedId(t.id); setDraggedFrom(iso); e.dataTransfer.effectAllowed = "move"; }}
                             onDragEnd={() => { setDraggedId(null); setDraggedFrom(null); setDragOver(null); }}
+                            onClick={(e) => {
+                              // The complete button already stops propagation.
+                              // Drag suppresses click at the browser level, so
+                              // this only fires on real clicks.
+                              setEditing(t);
+                            }}
+                            title="Click to edit, drag to move"
                             style={{
-                              background: chunkDone ? "var(--bg-soft)" : "var(--bg-elev)",
+                              background: itemBg,
                               border: "1px solid var(--border)",
-                              borderLeft: "2px solid " + (chunkDone ? "var(--border)" : (DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
+                              borderLeft: "2px solid " + (chunkDone ? "var(--border)" : (project?.color || DIFFICULTY[t.difficulty]?.tone || "var(--info)")),
                               color: chunkDone ? "var(--text-faint)" : "var(--text)",
                               opacity: chunkDone ? 0.6 : (draggedId === t.id && draggedFrom === iso ? 0.35 : 1),
-                              cursor: chunkDone ? "default" : "grab",
+                              cursor: chunkDone ? "pointer" : "grab",
                             }}
                           >
                             <div className="q-planner-item-head">
@@ -4098,6 +4180,12 @@ export default function App() {
         if (p.lastDate !== yesterStr) streak = 0;
       }
       const processed = processRecurring(t, dsh);
+      // Persist if processRecurring actually changed anything — e.g. cleared
+      // stale focus state — so storage doesn't repeatedly hand us yesterday's
+      // values on every load.
+      if (processed !== t && processed.some((x, i) => x !== t[i])) {
+        saveKV(KEYS.tasks, processed);
+      }
       setTasks(processed);
       setProjects(pr || []);
       setProfile({ ...p, todayXP, streak });
