@@ -423,7 +423,6 @@ async function aiFromDescription(description, mode) {
 async function aiPlanWeek(tasks, caps, opts = {}) {
   const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize"
   const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
-  const horizonDays = opts.horizon || 14;
   const lockedDates = opts.lockedDates instanceof Set
     ? opts.lockedDates
     : new Set(Array.isArray(opts.lockedDates) ? opts.lockedDates : []);
@@ -491,12 +490,34 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const dailyHours = dailyTasks.reduce((s, t) => s + (taskHours(t)), 0);
   if (!nonDailyPending.length) return existingPlan.length ? existingPlan : [];
 
-  // Build the date horizon: next `horizonDays` working days starting today.
-  // Working days = days with cap > 0. By default Sat/Sun are 0 so they're
-  // skipped, but users can raise them to schedule on weekends.
+  // Dynamic horizon: scale workdays seen by the AI to actual workload so the
+  // planner doesn't bottom out at ~3 weeks when there's more work than fits.
+  // Previously horizonDays was hardcoded to 14, which produced a "wall" where
+  // any task beyond the 14-workday window got crammed into the last visible
+  // day instead of spilling forward.
+  //
+  // Math: avg daily cap minus the daily-recurring overhead is the "effective"
+  // headroom per workday. Total task hours / that headroom is the minimum
+  // workdays needed; add a 14-workday buffer so the model has slack to honor
+  // priority and density rules. Capped at 120 workdays (~6 months) to keep
+  // the prompt manageable.
+  const workingCaps = WEEK_ALL.map(w => caps[w] || 0).filter(c => c > 0);
+  const avgCap = workingCaps.length
+    ? workingCaps.reduce((s, c) => s + c, 0) / workingCaps.length
+    : 4;
+  const effectiveDailyCap = Math.max(0.5, avgCap - dailyHours);
+  const totalNeededHours = nonDailyPending.reduce((s, t) => s + taskHours(t), 0);
+  const workloadDays = Math.ceil(totalNeededHours / effectiveDailyCap);
+  const horizonDays = opts.horizon != null
+    ? opts.horizon
+    : Math.min(120, Math.max(14, workloadDays + 14));
+
+  // Loop limit needs slack for sparse caps (e.g., only Monday is a workday).
+  const calendarLimit = horizonDays * 3 + 14;
+
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const dates = [];
-  for (let i = 0; dates.length < horizonDays && i < horizonDays * 2 + 14; i++) {
+  for (let i = 0; dates.length < horizonDays && i < calendarLimit; i++) {
     const d = addDays(today, i);
     const wd = weekdayName(d);
     const iso = isoDate(d);
@@ -618,7 +639,7 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 3000,
+        max_tokens: 6000,
         messages: [{
           role: "user",
           content: [
@@ -3169,15 +3190,27 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
       {/* Week navigator */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {/* Jump back 4 weeks — page-scrolls past the 4 weeks currently visible. */}
+          <button
+            className="q-icon-btn"
+            disabled={!canPrev}
+            onClick={() => canPrev && setWeekStart(addDays(weekStart, -28))}
+            aria-label="Previous 4 weeks"
+            title="Back 4 weeks"
+            style={{ padding: 6, opacity: canPrev ? 1 : 0.3, display: "inline-flex", alignItems: "center", gap: -4 }}
+          >
+            <Icon name="chevron" size={12} />
+            <span style={{ marginLeft: -8, display: "inline-flex" }}><Icon name="chevron" size={12} /></span>
+          </button>
           <button
             className="q-icon-btn"
             disabled={!canPrev}
             onClick={() => canPrev && setWeekStart(addDays(weekStart, -7))}
             aria-label="Previous week"
+            title="Back 1 week"
             style={{ padding: 6, opacity: canPrev ? 1 : 0.3 }}
           >
             <Icon name="chevron" size={14} />
-            <span style={{ transform: "rotate(90deg)", display: "none" }} />
           </button>
           <button
             className="q-btn q-btn--ghost q-btn--sm"
@@ -3191,9 +3224,22 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
             disabled={!canNext}
             onClick={() => canNext && setWeekStart(addDays(weekStart, 7))}
             aria-label="Next week"
+            title="Forward 1 week"
             style={{ padding: 6, opacity: canNext ? 1 : 0.3 }}
           >
             <Icon name="chevronR" size={14} />
+          </button>
+          {/* Jump forward 4 weeks. */}
+          <button
+            className="q-icon-btn"
+            disabled={!canNext}
+            onClick={() => canNext && setWeekStart(addDays(weekStart, 28))}
+            aria-label="Next 4 weeks"
+            title="Forward 4 weeks"
+            style={{ padding: 6, opacity: canNext ? 1 : 0.3, display: "inline-flex", alignItems: "center" }}
+          >
+            <Icon name="chevronR" size={12} />
+            <span style={{ marginLeft: -8, display: "inline-flex" }}><Icon name="chevronR" size={12} /></span>
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
