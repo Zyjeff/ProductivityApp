@@ -82,7 +82,7 @@ const KEYS = {
   screen: "quest_screen",
   schema: "quest_schema_v",
 };
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -262,6 +262,33 @@ async function runMigrations() {
     if (Array.isArray(ps) && ps.some(p => !p.color)) {
       const next = ps.map(p => p.color ? p : { ...p, color: pickProjectColor() });
       await saveKV(KEYS.projects, next);
+    }
+  }
+
+  // v6 → v7: items gain `doneAt` (timestamp of chunk completion) so daily
+  // activity stats can attribute partial-chunk work to the day it actually
+  // happened. For items that were already done before this migration, fall
+  // back to the parent task's completedAt; failing that, the item's date
+  // (parsed as local midnight) — both are approximations but better than
+  // dropping the data point.
+  if (v < 7) {
+    const wp = await loadKV(KEYS.weekplan, null);
+    const ts = (await loadKV(KEYS.tasks, [])) || [];
+    if (Array.isArray(wp) && wp.length && wp[0] && Array.isArray(wp[0].items)) {
+      const byId = new Map(ts.map(t => [t.id, t]));
+      const converted = wp.map(e => ({
+        date: e.date,
+        items: (e.items || []).map(it => {
+          if (!it.done || it.doneAt) return it;
+          const task = byId.get(it.taskId);
+          const fallback = task?.completedAt || (() => {
+            const [y, m, d] = (e.date || "").split("-").map(Number);
+            return y && m && d ? new Date(y, m - 1, d, 12).getTime() : Date.now();
+          })();
+          return { ...it, doneAt: fallback };
+        }),
+      }));
+      await saveKV(KEYS.weekplan, converted);
     }
   }
 
@@ -874,6 +901,34 @@ function taskHours(t) {
 // session) without needing per-chunk storage. Single-instance tasks lose
 // their cross-day cumulative count, which matches the "today" framing the
 // badge already implies.
+// Build a map of effective-date string → Set<taskId> of tasks that had work
+// completed that day. "Work completed" counts both:
+//   - A full task completion (task.completedAt on that day)
+//   - A partial chunk completion (item.doneAt on that day)
+// Dedup'd by task ID so a single task with three chunks done on the same day
+// counts as one, not three. Use this for daily activity stats.
+function buildActivityByDay(tasks, weekPlan, dayStartHour = 0) {
+  const map = new Map();
+  const add = (dayStr, taskId) => {
+    let set = map.get(dayStr);
+    if (!set) { set = new Set(); map.set(dayStr, set); }
+    set.add(taskId);
+  };
+  for (const t of tasks) {
+    if (t.completed && t.completedAt) {
+      add(effectiveDateStrOf(t.completedAt, dayStartHour), t.id);
+    }
+  }
+  for (const e of (weekPlan || [])) {
+    for (const it of (e.items || [])) {
+      if (it.done && it.doneAt) {
+        add(effectiveDateStrOf(it.doneAt, dayStartHour), it.taskId);
+      }
+    }
+  }
+  return map;
+}
+
 function effectiveFocusMs(t, dayStartHour = 0) {
   if (!t || !t.focusMs) return 0;
   // No focusDate means we don't know when this was logged — treat as stale
@@ -1880,29 +1935,27 @@ const PROJECT_TYPE_COLOR = {
 };
 function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_COLOR.other; }
 
-function ThisWeekCard({ tasks, dayStartHour = 0 }) {
+function ThisWeekCard({ tasks, weekPlan, dayStartHour = 0 }) {
   const data = useMemo(() => {
     // Anchor the week on the effective "today" so the rollover-hour user
     // sees consistent groupings everywhere.
     const monday = mondayOf(effectiveToday(dayStartHour));
     const todayIso = effectiveTodayIso(dayStartHour);
+    const activity = buildActivityByDay(tasks, weekPlan, dayStartHour);
     const labels = ["M","T","W","T","F","S","S"];
     const days = [];
     for (let i = 0; i < 7; i++) {
       const d = addDays(monday, i);
       const dStr = d.toDateString();
       const iso = isoDate(d);
-      const count = tasks.filter(t =>
-        t.completed && t.completedAt &&
-        effectiveDateStrOf(t.completedAt, dayStartHour) === dStr
-      ).length;
+      const count = activity.get(dStr)?.size || 0;
       days.push({ iso, label: labels[i], count, isToday: iso === todayIso, inPast: iso < todayIso, isCurrent: iso === todayIso });
     }
     const elapsedDays = Math.max(1, days.filter(d => d.iso <= todayIso).length);
     const total = days.reduce((s, d) => s + d.count, 0);
     const avg = (total / elapsedDays).toFixed(1);
     return { days, total, avg };
-  }, [tasks, dayStartHour]);
+  }, [tasks, weekPlan, dayStartHour]);
   const max = Math.max(1, ...data.days.map(d => d.count));
 
   return (
@@ -2152,7 +2205,14 @@ function TodayView({
   const dailyAll = tasks.filter(t => t.recurring === "daily");
   const dailyPending = dailyAll;  // alias for downstream consumers
   const todayDateStr = effectiveTodayDateStr(dayStartHour);
-  const todayDone = tasks.filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === todayDateStr);
+  // Tasks "done today" includes both fully completed tasks and any task with
+  // a chunk marked done today — so partial split-task progress counts toward
+  // the day's stat.
+  const todayActivityIds = useMemo(() => {
+    const m = buildActivityByDay(tasks, weekPlan, dayStartHour);
+    return m.get(todayDateStr) || new Set();
+  }, [tasks, weekPlan, dayStartHour, todayDateStr]);
+  const todayDone = tasks.filter(t => todayActivityIds.has(t.id));
 
   const todayIso = effectiveTodayIso(dayStartHour);
   const todayPlanData = weekPlan
@@ -2199,11 +2259,19 @@ function TodayView({
       const d = new Date(anchor); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
       days14.push(d.toDateString());
     }
-    const xpByDay14 = days14.map(s => tasks
-      .filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === s)
-      .reduce((sum, t) => sum + (t.xp || 0), 0));
-    const doneByDay14 = days14.map(s => tasks
-      .filter(t => t.completed && t.completedAt && effectiveDateStrOf(t.completedAt, dayStartHour) === s).length);
+    const activity = buildActivityByDay(tasks, weekPlan, dayStartHour);
+    const taskById = new Map(tasks.map(t => [t.id, t]));
+    const doneByDay14 = days14.map(s => (activity.get(s)?.size) || 0);
+    // For XP per day, sum task.xp for each unique task active that day. For
+    // a fully-completed task on day X, this is its full XP. For partial
+    // chunks the task's full XP is included on the chunk's day — that
+    // matches the "task touched today" lens used by the bar count.
+    const xpByDay14 = days14.map(s => {
+      const ids = activity.get(s) || new Set();
+      let sum = 0;
+      for (const id of ids) sum += (taskById.get(id)?.xp || 0);
+      return sum;
+    });
 
     const lastWeek = xpByDay14.slice(0, 7);
     const thisWeek = xpByDay14.slice(7, 14);
@@ -2222,7 +2290,7 @@ function TodayView({
       xpTrend:   trend(lastWeek, thisWeek),
       doneTrend: trend(lastWeekDone, thisWeekDone),
     };
-  }, [tasks, dayStartHour]);
+  }, [tasks, weekPlan, dayStartHour]);
 
   const hour = new Date().getHours();
   const planDoneAll = todayPlanTasks.length > 0 && planDone === todayPlanTasks.length;
@@ -2259,7 +2327,7 @@ function TodayView({
           <button className="q-link" onClick={reopenDay}>Reopen</button>
         </div>
       )}
-      {showWeeklyPulse && <WeeklyPulse tasks={tasks} onDismiss={dismissWeekly} dayStartHour={dayStartHour} />}
+      {showWeeklyPulse && <WeeklyPulse tasks={tasks} weekPlan={weekPlan} onDismiss={dismissWeekly} dayStartHour={dayStartHour} />}
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         title={greeting}
@@ -2571,7 +2639,7 @@ function TodayView({
             </div>
           )}
         </div>
-        <ThisWeekCard tasks={tasks} dayStartHour={dayStartHour} />
+        <ThisWeekCard tasks={tasks} weekPlan={weekPlan} dayStartHour={dayStartHour} />
       </div>
     </div>
   );
@@ -3821,7 +3889,7 @@ function ShortcutHelp({ onClose }) {
 
 /* ───── WEEKLY PULSE ───── */
 
-function WeeklyPulse({ tasks, onDismiss, dayStartHour = 0 }) {
+function WeeklyPulse({ tasks, weekPlan, onDismiss, dayStartHour = 0 }) {
   const stats = useMemo(() => {
     // Anchor on effective today so the day-rollover hour shifts the week
     // window — a 4am rollover means Mon 03:00 still counts toward Sunday.
@@ -3832,29 +3900,32 @@ function WeeklyPulse({ tasks, onDismiss, dayStartHour = 0 }) {
     for (let i = 0; i < 7; i++) {
       lastWeekDayStrs.add(addDays(lastWeekStart, i).toDateString());
     }
-    const lw = tasks.filter(t => {
-      if (!t.completed || !t.completedAt) return false;
-      const s = effectiveDateStrOf(t.completedAt, dayStartHour);
-      return lastWeekDayStrs.has(s) && s !== lastWeekEndStr;
-    });
+    const activity = buildActivityByDay(tasks, weekPlan, dayStartHour);
+    const taskById = new Map(tasks.map(t => [t.id, t]));
     const days = [
       { label: "Mon" }, { label: "Tue" }, { label: "Wed" },
       { label: "Thu" }, { label: "Fri" }, { label: "Sat" }, { label: "Sun" },
     ].map(d => ({ ...d, count: 0, xp: 0 }));
-    for (const t of lw) {
-      const eff = effectiveToday(dayStartHour, new Date(t.completedAt));
-      const wd = eff.getDay();
+    let total = 0;
+    let xpTotal = 0;
+    for (const dayStr of lastWeekDayStrs) {
+      if (dayStr === lastWeekEndStr) continue;
+      const ids = activity.get(dayStr);
+      if (!ids || !ids.size) continue;
+      const dDate = new Date(dayStr);
+      const wd = dDate.getDay();
       const idx = wd === 0 ? 6 : wd - 1;
-      days[idx].count += 1;
-      days[idx].xp += (t.xp || 0);
+      for (const id of ids) {
+        const xp = taskById.get(id)?.xp || 0;
+        days[idx].count += 1;
+        days[idx].xp += xp;
+        total += 1;
+        xpTotal += xp;
+      }
     }
     const best = days.reduce((b, d) => d.count > b.count ? d : b, days[0]);
-    return {
-      total: lw.length,
-      xp: lw.reduce((s, t) => s + (t.xp || 0), 0),
-      days, best,
-    };
-  }, [tasks, dayStartHour]);
+    return { total, xp: xpTotal, days, best };
+  }, [tasks, weekPlan, dayStartHour]);
 
   if (stats.total === 0) return null;
   const maxCount = Math.max(1, ...stats.days.map(d => d.count));
@@ -3917,8 +3988,10 @@ function EndOfDayDialog({ tasks, weekPlan, profile, onClose, onCloseDay, dayStar
 
   const todayStr = effectiveTodayDateStr(dayStartHour);
   const todayIso = effectiveTodayIso(dayStartHour);
-  const completedToday = tasks.filter(t => t.completed && t.completedAt &&
-    effectiveDateStrOf(t.completedAt, dayStartHour) === todayStr);
+  // Include both fully-completed tasks AND tasks with a chunk done today so
+  // the end-of-day recap reflects real activity (not just fully shipped ones).
+  const activityToday = buildActivityByDay(tasks, weekPlan, dayStartHour).get(todayStr) || new Set();
+  const completedToday = tasks.filter(t => activityToday.has(t.id));
   const xpToday = completedToday.reduce((s, t) => s + (t.xp || 0), 0);
   const todayEntry = (weekPlan || []).find(e => e.date === todayIso);
   const scheduledTomorrow = (todayEntry?.items || [])
@@ -4529,12 +4602,15 @@ export default function App() {
     // it out of a functional setWeekPlan(prev => ...) updater because React
     // 18 defers the updater until batch processing.
     const prev = weekPlan || [];
+    const nowTs = Date.now();
     const upd = prev.map(e => {
       if (e.date !== date) return e;
       return {
         ...e,
         items: (e.items || []).map(it =>
-          it.taskId === taskId ? { ...it, done: newDone } : it
+          it.taskId === taskId
+            ? { ...it, done: newDone, doneAt: newDone ? nowTs : null }
+            : it
         ),
       };
     });
