@@ -368,6 +368,75 @@ function normalizeTitleKey(s) {
   return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+// Apply a list of replan operations to an existing plan, mutating only the
+// tasks the ops reference. Done chunks stay put always. Locked dates are
+// rejected as op targets (caller filters before invoking, but we double-check).
+function applyReplanOps(existingPlan, ops, resolveTitle, lockedDates) {
+  const lockSet = lockedDates instanceof Set ? lockedDates : new Set(lockedDates || []);
+  // Deep copy so the original isn't mutated on early failures.
+  const byDate = new Map();
+  for (const e of existingPlan) {
+    byDate.set(e.date, { date: e.date, items: (e.items || []).map(it => ({ ...it })) });
+  }
+  const ensureDate = (date) => {
+    if (!byDate.has(date)) byDate.set(date, { date, items: [] });
+    return byDate.get(date);
+  };
+  const removeUndoneOf = (taskId) => {
+    for (const entry of byDate.values()) {
+      entry.items = entry.items.filter(it => !(it.taskId === taskId && !it.done));
+    }
+  };
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+
+  const applied = [];
+  const skipped = [];
+  for (const op of (ops || [])) {
+    if (!op || typeof op !== "object" || !op.op || !op.task) {
+      skipped.push({ op, reason: "malformed" });
+      continue;
+    }
+    const taskId = resolveTitle(op.task);
+    if (!taskId) { skipped.push({ op, reason: "unknown task" }); continue; }
+
+    if (op.op === "move" || op.op === "schedule") {
+      const date = op.to;
+      if (!date || !isoRe.test(date)) { skipped.push({ op, reason: "bad date" }); continue; }
+      if (lockSet.has(date)) { skipped.push({ op, reason: "locked target" }); continue; }
+      removeUndoneOf(taskId);
+      ensureDate(date).items.push({ taskId, done: false });
+      applied.push(op);
+    } else if (op.op === "unschedule") {
+      removeUndoneOf(taskId);
+      applied.push(op);
+    } else if (op.op === "split") {
+      if (!Array.isArray(op.chunks) || !op.chunks.length) {
+        skipped.push({ op, reason: "no chunks" });
+        continue;
+      }
+      const validChunks = op.chunks.filter(c =>
+        c && isoRe.test(c.date) && !lockSet.has(c.date)
+        && typeof c.hours === "number" && c.hours > 0
+      );
+      if (!validChunks.length) { skipped.push({ op, reason: "no valid chunks" }); continue; }
+      removeUndoneOf(taskId);
+      for (const c of validChunks) {
+        const item = { taskId, done: false, hours: Math.round(c.hours * 10) / 10 };
+        if (typeof c.note === "string" && c.note.trim()) item.note = c.note.trim().slice(0, 80);
+        ensureDate(c.date).items.push(item);
+      }
+      applied.push(op);
+    } else {
+      skipped.push({ op, reason: "unknown op" });
+    }
+  }
+
+  const next = Array.from(byDate.values())
+    .filter(e => e.items.length)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return { next, applied, skipped };
+}
+
 const AI_PLAN_RULES =
   "OUTPUT FORMAT — STRICT. Your entire response is a single JSON array. " +
   "Do NOT think out loud, do NOT include any prose, headers, code fences, " +
@@ -403,6 +472,46 @@ const AI_PLAN_RULES =
   "  {\"title\":\"exact task title\",\"hours\":<num>,\"note\":\"<10-15 word slice>\"} — one chunk of a split task\n" +
   "Include only dates that receive at least one item. No markdown, no " +
   "commentary, no code fences.";
+
+// Replan is a SURGICAL EDIT — output operations, not a full plan. The applier
+// only touches tasks named in ops; everything else stays exactly where it is.
+// This kills the old failure mode where "move just the IGP work" would
+// accidentally reshuffle non-IGP tasks because the AI re-output the entire
+// schedule from scratch.
+const AI_REPLAN_RULES =
+  "OUTPUT FORMAT — STRICT. Your entire response is a single JSON array of " +
+  "edit operations. Do NOT think out loud, do NOT wrap in code fences. " +
+  "Response starts with `[` and ends with `]`. If the request is impossible " +
+  "to interpret, return `[]`.\n\n" +
+  "You are EDITING an existing schedule. Tasks NOT mentioned in your output " +
+  "stay EXACTLY where they are. Be SURGICAL — emit only the operations needed " +
+  "to satisfy the user's request. If a task is unrelated to the request, " +
+  "don't touch it.\n\n" +
+  "OPERATIONS (each item in the array is one of):\n" +
+  "  {\"op\":\"move\",\"task\":\"<exact title>\",\"to\":\"YYYY-MM-DD\"}\n" +
+  "      Move task to a single date. If currently split across days, this " +
+  "collapses it to one date.\n\n" +
+  "  {\"op\":\"split\",\"task\":\"<exact title>\",\"chunks\":[{\"date\":\"YYYY-MM-DD\",\"hours\":N,\"note\":\"<10-15 word slice>\"},...]}\n" +
+  "      Replace the task's UNDONE scheduling with these chunks. Done chunks " +
+  "are immutable — leave them out of the chunks array; the system keeps them. " +
+  "Sum of `hours` should match the task's UNDONE remainder.\n\n" +
+  "  {\"op\":\"schedule\",\"task\":\"<exact title>\",\"to\":\"YYYY-MM-DD\"}\n" +
+  "      Schedule a currently-unscheduled task to a date. Use `split` shape " +
+  "instead if it needs multiple days.\n\n" +
+  "  {\"op\":\"unschedule\",\"task\":\"<exact title>\"}\n" +
+  "      Remove all undone chunks of a task from the schedule.\n\n" +
+  "CONSTRAINTS:\n" +
+  "1. NEVER include operations for tasks the user didn't reference (by name " +
+  "or by project). When unsure, omit — leaving a task alone is always safe.\n" +
+  "2. Done chunks (listed with DONE in the current plan) are immutable. Your " +
+  "split chunks cover only the undone remainder.\n" +
+  "3. Locked days are unavailable as targets.\n" +
+  "4. Respect day capacity, but when the user explicitly asks to spread or " +
+  "concentrate, honor that — it overrides the bunching default.\n" +
+  "5. The user may reference tasks by project name (\"the IGP tasks\", " +
+  "\"client work\") — the project tag in [brackets] on each plan line is " +
+  "your guide. Match all tasks whose project matches the reference.\n\n" +
+  "No markdown, no commentary, no code fences. Only the JSON array.";
 
 const AI_CAPTURE_RULES =
   "You turn freeform descriptions into structured tasks for a productivity " +
@@ -453,8 +562,161 @@ async function aiFromDescription(description, mode) {
   }
 }
 
+// Surgical replan — outputs operations, applies them to the existing plan,
+// leaves un-mentioned tasks alone. Replaces the old replan flow that asked
+// the AI to rewrite the entire schedule (causing unrelated tasks to shift).
+async function aiReplanOps(tasks, caps, opts = {}) {
+  const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
+  const instruction = (opts.instruction || "").trim();
+  if (!instruction) return null;
+
+  const lockedDates = opts.lockedDates instanceof Set
+    ? opts.lockedDates
+    : new Set(Array.isArray(opts.lockedDates) ? opts.lockedDates : []);
+
+  const projectsById = opts.projectsById instanceof Map
+    ? opts.projectsById
+    : new Map(Array.isArray(opts.projects) ? opts.projects.map(p => [p.id, p]) : []);
+  const projectTitleOf = (t) => {
+    if (!t?.projectId) return null;
+    const p = projectsById.get(t.projectId);
+    return p?.title || null;
+  };
+
+  const allPending = tasks.filter(t => !t.completed);
+  const tasksById = new Map(tasks.map(t => [t.id, t]));
+  const titleToId = new Map();
+  const normTitleToId = new Map();
+  for (const t of allPending) {
+    if (!titleToId.has(t.title)) titleToId.set(t.title, t.id);
+    const key = normalizeTitleKey(t.title);
+    if (key && !normTitleToId.has(key)) normTitleToId.set(key, t.id);
+  }
+  const resolveTitle = (title) =>
+    titleToId.get(title) || normTitleToId.get(normalizeTitleKey(title)) || null;
+
+  const dailyHours = allPending
+    .filter(t => t.recurring === "daily")
+    .reduce((s, t) => s + taskHours(t), 0);
+
+  // Current plan listing — flat, one line per chunk, with DONE / locked
+  // markers so the AI knows what's immutable. Project tags in [brackets]
+  // let the user say "the IGP tasks" and have it resolve.
+  const planLines = existingPlan
+    .filter(e => (e.items || []).length)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .flatMap(e => {
+      const isLocked = lockedDates.has(e.date);
+      return (e.items || []).map(it => {
+        const t = tasksById.get(it.taskId);
+        if (!t) return null;
+        const proj = projectTitleOf(t);
+        const projPart = proj ? ` [${proj}]` : "";
+        const lockedPart = isLocked ? " LOCKED-DAY" : "";
+        const donePart = it.done ? " DONE" : "";
+        const hoursPart = it.hours != null
+          ? ` (${it.hours}h${it.note ? `: ${it.note}` : ""})`
+          : "";
+        return `- ${e.date}: "${t.title}"${projPart}${donePart}${hoursPart}${lockedPart}`;
+      }).filter(Boolean);
+    }).join("\n");
+
+  // Pending tasks not currently scheduled — eligible for `schedule` ops.
+  const scheduledIds = new Set(existingPlan.flatMap(e => (e.items || []).map(i => i.taskId)));
+  const unscheduledLines = allPending
+    .filter(t => !scheduledIds.has(t.id) && t.recurring !== "daily")
+    .map(t => {
+      const proj = projectTitleOf(t);
+      const projPart = proj ? ` [${proj}]` : "";
+      return `- "${t.title}"${projPart} ~${taskHours(t)}h, ${t.priority || "medium"}`;
+    }).join("\n");
+
+  // 90 workdays of available dates so the AI has room for "spread over 3
+  // months" or "schedule next month" instructions.
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dayLines = [];
+  for (let i = 0; dayLines.length < 90 && i < 240; i++) {
+    const d = addDays(today, i);
+    const iso = isoDate(d);
+    const wd = weekdayName(d);
+    const cap = caps[wd] || 0;
+    if (cap === 0 || lockedDates.has(iso)) continue;
+    // Show capacity remaining after existing scheduled work + daily overhead.
+    const existingHrs = (existingPlan.find(e => e.date === iso)?.items || [])
+      .reduce((s, it) => {
+        const t = tasksById.get(it.taskId);
+        if (!t || t.recurring === "daily") return s;
+        return s + (it.hours != null ? it.hours : taskHours(t));
+      }, 0);
+    const remaining = Math.max(0, cap - existingHrs - dailyHours);
+    dayLines.push(`- ${iso} ${wd}: ${cap}h cap, ${remaining.toFixed(1)}h free`);
+  }
+
+  const dynamic =
+    `Today: ${isoDate(today)} (${weekdayName(today)}).\n\n` +
+    `User request: ${JSON.stringify(instruction)}\n\n` +
+    (planLines ? `Current plan:\n${planLines}\n\n` : "Current plan: (empty)\n\n") +
+    (unscheduledLines ? `Unscheduled pending tasks:\n${unscheduledLines}\n\n` : "") +
+    `Workdays available (next 90 working days):\n${dayLines.join("\n")}\n`;
+
+  try {
+    const r = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 3000,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_REPLAN_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
+      }),
+    });
+    if (!r.ok) {
+      let errBody = "";
+      try { errBody = await r.text(); } catch {}
+      console.error(`aiReplanOps HTTP ${r.status}:`, errBody.slice(0, 800));
+      return null;
+    }
+    const d = await r.json();
+    const rawText = d?.content?.[0]?.text || "";
+    console.group("[aiReplanOps]");
+    console.log("instruction:", instruction);
+    console.log("raw AI response:\n" + rawText);
+
+    const ops = extractJsonArray(rawText);
+    if (!ops) {
+      console.warn("aiReplanOps: couldn't extract JSON array");
+      console.groupEnd();
+      return null;
+    }
+    console.log("parsed ops:", JSON.parse(JSON.stringify(ops)));
+
+    if (ops.length === 0) {
+      console.warn("aiReplanOps: AI returned empty ops — request may have been uninterpretable");
+      console.groupEnd();
+      return null;
+    }
+
+    const result = applyReplanOps(existingPlan, ops, resolveTitle, lockedDates);
+    console.log("applied:", result.applied.length, "skipped:", result.skipped.length);
+    if (result.skipped.length) console.warn("skipped ops:", result.skipped);
+    console.groupEnd();
+
+    return result.next;
+  } catch (e) {
+    console.error("aiReplanOps failed:", e);
+    return null;
+  }
+}
+
 async function aiPlanWeek(tasks, caps, opts = {}) {
-  const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize"
+  const mode = opts.mode || "fresh";              // "fresh" | "append" | "optimize" | "replan"
+  // Replan is a surgical-edit flow; route through the operations-based path.
+  if (mode === "replan") return aiReplanOps(tasks, caps, opts);
   const existingPlan = Array.isArray(opts.existingPlan) ? opts.existingPlan : [];
   const lockedDates = opts.lockedDates instanceof Set
     ? opts.lockedDates
