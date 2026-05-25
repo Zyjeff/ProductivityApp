@@ -519,9 +519,11 @@ const AI_CAPTURE_RULES =
   "periods on titles.\n\n" +
   "Three output schemas keyed by MODE.\n\n" +
   "MODE: TASK — single action item.\n" +
-  "{\"title\":\"<5-10 word title>\",\"description\":\"<one-sentence summary or empty if input is already concise>\"}\n\n" +
+  "{\"title\":\"<5-10 word title>\",\"description\":\"<one-sentence summary or empty if input is already concise>\"," +
+  "\"recurring\":\"none|daily|weekly\"}\n\n" +
   "MODE: SUBTASKS — a task with concrete steps.\n" +
   "{\"title\":\"<5-10 word title>\",\"description\":\"<optional one-sentence summary>\"," +
+  "\"recurring\":\"none|daily|weekly\"," +
   "\"subtasks\":[\"<~5 word action step>\",...3-6 items, each starting with a verb...]}\n\n" +
   "MODE: PROJECT — a multi-task initiative.\n" +
   "{\"title\":\"<2-5 word project name, noun phrase>\",\"description\":\"<brief goal>\"," +
@@ -530,7 +532,16 @@ const AI_CAPTURE_RULES =
   "- If the user already provided a good title, keep it but tidy it.\n" +
   "- Don't pad with filler. Specific > generic.\n" +
   "- For PROJECT mode, the tasks should cover the project end-to-end and be " +
-  "sized to ~0.5-3h each.\n\n" +
+  "sized to ~0.5-3h each.\n" +
+  "- For TASK / SUBTASKS modes, detect recurrence from the input:\n" +
+  "    * \"daily\", \"every day\", \"each morning\", \"every evening\", or any\n" +
+  "      phrase implying a once-per-day cadence → \"daily\"\n" +
+  "    * \"weekly\", \"every week\", \"every Monday\", \"each Friday\", \"once\n" +
+  "      a week\" → \"weekly\"\n" +
+  "    * Otherwise → \"none\". Don't guess — only set non-none when the\n" +
+  "      input clearly indicates repetition.\n" +
+  "  When you set recurring to daily or weekly, the title should NOT include\n" +
+  "  the cadence word (\"Daily standup\" → \"Standup\" with recurring:daily).\n\n" +
   "Return ONLY valid JSON matching the requested mode's schema. No markdown, " +
   "no commentary, no code fences.";
 
@@ -1191,6 +1202,42 @@ function buildActivityByDay(tasks, weekPlan, dayStartHour = 0) {
   return map;
 }
 
+// Missed work: any undone chunk scheduled for a past date. Returns a flat
+// list of {date, taskId, item, task} sorted by date (oldest first). Daily-
+// recurring tasks are skipped since they reset on their own. Tasks the user
+// fully completed are skipped (the chunk was done elsewhere via direct
+// completeTask). Today's chunks aren't "missed" — only strictly past ones.
+function getMissedWork(tasks, weekPlan, dayStartHour = 0) {
+  if (!Array.isArray(weekPlan)) return [];
+  const todayIso = effectiveTodayIso(dayStartHour);
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const missed = [];
+  for (const e of weekPlan) {
+    if (!e.date || e.date >= todayIso) continue;
+    for (const it of (e.items || [])) {
+      if (it.done) continue;
+      const task = byId.get(it.taskId);
+      if (!task || task.completed || task.recurring === "daily") continue;
+      missed.push({ date: e.date, taskId: it.taskId, item: it, task });
+    }
+  }
+  return missed.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// Look up the first scheduled date for a task in the weekPlan. Returns the
+// earliest ISO date of any chunk belonging to the task, or "" if unscheduled.
+// Used to pre-populate the schedule picker when editing.
+function getTaskScheduledDate(taskId, weekPlan) {
+  if (!Array.isArray(weekPlan)) return "";
+  let earliest = "";
+  for (const e of weekPlan) {
+    if ((e.items || []).some(i => i.taskId === taskId)) {
+      if (!earliest || e.date < earliest) earliest = e.date;
+    }
+  }
+  return earliest;
+}
+
 function effectiveFocusMs(t, dayStartHour = 0) {
   if (!t || !t.focusMs) return 0;
   // No focusDate means we don't know when this was logged — treat as stale
@@ -1679,7 +1726,7 @@ function ChipChoice({ active, color, onClick, children }) {
   );
 }
 
-function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
+function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null }) {
   const [title,     setTitle]     = useState(initial?.title || "");
   const [desc,      setDesc]      = useState(initial?.desc  || "");
   const [notes,     setNotes]     = useState(initial?.notes || "");
@@ -1687,6 +1734,11 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
   const [subs,      setSubs]      = useState(() => (initial?.subtasks || []).map(s => ({ k: s.id || uid(), title: s.title })));
   const [recurring, setRecurring] = useState(initial?.recurring || "none");
   const [priority,  setPriority]  = useState(initial?.priority  || "medium");
+  // Manual scheduling — empty string = "let the planner decide". Setting a
+  // date pins the task to it (replaces any existing scheduling for the task,
+  // but preserves done chunks). Stays empty for daily-recurring tasks since
+  // those don't get pinned to a single date.
+  const [scheduleDate, setScheduleDate] = useState(initialScheduledDate || "");
   // Manual hours/XP overrides — only show on edit (no estimate exists until AI
   // scores a fresh task). When the user edits hours, scale XP using the prior
   // XP-per-hour ratio so the relationship stays honest. Editing XP directly
@@ -1733,6 +1785,13 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
       payload.hours = hours;
       payload.xp = xp;
       payload.manualScore = true;
+    }
+    // Schedule date — null clears any pinning intent, "" means leave-as-is,
+    // a value means pin to that date. We differentiate via a sentinel so
+    // editing a task without touching the date doesn't unschedule it.
+    if (scheduleDate !== (initialScheduledDate || "")) {
+      payload.scheduleDate = scheduleDate || null;  // null = clear schedule
+      payload.scheduleDateChanged = true;
     }
     onSave(payload);
   };
@@ -1790,6 +1849,41 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true }) {
             </div>
           </div>
         </div>
+
+        {recurring === "none" && (
+          <div>
+            <div className="q-eyebrow" style={{ marginBottom: 6 }}>
+              Schedule {initialScheduledDate ? "(currently planned)" : "(optional — leave empty to let the planner decide)"}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="date"
+                value={scheduleDate}
+                onChange={(e) => setScheduleDate(e.target.value)}
+                className="q-input q-input--sm"
+                style={{ fontFamily: "var(--font-mono)", padding: "6px 8px" }}
+              />
+              <button
+                type="button"
+                className="q-btn q-btn--ghost q-btn--sm"
+                onClick={() => setScheduleDate(isoDate(new Date()))}
+              >Today</button>
+              <button
+                type="button"
+                className="q-btn q-btn--ghost q-btn--sm"
+                onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}
+              >Tomorrow</button>
+              {scheduleDate && (
+                <button
+                  type="button"
+                  className="q-btn q-btn--ghost q-btn--sm"
+                  onClick={() => setScheduleDate("")}
+                  style={{ color: "var(--text-faint)" }}
+                >Clear</button>
+              )}
+            </div>
+          </div>
+        )}
 
         {isEdit && hours != null && xp != null && (
           <div>
@@ -2197,6 +2291,154 @@ const PROJECT_TYPE_COLOR = {
 };
 function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_COLOR.other; }
 
+// Missed work strip — past-due undone chunks. Each item gets three actions:
+// "Move to today" reschedules the chunk to today's date, "Done" marks it
+// complete in place (in case the user actually did the work but forgot to
+// check off), and "Dismiss" removes the chunk from the plan entirely. The
+// strip self-hides when there's nothing missed.
+function MissedWork({
+  tasks, weekPlan, setWeekPlan, projectsMap, toggleChunkDone,
+  pinTaskToDate, notify, dayStartHour = 0,
+  compact = false,
+}) {
+  const missed = useMemo(
+    () => getMissedWork(tasks, weekPlan, dayStartHour),
+    [tasks, weekPlan, dayStartHour],
+  );
+  if (!missed.length) return null;
+
+  const todayIso = effectiveTodayIso(dayStartHour);
+
+  // Move a single chunk between dates without disturbing the task's other
+  // chunks. (pinTaskToDate would collapse split chunks together; this only
+  // shifts the one missed slice.)
+  const moveChunkToToday = (fromDate, taskId) => {
+    setWeekPlan(prev => {
+      const planSrc = Array.isArray(prev) ? prev : [];
+      let movedItem = null;
+      const stripped = planSrc.map(entry => {
+        if (entry.date !== fromDate) return entry;
+        const out = [];
+        for (const it of (entry.items || [])) {
+          if (it.taskId === taskId && !movedItem && !it.done) movedItem = it;
+          else out.push(it);
+        }
+        return { ...entry, items: out };
+      });
+      const item = movedItem || { taskId, done: false };
+      // Reset doneAt since the chunk is being moved, not completed.
+      const movedClean = { ...item, done: false, doneAt: null };
+      const byDate = new Map();
+      for (const e of stripped) {
+        byDate.set(e.date, { date: e.date, items: [...e.items] });
+      }
+      if (!byDate.has(todayIso)) byDate.set(todayIso, { date: todayIso, items: [] });
+      const todayEntry = byDate.get(todayIso);
+      if (!todayEntry.items.some(x => x.taskId === taskId && !x.done)) {
+        todayEntry.items.push(movedClean);
+      }
+      const next = Array.from(byDate.values())
+        .filter(e => e.items.length)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      saveKV(KEYS.weekplan, next);
+      return next;
+    });
+    if (notify) notify("Moved to today");
+  };
+
+  const dismissChunk = (fromDate, taskId) => {
+    setWeekPlan(prev => {
+      const planSrc = Array.isArray(prev) ? prev : [];
+      const next = planSrc.map(entry => {
+        if (entry.date !== fromDate) return entry;
+        return { ...entry, items: (entry.items || []).filter(it => !(it.taskId === taskId && !it.done)) };
+      }).filter(e => (e.items || []).length);
+      saveKV(KEYS.weekplan, next);
+      return next;
+    });
+    if (notify) notify("Removed from plan");
+  };
+
+  const total = missed.length;
+  return (
+    <div className="q-fade-in" style={{
+      marginBottom: 18,
+      border: "1px solid var(--warning)",
+      borderRadius: "var(--r-md)",
+      background: "var(--warning-soft)",
+      padding: compact ? "10px 12px" : "12px 14px",
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 10, gap: 8,
+      }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <Icon name="bolt" size={12} />
+          <span style={{
+            fontSize: 11, fontWeight: 600, color: "var(--warning)",
+            textTransform: "uppercase", letterSpacing: "0.08em",
+          }}>Missed work</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+            {total} item{total === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {missed.map(({ date, taskId, task, item }) => {
+          const project = task.projectId && projectsMap ? projectsMap[task.projectId] : null;
+          const daysAgo = Math.max(1, Math.round((parseIsoDate(todayIso) - parseIsoDate(date)) / 86400000));
+          return (
+            <div key={`${date}-${taskId}`} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "8px 10px",
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              borderLeft: "3px solid " + (project?.color || DIFFICULTY[task.difficulty]?.tone || "var(--warning)"),
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 500, color: "var(--text)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>{task.title}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 2, fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+                  <span>{daysAgo}d late</span>
+                  {project && (
+                    <>
+                      <span>·</span>
+                      <span style={{ color: project.color || "var(--text-faint)" }}>{project.title}</span>
+                    </>
+                  )}
+                  {item.hours && <><span>·</span><span>{item.hours}h chunk</span></>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                <button
+                  className="q-btn q-btn--ghost q-btn--sm"
+                  onClick={() => moveChunkToToday(date, taskId)}
+                  title="Reschedule to today"
+                >Today</button>
+                <button
+                  className="q-btn q-btn--ghost q-btn--sm"
+                  onClick={() => toggleChunkDone(date, taskId, true)}
+                  title="Mark this chunk done at its original date"
+                  style={{ color: "var(--success)" }}
+                >Done</button>
+                <button
+                  className="q-icon-btn"
+                  onClick={() => dismissChunk(date, taskId)}
+                  title="Remove from plan"
+                  aria-label="Dismiss"
+                ><Icon name="close" size={11} /></button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ThisWeekCard({ tasks, weekPlan, dayStartHour = 0 }) {
   const data = useMemo(() => {
     // Anchor the week on the effective "today" so the rollover-hour user
@@ -2338,13 +2580,14 @@ function QuickCapture({ onCreateTask, onCreateProject, onOpenManual }) {
           tasks: Array.isArray(result.tasks) ? result.tasks : [],
         });
       } else {
+        const aiRecurring = ["daily", "weekly"].includes(result.recurring) ? result.recurring : "none";
         onCreateTask({
           title: result.title || v.slice(0, 60),
           desc: result.description || "",
           notes: "",
           tags: [],
           subtasks: mode === "subtasks" && Array.isArray(result.subtasks) ? result.subtasks : [],
-          recurring: "none",
+          recurring: aiRecurring,
           priority: "medium",
         });
       }
@@ -2439,6 +2682,7 @@ const VIEW_PAD = "32px 40px 48px";
 function TodayView({
   tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
   weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone,
+  pinTaskToDate, notify,
   addTask, updateTask, deleteTask, toggleSub, splitTask, setView,
   openNewTask, setOpenNewTask, createProjectFromCapture,
   startFocus, energy, setEnergy,
@@ -2590,6 +2834,12 @@ function TodayView({
         </div>
       )}
       {showWeeklyPulse && <WeeklyPulse tasks={tasks} weekPlan={weekPlan} onDismiss={dismissWeekly} dayStartHour={dayStartHour} />}
+      <MissedWork
+        tasks={tasks} weekPlan={weekPlan} setWeekPlan={setWeekPlan}
+        projectsMap={projectsMap} toggleChunkDone={toggleChunkDone}
+        pinTaskToDate={pinTaskToDate} notify={notify}
+        dayStartHour={dayStartHour}
+      />
       <PageHeader
         eyebrow={new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         title={greeting}
@@ -2677,7 +2927,7 @@ function TodayView({
       <div className="q-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         <div>
           {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
-          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
+          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
             <span className="q-section-title">Today</span>
@@ -2978,7 +3228,7 @@ function QueueView({
       </div>
 
       {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
-      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
+      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
 
       {list.length === 0 ? (
         <EmptyState>Nothing here.</EmptyState>
@@ -3298,7 +3548,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, pinTaskToDate, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -3463,11 +3713,18 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
           <TaskForm
             initial={editing}
             isEdit
+            initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)}
             onSave={handleUpdate}
             onCancel={() => setEditing(null)}
           />
         </div>
       )}
+      <MissedWork
+        tasks={tasks} weekPlan={weekPlan} setWeekPlan={setWeekPlan}
+        projectsMap={projectsMap} toggleChunkDone={toggleChunkDone}
+        pinTaskToDate={pinTaskToDate} notify={notify}
+        dayStartHour={dayStartHour}
+      />
       <PageHeader
         eyebrow="AI scheduler"
         title="Plan"
@@ -4749,6 +5006,33 @@ export default function App() {
     }
   }, [tasks, profile, projects, notify, dayStartHour]);
 
+  // Pin a task to a specific date in the weekPlan. Replaces any existing
+  // undone scheduling for the task (preserves done chunks). Passing null
+  // for date unschedules the task entirely (undone chunks only).
+  const pinTaskToDate = useCallback((taskId, date) => {
+    setWeekPlan(prev => {
+      const planSrc = Array.isArray(prev) ? prev : [];
+      const byDate = new Map();
+      for (const e of planSrc) {
+        byDate.set(e.date, { date: e.date, items: (e.items || []).map(it => ({ ...it })) });
+      }
+      // Remove all undone chunks of this task across all days.
+      for (const entry of byDate.values()) {
+        entry.items = entry.items.filter(it => !(it.taskId === taskId && !it.done));
+      }
+      // Add a single new chunk at the target date (if provided).
+      if (date) {
+        if (!byDate.has(date)) byDate.set(date, { date, items: [] });
+        byDate.get(date).items.push({ taskId, done: false });
+      }
+      const next = Array.from(byDate.values())
+        .filter(e => e.items.length)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      saveKV(KEYS.weekplan, next);
+      return next;
+    });
+  }, []);
+
   const addTask = useCallback((data) => {
     const optimistic = {
       id: uid(),
@@ -4768,6 +5052,10 @@ export default function App() {
       saveKV(KEYS.tasks, next);
       return next;
     });
+    // Manual schedule pin from TaskForm — only applies to non-recurring tasks.
+    if (data.scheduleDate && optimistic.recurring === "none") {
+      pinTaskToDate(optimistic.id, data.scheduleDate);
+    }
     notify("Task added");
 
     aiScore(data.title, data.desc, data.subtasks, data.tags, data.notes).then(sc => {
@@ -4786,7 +5074,7 @@ export default function App() {
       });
     });
     return Promise.resolve(optimistic);
-  }, [notify]);
+  }, [notify, pinTaskToDate]);
 
   const updateTask = useCallback((id, data) => {
     const existing = tasks.find(t => t.id === id);
@@ -4800,6 +5088,10 @@ export default function App() {
       saveKV(KEYS.tasks, next);
       return next;
     });
+    // Manual schedule changes from TaskForm.
+    if (data.scheduleDateChanged) {
+      pinTaskToDate(id, data.scheduleDate || null);
+    }
     // If the user manually overrode hours/XP in the editor, skip the AI
     // rescore — we already saved their values above and they'd be clobbered.
     if (data.manualScore) return Promise.resolve();
@@ -4818,7 +5110,7 @@ export default function App() {
         return next;
       });
     });
-  }, [tasks]);
+  }, [tasks, pinTaskToDate]);
 
   const deleteTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
@@ -5374,7 +5666,7 @@ export default function App() {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan, notify,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
-    toggleSub, splitTask, toggleChunkDone,
+    toggleSub, splitTask, toggleChunkDone, pinTaskToDate,
     addChildToProject, removeChildFromProject,
     createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
     createProjectFromCapture,
