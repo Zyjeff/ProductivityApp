@@ -1023,15 +1023,16 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
     }
   }
 
+  const hasInstruction = !!(opts.instruction && opts.instruction.trim());
   const modeLine = mode === "optimize"
     ? "Mode: OPTIMIZE — replan all listed tasks from scratch."
     : mode === "append"
-    ? "Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity."
+    ? `Mode: APPEND — only place the listed unscheduled tasks; respect already-scheduled days' remaining capacity.${hasInstruction ? " Honor the user request below as a top-priority constraint — it may specify a timeline (\"spread over 2 weeks\", \"alternate with deep work\") that overrides the default earliest-first packing." : ""}`
     : mode === "replan"
     ? "Mode: REPLAN — replan all listed tasks from scratch, honoring the additional user request below as a top-priority constraint. The request may explicitly specify a timeline (\"spread over 3 months\", \"start next week\", \"finish by Oct 31\") — when it does, distribute tasks across that range per rule 3's EXCEPTION, picking dates from the workdays-available list. Without a timeline hint, default to packing earliest days first."
     : "Mode: FRESH — no prior plan exists; place all listed tasks.";
 
-  const instructionBlock = mode === "replan" && opts.instruction
+  const instructionBlock = (mode === "replan" || mode === "append" || mode === "optimize" || mode === "fresh") && hasInstruction
     ? `\nUser request: ${JSON.stringify(opts.instruction.trim())}\n`
     : "";
 
@@ -3738,6 +3739,10 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
   // Holds the pre-replan snapshot so the user can revert if the AI made a
   // mess. Cleared on dismiss or after the next non-undo plan change.
   const [undoSnapshot, setUndoSnapshot] = useState(null);
+  // Schedule-with-instructions form state. When open, the user can give
+  // free-text guidance to the append run ("spread over 2 weeks", etc.).
+  const [scheduleFormOpen, setScheduleFormOpen] = useState(false);
+  const [scheduleInstruction, setScheduleInstruction] = useState("");
   // Currently-edited task — opens TaskForm in a modal-ish card.
   const [editing, setEditing] = useState(null);
   const handleUpdate = (d) => updateTask
@@ -3777,14 +3782,18 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
     [dayLocks]
   );
 
-  const runPlan = (mode) => {
+  const runPlan = (mode, instruction = "") => {
     setLoading(true); setLoadMode(mode);
     // Snapshot before any plan-modifying call so we can revert if it's bad.
     const snapshot = weekPlan ? JSON.parse(JSON.stringify(weekPlan)) : [];
-    aiPlanWeek(tasks, caps, { mode, existingPlan: weekPlan || [], lockedDates: lockedDateSet, projects }).then(p => {
+    const aiOpts = { mode, existingPlan: weekPlan || [], lockedDates: lockedDateSet, projects };
+    if (instruction && instruction.trim()) aiOpts.instruction = instruction.trim();
+    aiPlanWeek(tasks, caps, aiOpts).then(p => {
       if (p != null) {
         setWeekPlan(p); saveKV(KEYS.weekplan, p);
-        if (mode === "optimize") setUndoSnapshot(snapshot);
+        if (mode === "optimize" || (instruction && instruction.trim())) {
+          setUndoSnapshot(snapshot);
+        }
       }
       setLoading(false); setLoadMode(null);
     });
@@ -3913,9 +3922,38 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
               </button>
             )}
             {hasPlan && unscheduledCount > 0 && (
-              <button className="q-btn q-btn--primary" disabled={loading} onClick={() => runPlan("append")} title="Schedule unscheduled tasks after existing ones">
-                {loading && loadMode === "append" ? "Scheduling…" : `Schedule ${unscheduledCount} pending`}
-              </button>
+              <div style={{ display: "inline-flex", alignItems: "stretch", borderRadius: "var(--r-md)", overflow: "hidden", boxShadow: "0 0 0 1px var(--accent)" }}>
+                <button
+                  className="q-btn q-btn--primary"
+                  disabled={loading}
+                  onClick={() => runPlan("append")}
+                  title="Schedule unscheduled tasks earliest-first"
+                  style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0, boxShadow: "none" }}
+                >
+                  {loading && loadMode === "append" ? "Scheduling…" : `Schedule ${unscheduledCount} pending`}
+                </button>
+                <button
+                  className="q-btn q-btn--primary"
+                  disabled={loading}
+                  onClick={() => setScheduleFormOpen(v => !v)}
+                  title="Schedule with custom instructions"
+                  aria-label="Schedule with instructions"
+                  aria-expanded={scheduleFormOpen}
+                  style={{
+                    borderTopLeftRadius: 0, borderBottomLeftRadius: 0,
+                    borderLeft: "1px solid rgba(0,0,0,0.2)",
+                    padding: "0 8px", boxShadow: "none",
+                  }}
+                >
+                  <span style={{
+                    display: "inline-block",
+                    transform: scheduleFormOpen ? "rotate(180deg)" : "none",
+                    transition: "transform var(--t-fast)",
+                  }}>
+                    <Icon name="chevron" size={12} />
+                  </span>
+                </button>
+              </div>
             )}
             {hasPlan && (
               <button className="q-btn q-btn--outline" disabled={loading} onClick={() => runPlan("optimize")} title="Replan everything from scratch — may move existing tasks">
@@ -3925,6 +3963,58 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
           </div>
         }
       />
+
+      {scheduleFormOpen && hasPlan && unscheduledCount > 0 && (
+        <div className="q-card q-fade-in" style={{ padding: 14, marginBottom: 18, borderColor: "var(--accent)" }}>
+          <Eyebrow>Schedule with instructions</Eyebrow>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <textarea
+              autoFocus
+              className="q-textarea"
+              value={scheduleInstruction}
+              disabled={loading}
+              onChange={(e) => setScheduleInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  runPlan("append", scheduleInstruction);
+                  setScheduleFormOpen(false);
+                  setScheduleInstruction("");
+                } else if (e.key === "Escape") {
+                  setScheduleFormOpen(false);
+                }
+              }}
+              placeholder="e.g. spread over the next 2 weeks · alternate IGP tasks with other work · finish by Friday"
+              style={{ height: 60, fontSize: 13 }}
+            />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                className="q-btn q-btn--primary q-btn--sm"
+                disabled={loading}
+                onClick={() => {
+                  runPlan("append", scheduleInstruction);
+                  setScheduleFormOpen(false);
+                  setScheduleInstruction("");
+                }}
+              >
+                {loading && loadMode === "append"
+                  ? "Scheduling…"
+                  : scheduleInstruction.trim()
+                    ? `Schedule with this instruction`
+                    : `Schedule ${unscheduledCount} pending`}
+              </button>
+              <button
+                className="q-btn q-btn--ghost q-btn--sm"
+                onClick={() => { setScheduleFormOpen(false); setScheduleInstruction(""); }}
+                disabled={loading}
+              >Cancel</button>
+              <span style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
+                Empty = default (earliest first). ⌘↵ to submit.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="q-card" style={{ padding: 14, marginBottom: 18 }}>
         <Eyebrow>Daily capacity — click to edit. Set Sat / Sun to schedule weekends.</Eyebrow>
