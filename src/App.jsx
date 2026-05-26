@@ -2221,6 +2221,13 @@ function TaskRow({
   // on the Today view, the next undone chunk in the Queue). chunkLabel is
   // an optional indicator like "2 of 3" or "today".
   chunkNote, chunkLabel,
+  // When set, dims the edit pencil and uses this string as its tooltip.
+  // Used in Queue's whole-mode for split tasks where the user should be
+  // editing chunks via the expand panel instead.
+  editDisabledReason = null,
+  // Optional JSX rendered inside the expand area after subtasks. Used for
+  // the chunks editor in Queue's whole-mode.
+  extraExpanded = null,
 }) {
   const done = task.completed;
   const ageDays = task.createdAt ? Math.floor((Date.now() - task.createdAt) / 86400000) : 0;
@@ -2357,7 +2364,13 @@ function TaskRow({
             ><Icon name="focus" size={13} /></button>
           )}
           {!compact && onEdit && (
-            <button className="q-icon-btn" onClick={(e) => { e.stopPropagation(); onEdit(task); }} aria-label="Edit"><Icon name="edit" size={13} /></button>
+            <button
+              className="q-icon-btn"
+              onClick={(e) => { e.stopPropagation(); onEdit(task); }}
+              aria-label="Edit"
+              title={editDisabledReason || "Edit task"}
+              style={editDisabledReason ? { opacity: 0.4 } : undefined}
+            ><Icon name="edit" size={13} /></button>
           )}
           {!compact && onDelete && (
             <button className="q-icon-btn" onClick={(e) => { e.stopPropagation(); onDelete(task.id); }} aria-label="Delete"><Icon name="close" size={13} /></button>
@@ -2396,6 +2409,7 @@ function TaskRow({
               )}
             </div>
           )}
+          {extraExpanded}
         </div>
       )}
     </div>
@@ -2563,6 +2577,125 @@ const PROJECT_TYPE_COLOR = {
   other:     "var(--proj-other)",
 };
 function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_COLOR.other; }
+
+// Inline chunk editor for split tasks — renders one row per chunk with
+// editable hours / note inputs and a done checkbox. Pure-ish component:
+// owns local state for the inputs (debounced via blur) so typing doesn't
+// thrash the full plan on every keystroke.
+function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHour = 0 }) {
+  // Local mirrors keyed by `${date}:${taskId}` so multiple rows can edit
+  // independently without echoing each other.
+  const [edits, setEdits] = useState({});
+  const keyOf = (c) => `${c.date}:${taskId}`;
+
+  const valOr = (c, field) => {
+    const k = keyOf(c);
+    if (edits[k] != null && Object.prototype.hasOwnProperty.call(edits[k], field)) {
+      return edits[k][field];
+    }
+    return field === "hours" ? (c.item.hours != null ? c.item.hours : "") : (c.item.note || "");
+  };
+
+  const setVal = (c, field, value) => {
+    setEdits(prev => ({ ...prev, [keyOf(c)]: { ...(prev[keyOf(c)] || {}), [field]: value } }));
+  };
+
+  const commit = (c, field) => {
+    const k = keyOf(c);
+    const localEdit = edits[k];
+    if (!localEdit || !Object.prototype.hasOwnProperty.call(localEdit, field)) return;
+    const v = localEdit[field];
+    if (field === "hours") {
+      const num = parseFloat(v);
+      if (Number.isFinite(num) && num > 0) {
+        updateChunk(taskId, c.date, { hours: Math.round(num * 4) / 4 });
+      } else if (v === "") {
+        updateChunk(taskId, c.date, { hours: null });
+      }
+    } else if (field === "note") {
+      updateChunk(taskId, c.date, { note: typeof v === "string" ? v.trim() : null });
+    }
+    // Clear the local edit so future renders read from the source.
+    setEdits(prev => {
+      const next = { ...prev };
+      if (next[k]) {
+        const cell = { ...next[k] };
+        delete cell[field];
+        if (Object.keys(cell).length === 0) delete next[k];
+        else next[k] = cell;
+      }
+      return next;
+    });
+  };
+
+  const todayIso = effectiveTodayIso(dayStartHour);
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div className="q-eyebrow" style={{ marginBottom: 6 }}>
+        Split across {chunks.length} day{chunks.length === 1 ? "" : "s"}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {chunks.map((c) => {
+          const dateLabel = parseIsoDate(c.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          const isPast = c.date < todayIso;
+          const isToday = c.date === todayIso;
+          const dateColor = c.item.done ? "var(--success)"
+            : isToday ? "var(--accent)"
+            : isPast ? "var(--warning)" : "var(--text)";
+          return (
+            <div key={keyOf(c)} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "6px 8px",
+              background: "var(--bg-elev)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--r-sm)",
+              opacity: c.item.done ? 0.65 : 1,
+            }}>
+              <CompleteButton
+                done={!!c.item.done}
+                tone={DIFFICULTY[c.item.difficulty]?.tone || "var(--info)"}
+                onComplete={() => toggleChunkDone(c.date, taskId, true)}
+                onReopen={() => toggleChunkDone(c.date, taskId, false)}
+              />
+              <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500, color: dateColor, minWidth: 95 }}>
+                {dateLabel}{isToday ? " · today" : isPast && !c.item.done ? " · late" : ""}
+              </div>
+              <input
+                type="number"
+                min="0.25"
+                max="24"
+                step="0.25"
+                value={valOr(c, "hours")}
+                onChange={(e) => setVal(c, "hours", e.target.value)}
+                onBlur={() => commit(c, "hours")}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
+                className="q-input q-input--sm"
+                style={{ width: 56, fontFamily: "var(--font-mono)", textAlign: "center" }}
+                placeholder="hrs"
+                disabled={c.item.done}
+              />
+              <input
+                type="text"
+                value={valOr(c, "note")}
+                onChange={(e) => setVal(c, "note", e.target.value)}
+                onBlur={() => commit(c, "note")}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
+                className="q-input q-input--sm"
+                style={{ flex: 1, fontSize: 12 }}
+                placeholder="What happens this day"
+                disabled={c.item.done}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>
+        Tip: edit hours or notes inline. To move a chunk to a different day, use the planner's drag.
+      </div>
+    </div>
+  );
+}
 
 // Missed work strip — past-due undone chunks. Each item gets three actions:
 // "Move to today" reschedules the chunk to today's date, "Done" marks it
@@ -3450,7 +3583,7 @@ function QueueView({
   tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
   deleteTask, toggleSub, splitTask, createProject, createProjectFromCapture, setView,
-  openNewTask, setOpenNewTask, weekPlan,
+  openNewTask, setOpenNewTask, weekPlan, toggleChunkDone, updateChunk,
   customTags = [], addCustomTag = null,
   dayStartHour = 0,
 }) {
@@ -3460,6 +3593,9 @@ function QueueView({
   const [exp,     setExp]     = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
   const [tagFilter, setTagFilter] = useState(null);  // selected tag, or null
+  // "whole" = one row per task (default); "split" = one row per scheduled
+  // chunk so the user sees every slice as its own line.
+  const [viewMode, setViewMode] = useState("whole");
   // Screenshot import state.
   const [importing, setImporting] = useState(false);   // true while AI is parsing
   const [parsedTasks, setParsedTasks] = useState(null); // null = no import in progress
@@ -3620,6 +3756,12 @@ function QueueView({
         {projectFilter && (
           <button className="q-link" onClick={() => setProjectFilter(null)}>clear project filter</button>
         )}
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", gap: 4 }} title="Show tasks as whole or per chunk">
+          <span className="q-eyebrow" style={{ marginRight: 4, alignSelf: "center" }}>View</span>
+          <ChipChoice active={viewMode === "whole"} onClick={() => setViewMode("whole")}>whole</ChipChoice>
+          <ChipChoice active={viewMode === "split"} onClick={() => setViewMode("split")}>per chunk</ChipChoice>
+        </div>
       </div>
 
       {usedTags.length > 0 && (
@@ -3725,14 +3867,92 @@ function QueueView({
 
       {list.length === 0 ? (
         <EmptyState>Nothing here.</EmptyState>
+      ) : viewMode === "split" ? (
+        /* Per-chunk view: one row per scheduled chunk. Unscheduled tasks
+           collapse to a single "unscheduled" entry. Sorted by date so the
+           user sees their work in execution order. */
+        (() => {
+          const rows = [];
+          for (const t of list) {
+            const chunks = getTaskChunks(t.id, weekPlan);
+            if (chunks.length === 0) {
+              rows.push({ task: t, chunk: null, sortKey: "9999-12-31" });
+            } else {
+              for (const c of chunks) {
+                rows.push({ task: t, chunk: c, sortKey: c.date });
+              }
+            }
+          }
+          rows.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {rows.map((row, i) => {
+                const t = row.task;
+                const c = row.chunk;
+                const project = t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId] : null;
+                if (!c) {
+                  // Unscheduled task — show as plain row.
+                  return (
+                    <TaskRow
+                      key={`u-${t.id}`} task={t}
+                      onComplete={completeTask} onUncomplete={uncompleteTask}
+                      onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
+                      onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
+                      projectName={project?.title || null}
+                      projectColor={project?.color || null}
+                      expanded={exp === `u-${t.id}`} onToggleExpand={() => setExp(exp === `u-${t.id}` ? null : `u-${t.id}`)}
+                      dayStartHour={dayStartHour}
+                    />
+                  );
+                }
+                // Chunk row: a synthetic task object with chunk-local
+                // completion + hours so TaskRow renders accurately. The
+                // underlying task is unchanged.
+                const chunks = getTaskChunks(t.id, weekPlan);
+                const idx = chunks.findIndex(x => x.date === c.date);
+                const label = chunks.length > 1 ? `${idx + 1}/${chunks.length}` : null;
+                const dateLabel = parseIsoDate(c.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                const synthetic = {
+                  ...t,
+                  completed: !!(c.item.done || t.completed),
+                  hours: c.item.hours != null ? c.item.hours : t.hours,
+                };
+                return (
+                  <TaskRow
+                    key={`${c.date}-${t.id}-${i}`}
+                    task={synthetic}
+                    onComplete={() => toggleChunkDone(c.date, t.id, true)}
+                    onUncomplete={() => toggleChunkDone(c.date, t.id, false)}
+                    onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
+                    onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
+                    projectName={project?.title || null}
+                    projectColor={project?.color || null}
+                    chunkNote={c.item.note || null} chunkLabel={label ? `${label} · ${dateLabel}` : dateLabel}
+                    editDisabledReason={chunks.length > 1 ? "Task is split — edit the chunk inline, or use the planner" : null}
+                    expanded={exp === `${c.date}-${t.id}`} onToggleExpand={() => setExp(exp === `${c.date}-${t.id}` ? null : `${c.date}-${t.id}`)}
+                    dayStartHour={dayStartHour}
+                    extraExpanded={chunks.length > 1 ? (
+                      <ChunksEditor
+                        taskId={t.id}
+                        chunks={chunks}
+                        updateChunk={updateChunk}
+                        toggleChunkDone={toggleChunkDone}
+                        dayStartHour={dayStartHour}
+                      />
+                    ) : null}
+                  />
+                );
+              })}
+            </div>
+          );
+        })()
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {list.map(t => {
-            // Surface the next undone chunk's note + part indicator for split
-            // tasks so the queue shows "what's next" without opening planner.
             const chunks = getTaskChunks(t.id, weekPlan);
+            const isSplit = chunks.length > 1;
             let chunkNote = null, chunkLabel = null;
-            if (chunks.length > 1) {
+            if (isSplit) {
               const nextChunk = chunks.find(c => !c.item.done) || chunks[0];
               const idx = chunks.indexOf(nextChunk);
               chunkLabel = `${idx + 1}/${chunks.length}`;
@@ -3746,8 +3966,18 @@ function QueueView({
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
               projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
               chunkNote={chunkNote} chunkLabel={chunkLabel}
+              editDisabledReason={isSplit ? "Task is split — click the row to edit chunks" : null}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
               dayStartHour={dayStartHour}
+              extraExpanded={isSplit ? (
+                <ChunksEditor
+                  taskId={t.id}
+                  chunks={chunks}
+                  updateChunk={updateChunk}
+                  toggleChunkDone={toggleChunkDone}
+                  dayStartHour={dayStartHour}
+                />
+              ) : null}
             />
             );
           })}
@@ -5720,6 +5950,33 @@ export default function App() {
     });
   }, []);
 
+  // Patch a single chunk (taskId at the given date) in-place. Used by the
+  // inline chunk editor in Queue to update hours / note / done. Patch is a
+  // shallow override of fields; passing null/undefined for a key removes
+  // that field (so callers can clear an empty note).
+  const updateChunk = useCallback((taskId, date, patch) => {
+    setWeekPlan(prev => {
+      const planSrc = Array.isArray(prev) ? prev : [];
+      const next = planSrc.map(e => {
+        if (e.date !== date) return e;
+        return {
+          ...e,
+          items: (e.items || []).map(it => {
+            if (it.taskId !== taskId) return it;
+            const merged = { ...it };
+            for (const [k, v] of Object.entries(patch)) {
+              if (v == null || v === "") delete merged[k];
+              else merged[k] = v;
+            }
+            return merged;
+          }),
+        };
+      });
+      saveKV(KEYS.weekplan, next);
+      return next;
+    });
+  }, []);
+
   const addTask = useCallback((data) => {
     // Pre-scored path: caller already has hours+xp+difficulty (e.g. screenshot
     // import, aiExtendProject). Use them directly and skip the aiScore round
@@ -6387,7 +6644,7 @@ export default function App() {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan, notify,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
-    toggleSub, splitTask, toggleChunkDone, pinTaskToDate,
+    toggleSub, splitTask, toggleChunkDone, pinTaskToDate, updateChunk,
     customTags, addCustomTag,
     addChildToProject, removeChildFromProject,
     createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
