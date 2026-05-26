@@ -1949,7 +1949,14 @@ function ChipChoice({ active, color, onClick, children }) {
   );
 }
 
-function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null, customTags = [], onAddCustomTag = null }) {
+function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null, customTags = [], onAddCustomTag = null, lockedFields = null }) {
+  // lockedFields = Set<string> of field keys the form should display as
+  // read-only. Used for split tasks where hours/xp/scheduleDate are
+  // managed per-chunk in the queue's inline editor, not here.
+  const locked = lockedFields instanceof Set
+    ? lockedFields
+    : new Set(Array.isArray(lockedFields) ? lockedFields : []);
+  const isLocked = (k) => locked.has(k);
   const [title,     setTitle]     = useState(initial?.title || "");
   const [desc,      setDesc]      = useState(initial?.desc  || "");
   const [notes,     setNotes]     = useState(initial?.notes || "");
@@ -2076,27 +2083,31 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
         {recurring === "none" && (
           <div>
             <div className="q-eyebrow" style={{ marginBottom: 6 }}>
-              Schedule {initialScheduledDate ? "(currently planned)" : "(optional — leave empty to let the planner decide)"}
+              Schedule {isLocked("scheduleDate") ? "(per chunk)" : initialScheduledDate ? "(currently planned)" : "(optional — leave empty to let the planner decide)"}
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", opacity: isLocked("scheduleDate") ? 0.5 : 1 }}>
               <input
                 type="date"
                 value={scheduleDate}
                 onChange={(e) => setScheduleDate(e.target.value)}
                 className="q-input q-input--sm"
+                disabled={isLocked("scheduleDate")}
                 style={{ fontFamily: "var(--font-mono)", padding: "6px 8px" }}
+                title={isLocked("scheduleDate") ? "Task is split — change individual chunk dates from the queue's chunk panel." : undefined}
               />
               <button
                 type="button"
                 className="q-btn q-btn--ghost q-btn--sm"
                 onClick={() => setScheduleDate(isoDate(new Date()))}
+                disabled={isLocked("scheduleDate")}
               >Today</button>
               <button
                 type="button"
                 className="q-btn q-btn--ghost q-btn--sm"
                 onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}
+                disabled={isLocked("scheduleDate")}
               >Tomorrow</button>
-              {scheduleDate && (
+              {scheduleDate && !isLocked("scheduleDate") && (
                 <button
                   type="button"
                   className="q-btn q-btn--ghost q-btn--sm"
@@ -2105,39 +2116,53 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
                 >Clear</button>
               )}
             </div>
+            {isLocked("scheduleDate") && (
+              <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>
+                Task is split across multiple dates. Move individual chunks in the chunk panel.
+              </div>
+            )}
           </div>
         )}
 
         {isEdit && hours != null && xp != null && (
           <div>
             <div className="q-eyebrow" style={{ marginBottom: 6 }}>
-              Estimate {scoreOverridden ? "(manual)" : "(AI scored)"}
+              Estimate {isLocked("hours") ? "(per chunk)" : scoreOverridden ? "(manual)" : "(AI scored)"}
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", opacity: isLocked("hours") ? 0.5 : 1 }}>
                 <span style={{ fontFamily: "var(--font-mono)" }}>Hours</span>
                 <input
                   type="number" min="0.25" max="24" step="0.25"
                   value={hours}
                   onChange={(e) => adjustHours(e.target.value)}
                   className="q-input q-input--sm"
+                  disabled={isLocked("hours")}
                   style={{ width: 80, textAlign: "center", fontFamily: "var(--font-mono)" }}
+                  title={isLocked("hours") ? "Hours are decided per chunk for split tasks. Edit them in the chunks list." : undefined}
                 />
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", opacity: isLocked("xp") ? 0.5 : 1 }}>
                 <span style={{ fontFamily: "var(--font-mono)" }}>XP</span>
                 <input
                   type="number" min="5" max="200" step="5"
                   value={xp}
                   onChange={(e) => adjustXp(e.target.value)}
                   className="q-input q-input--sm"
+                  disabled={isLocked("xp")}
                   style={{ width: 80, textAlign: "center", fontFamily: "var(--font-mono)" }}
+                  title={isLocked("xp") ? "XP for split tasks is distributed across chunks proportional to hours. Editing chunk hours updates the share." : undefined}
                 />
               </label>
               <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
                 {(xp / (hours || 1)).toFixed(0)} XP/h
               </span>
             </div>
+            {(isLocked("hours") || isLocked("xp")) && (
+              <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>
+                Task is split across days — edit hours/notes per chunk in the queue's chunk panel.
+              </div>
+            )}
           </div>
         )}
 
@@ -2221,10 +2246,10 @@ function TaskRow({
   // on the Today view, the next undone chunk in the Queue). chunkLabel is
   // an optional indicator like "2 of 3" or "today".
   chunkNote, chunkLabel,
-  // When set, dims the edit pencil and uses this string as its tooltip.
-  // Used in Queue's whole-mode for split tasks where the user should be
-  // editing chunks via the expand panel instead.
-  editDisabledReason = null,
+  // A neutral "this task is split" indicator for views that don't want to
+  // surface a specific chunk's note (Queue whole-mode). Renders next to
+  // the title as a small chip.
+  splitBadge = null,
   // Optional JSX rendered inside the expand area after subtasks. Used for
   // the chunks editor in Queue's whole-mode.
   extraExpanded = null,
@@ -2261,6 +2286,14 @@ function TaskRow({
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--text-faint)", fontSize: 10 }}>
                 <Icon name="recur" size={10} /> {task.recurring}
               </span>
+            )}
+            {splitBadge && (
+              <span style={{
+                fontSize: 10, fontFamily: "var(--font-mono)",
+                color: "var(--text-faint)",
+                border: "1px solid var(--border-strong)", borderRadius: 3,
+                padding: "1px 5px",
+              }}>{splitBadge}</span>
             )}
             {!done && ageDays > 7 && (
               <span
@@ -2364,13 +2397,7 @@ function TaskRow({
             ><Icon name="focus" size={13} /></button>
           )}
           {!compact && onEdit && (
-            <button
-              className="q-icon-btn"
-              onClick={(e) => { e.stopPropagation(); onEdit(task); }}
-              aria-label="Edit"
-              title={editDisabledReason || "Edit task"}
-              style={editDisabledReason ? { opacity: 0.4 } : undefined}
-            ><Icon name="edit" size={13} /></button>
+            <button className="q-icon-btn" onClick={(e) => { e.stopPropagation(); onEdit(task); }} aria-label="Edit"><Icon name="edit" size={13} /></button>
           )}
           {!compact && onDelete && (
             <button className="q-icon-btn" onClick={(e) => { e.stopPropagation(); onDelete(task.id); }} aria-label="Delete"><Icon name="close" size={13} /></button>
@@ -2582,7 +2609,7 @@ function projectColor(type) { return PROJECT_TYPE_COLOR[type] || PROJECT_TYPE_CO
 // editable hours / note inputs and a done checkbox. Pure-ish component:
 // owns local state for the inputs (debounced via blur) so typing doesn't
 // thrash the full plan on every keystroke.
-function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHour = 0 }) {
+function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, moveChunkDate, dayStartHour = 0 }) {
   // Local mirrors keyed by `${date}:${taskId}` so multiple rows can edit
   // independently without echoing each other.
   const [edits, setEdits] = useState({});
@@ -2637,7 +2664,6 @@ function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHo
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {chunks.map((c) => {
-          const dateLabel = parseIsoDate(c.date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
           const isPast = c.date < todayIso;
           const isToday = c.date === todayIso;
           const dateColor = c.item.done ? "var(--success)"
@@ -2651,6 +2677,7 @@ function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHo
               border: "1px solid var(--border)",
               borderRadius: "var(--r-sm)",
               opacity: c.item.done ? 0.65 : 1,
+              flexWrap: "wrap",
             }}>
               <CompleteButton
                 done={!!c.item.done}
@@ -2658,9 +2685,32 @@ function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHo
                 onComplete={() => toggleChunkDone(c.date, taskId, true)}
                 onReopen={() => toggleChunkDone(c.date, taskId, false)}
               />
-              <div style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 500, color: dateColor, minWidth: 95 }}>
-                {dateLabel}{isToday ? " · today" : isPast && !c.item.done ? " · late" : ""}
-              </div>
+              <input
+                type="date"
+                value={c.date}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v && v !== c.date && moveChunkDate) moveChunkDate(taskId, c.date, v);
+                }}
+                className="q-input q-input--sm"
+                disabled={c.item.done}
+                style={{
+                  fontFamily: "var(--font-mono)", fontSize: 11,
+                  padding: "4px 6px",
+                  color: dateColor,
+                  width: 140,
+                }}
+                title={isToday ? "Today" : isPast && !c.item.done ? `Late` : ""}
+              />
+              {(isToday || (isPast && !c.item.done)) && (
+                <span style={{
+                  fontSize: 9, fontFamily: "var(--font-mono)",
+                  color: isToday ? "var(--accent)" : "var(--warning)",
+                  fontWeight: 600,
+                }}>
+                  {isToday ? "TODAY" : "LATE"}
+                </span>
+              )}
               <input
                 type="number"
                 min="0.25"
@@ -2682,7 +2732,7 @@ function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHo
                 onBlur={() => commit(c, "note")}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
                 className="q-input q-input--sm"
-                style={{ flex: 1, fontSize: 12 }}
+                style={{ flex: 1, minWidth: 160, fontSize: 12 }}
                 placeholder="What happens this day"
                 disabled={c.item.done}
               />
@@ -2691,7 +2741,7 @@ function ChunksEditor({ taskId, chunks, updateChunk, toggleChunkDone, dayStartHo
         })}
       </div>
       <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>
-        Tip: edit hours or notes inline. To move a chunk to a different day, use the planner's drag.
+        Tip: change a chunk's date to reschedule it. Drag in the planner also works.
       </div>
     </div>
   );
@@ -3334,7 +3384,7 @@ function TodayView({
       <div className="q-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         <div>
           {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
-          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
+          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} /></div>}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
             <span className="q-section-title">Today</span>
@@ -3583,7 +3633,7 @@ function QueueView({
   tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
   deleteTask, toggleSub, splitTask, createProject, createProjectFromCapture, setView,
-  openNewTask, setOpenNewTask, weekPlan, toggleChunkDone, updateChunk,
+  openNewTask, setOpenNewTask, weekPlan, toggleChunkDone, updateChunk, moveChunkDate,
   customTags = [], addCustomTag = null,
   dayStartHour = 0,
 }) {
@@ -3781,7 +3831,7 @@ function QueueView({
       )}
 
       {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
-      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
+      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} /></div>}
 
       {parsedTasks && (
         <div className="q-card q-fade-in" style={{ padding: 14, marginBottom: 16, borderColor: "var(--accent)" }}>
@@ -3928,7 +3978,6 @@ function QueueView({
                     projectName={project?.title || null}
                     projectColor={project?.color || null}
                     chunkNote={c.item.note || null} chunkLabel={label ? `${label} · ${dateLabel}` : dateLabel}
-                    editDisabledReason={chunks.length > 1 ? "Task is split — edit the chunk inline, or use the planner" : null}
                     expanded={exp === `${c.date}-${t.id}`} onToggleExpand={() => setExp(exp === `${c.date}-${t.id}` ? null : `${c.date}-${t.id}`)}
                     dayStartHour={dayStartHour}
                     extraExpanded={chunks.length > 1 ? (
@@ -3937,6 +3986,7 @@ function QueueView({
                         chunks={chunks}
                         updateChunk={updateChunk}
                         toggleChunkDone={toggleChunkDone}
+                        moveChunkDate={moveChunkDate}
                         dayStartHour={dayStartHour}
                       />
                     ) : null}
@@ -3951,13 +4001,6 @@ function QueueView({
           {list.map(t => {
             const chunks = getTaskChunks(t.id, weekPlan);
             const isSplit = chunks.length > 1;
-            let chunkNote = null, chunkLabel = null;
-            if (isSplit) {
-              const nextChunk = chunks.find(c => !c.item.done) || chunks[0];
-              const idx = chunks.indexOf(nextChunk);
-              chunkLabel = `${idx + 1}/${chunks.length}`;
-              if (nextChunk.item.note) chunkNote = nextChunk.item.note;
-            }
             return (
             <TaskRow key={t.id} task={t}
               onComplete={completeTask} onUncomplete={uncompleteTask}
@@ -3965,8 +4008,7 @@ function QueueView({
               onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
               projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
-              chunkNote={chunkNote} chunkLabel={chunkLabel}
-              editDisabledReason={isSplit ? "Task is split — click the row to edit chunks" : null}
+              splitBadge={isSplit ? `Split · ${chunks.length} days` : null}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
               dayStartHour={dayStartHour}
               extraExpanded={isSplit ? (
@@ -3975,6 +4017,7 @@ function QueueView({
                   chunks={chunks}
                   updateChunk={updateChunk}
                   toggleChunkDone={toggleChunkDone}
+                  moveChunkDate={moveChunkDate}
                   dayStartHour={dayStartHour}
                 />
               ) : null}
@@ -4537,6 +4580,7 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
             onCancel={() => setEditing(null)}
             customTags={customTags}
             onAddCustomTag={addCustomTag}
+            lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null}
           />
         </div>
       )}
@@ -5950,6 +5994,43 @@ export default function App() {
     });
   }, []);
 
+  // Move a single chunk from one date to another, preserving its hours /
+  // note / done / doneAt state. If the new date already has a chunk for
+  // the same task, we leave the move as a no-op so we don't merge two
+  // distinct chunks (which would lose the duplicate's data).
+  const moveChunkDate = useCallback((taskId, fromDate, toDate) => {
+    if (!fromDate || !toDate || fromDate === toDate) return;
+    setWeekPlan(prev => {
+      const planSrc = Array.isArray(prev) ? prev : [];
+      let movedItem = null;
+      const stripped = planSrc.map(entry => {
+        if (entry.date !== fromDate) return entry;
+        const out = [];
+        for (const it of (entry.items || [])) {
+          if (it.taskId === taskId && !movedItem) movedItem = it;
+          else out.push(it);
+        }
+        return { ...entry, items: out };
+      });
+      if (!movedItem) return prev;
+      // Already a chunk at toDate for this task? Refuse to merge — the
+      // user can delete the duplicate explicitly if they want.
+      const collision = stripped.find(e => e.date === toDate && (e.items || []).some(i => i.taskId === taskId));
+      if (collision) return prev;
+      const byDate = new Map();
+      for (const e of stripped) {
+        byDate.set(e.date, { date: e.date, items: [...(e.items || [])] });
+      }
+      if (!byDate.has(toDate)) byDate.set(toDate, { date: toDate, items: [] });
+      byDate.get(toDate).items.push({ ...movedItem });
+      const next = Array.from(byDate.values())
+        .filter(e => e.items.length)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      saveKV(KEYS.weekplan, next);
+      return next;
+    });
+  }, []);
+
   // Patch a single chunk (taskId at the given date) in-place. Used by the
   // inline chunk editor in Queue to update hours / note / done. Patch is a
   // shallow override of fields; passing null/undefined for a key removes
@@ -6644,7 +6725,7 @@ export default function App() {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan, notify,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
-    toggleSub, splitTask, toggleChunkDone, pinTaskToDate, updateChunk,
+    toggleSub, splitTask, toggleChunkDone, pinTaskToDate, updateChunk, moveChunkDate,
     customTags, addCustomTag,
     addChildToProject, removeChildFromProject,
     createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
