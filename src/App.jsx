@@ -19,7 +19,16 @@ const PRIORITIES = {
   low:    { label: "Low",    dot: "var(--text-faint)", order: 3 },
 };
 
-const TASK_TAGS = ["framer","client","admin","creative","music","personal"];
+const TASK_TAGS_BUILTIN = ["framer","client","admin","creative","music","personal"];
+// Convenience: returns the union of builtin + user-added custom tags, with
+// builtin first. Used for tag pickers, filters, and the editor.
+function allKnownTags(customTags) {
+  const out = [...TASK_TAGS_BUILTIN];
+  for (const t of (customTags || [])) {
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
 
 const PROJECT_TYPES = [
   { id: "template",  label: "Template" },
@@ -81,6 +90,7 @@ const KEYS = {
   caps: "quest_caps",
   screen: "quest_screen",
   schema: "quest_schema_v",
+  customTags: "quest_custom_tags",
 };
 const SCHEMA_VERSION = 7;
 
@@ -642,6 +652,101 @@ async function aiExtendProject(project, existingTasks, query) {
       .filter(Boolean);
   } catch (e) {
     console.error("aiExtendProject failed:", e);
+    return null;
+  }
+}
+
+// Vision-based import — user uploads a screenshot of a third-party task
+// board (Trello, Asana, Linear, Notion, paper, anything), and Claude
+// extracts tasks from it. Sonnet because vision quality matters. The user
+// can pre-edit the list before committing.
+const AI_IMPORT_VISION_RULES =
+  "OUTPUT FORMAT — STRICT. Your entire response is a single JSON array. " +
+  "Do NOT wrap in code fences. Starts with `[`, ends with `]`.\n\n" +
+  "You are reading a screenshot from a task management tool (Trello, Asana, " +
+  "Linear, Notion, paper notebook, anything) and extracting the tasks shown " +
+  "into a structured list. Be conservative: only emit a task for things that " +
+  "look like actionable items. Section headers, dates, usernames, and column " +
+  "labels (like \"To-do\" / \"In progress\" / \"Done\") are NOT tasks.\n\n" +
+  "Per-task schema:\n" +
+  "{\"title\":\"<5-12 word action title, sentence case, no period>\"," +
+  "\"description\":\"<one-line context if visible, else empty>\"," +
+  "\"difficulty\":\"easy|medium|hard|epic\"," +
+  "\"hours\":<float 0.25-12>," +
+  "\"xp\":<int 5-100>," +
+  "\"priority\":\"urgent|high|medium|low\"," +
+  "\"projectHint\":\"<group/column/board name if obvious, else empty>\"," +
+  "\"completed\":<true|false based on visible state>}\n\n" +
+  "GUIDELINES:\n" +
+  "- Title style: rephrase to sentence case action ('Build login screen'), " +
+  "even if the source uses other casing.\n" +
+  "- If the source shows estimated hours / story points / labels, infer " +
+  "difficulty + hours + XP accordingly. Otherwise pick conservative medium " +
+  "defaults (1.5h, 20XP, medium).\n" +
+  "- Completed = true ONLY if visually marked done (struck through, in a " +
+  "Done column, checkbox ticked, etc.). When uncertain, false.\n" +
+  "- projectHint: if the screenshot shows a board/project name or column " +
+  "header that all visible tasks belong under, put it here so the user can " +
+  "group them. Otherwise empty string.\n" +
+  "- Don't invent tasks the screenshot doesn't show.\n" +
+  "- Order tasks roughly top-to-bottom, left-to-right as they appear.\n\n" +
+  "If the image doesn't contain anything task-like, return `[]`.\n" +
+  "No markdown, no commentary.";
+
+async function aiImportFromScreenshot(imageBase64, mediaType) {
+  try {
+    const r = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4000,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_IMPORT_VISION_RULES, cache_control: { type: "ephemeral" } },
+            { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+            { type: "text", text: "Extract the tasks visible in this screenshot." },
+          ],
+        }],
+      }),
+    });
+    if (!r.ok) {
+      let errBody = "";
+      try { errBody = await r.text(); } catch {}
+      console.error(`aiImportFromScreenshot HTTP ${r.status}:`, errBody.slice(0, 800));
+      return null;
+    }
+    const d = await r.json();
+    const rawText = d?.content?.[0]?.text || "";
+    const parsed = extractJsonArray(rawText);
+    if (!Array.isArray(parsed)) {
+      console.warn("aiImportFromScreenshot: couldn't extract JSON array", rawText.slice(0, 500));
+      return null;
+    }
+    // Sanitize each task.
+    return parsed
+      .map(t => {
+        if (!t || !t.title) return null;
+        const difficulty = ["easy", "medium", "hard", "epic"].includes(t.difficulty) ? t.difficulty : "medium";
+        const priority = ["urgent", "high", "medium", "low"].includes(t.priority) ? t.priority : "medium";
+        const hours = typeof t.hours === "number" && t.hours > 0
+          ? Math.min(12, Math.max(0.25, Math.round(t.hours * 4) / 4))
+          : DIFFICULTY[difficulty]?.hours || 1.5;
+        const xp = typeof t.xp === "number" && t.xp > 0
+          ? Math.min(100, Math.max(5, Math.round(t.xp)))
+          : 20;
+        return {
+          title: String(t.title).trim().slice(0, 120),
+          description: typeof t.description === "string" ? t.description.trim().slice(0, 240) : "",
+          hours, xp, difficulty, priority,
+          completed: t.completed === true,
+          projectHint: typeof t.projectHint === "string" ? t.projectHint.trim().slice(0, 80) : "",
+        };
+      })
+      .filter(Boolean);
+  } catch (e) {
+    console.error("aiImportFromScreenshot failed:", e);
     return null;
   }
 }
@@ -1329,6 +1434,22 @@ function getMissedWork(tasks, weekPlan, dayStartHour = 0) {
 // Look up the first scheduled date for a task in the weekPlan. Returns the
 // earliest ISO date of any chunk belonging to the task, or "" if unscheduled.
 // Used to pre-populate the schedule picker when editing.
+// Return all plan chunks for a task, sorted by date. Each entry is
+// {date, item, index} where index is the chunk's position (1-based) across
+// all chunks. Useful for rendering split-task context in non-planner views.
+function getTaskChunks(taskId, weekPlan) {
+  if (!Array.isArray(weekPlan)) return [];
+  const chunks = [];
+  for (const e of weekPlan) {
+    for (const it of (e.items || [])) {
+      if (it.taskId === taskId) chunks.push({ date: e.date, item: it });
+    }
+  }
+  chunks.sort((a, b) => a.date.localeCompare(b.date));
+  chunks.forEach((c, i) => { c.index = i + 1; });
+  return chunks;
+}
+
 function getTaskScheduledDate(taskId, weekPlan) {
   if (!Array.isArray(weekPlan)) return "";
   let earliest = "";
@@ -1828,7 +1949,7 @@ function ChipChoice({ active, color, onClick, children }) {
   );
 }
 
-function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null }) {
+function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null, customTags = [], onAddCustomTag = null }) {
   const [title,     setTitle]     = useState(initial?.title || "");
   const [desc,      setDesc]      = useState(initial?.desc  || "");
   const [notes,     setNotes]     = useState(initial?.notes || "");
@@ -2022,10 +2143,34 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
 
         <div>
           <div className="q-eyebrow" style={{ marginBottom: 6 }}>Tags</div>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {TASK_TAGS.map(t => (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+            {allKnownTags(customTags).map(t => (
               <ChipChoice key={t} active={tags.indexOf(t) >= 0} onClick={() => toggleTag(t)}>{t}</ChipChoice>
             ))}
+            {/* Tags selected on the task but not in the known list (e.g.
+                shared by another device, or removed from custom tags after
+                being applied). Show them so the user can still toggle them
+                off without losing the data. */}
+            {tags.filter(t => !allKnownTags(customTags).includes(t)).map(t => (
+              <ChipChoice key={t} active onClick={() => toggleTag(t)}>{t}</ChipChoice>
+            ))}
+            <input
+              className="q-input q-input--sm"
+              placeholder="+ new tag"
+              style={{ width: 110, fontSize: 11 }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const raw = e.target.value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+                  if (!raw) return;
+                  if (!tags.includes(raw)) setTags(p => p.concat([raw]));
+                  if (onAddCustomTag && !TASK_TAGS_BUILTIN.includes(raw) && !customTags.includes(raw)) {
+                    onAddCustomTag(raw);
+                  }
+                  e.target.value = "";
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -2071,6 +2216,11 @@ function TaskRow({
   task, projectName, projectColor,
   onComplete, onUncomplete, onDelete, onEdit, onToggleSub, onSplit, onFocus,
   compact, expanded, onToggleExpand, dayStartHour = 0,
+  // Optional context for split tasks. chunkNote is the AI-generated slice
+  // description for whichever chunk is contextually relevant (today's chunk
+  // on the Today view, the next undone chunk in the Queue). chunkLabel is
+  // an optional indicator like "2 of 3" or "today".
+  chunkNote, chunkLabel,
 }) {
   const done = task.completed;
   const ageDays = task.createdAt ? Math.floor((Date.now() - task.createdAt) / 86400000) : 0;
@@ -2121,6 +2271,27 @@ function TaskRow({
               </span>
             )}
           </div>
+          {chunkNote && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginTop: 3,
+              fontSize: 11, color: done ? "var(--text-faint)" : "var(--text-muted)",
+              fontStyle: "italic",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              minWidth: 0,
+            }} title={chunkNote}>
+              {chunkLabel && (
+                <span style={{
+                  fontStyle: "normal",
+                  fontFamily: "var(--font-mono)", fontSize: 9,
+                  color: "var(--text-faint)",
+                  border: "1px solid var(--border)", borderRadius: 3,
+                  padding: "1px 4px", flexShrink: 0,
+                }}>{chunkLabel}</span>
+              )}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{chunkNote}</span>
+            </div>
+          )}
           {(task.tags?.length || projectName) && (
             <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
               {projectName && (
@@ -2790,6 +2961,7 @@ function TodayView({
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
   previewMode, dayClosed, reopenDay,
+  customTags = [], addCustomTag = null,
   dayStartHour = 0,
 }) {
   const [editing, setEditing] = useState(null);
@@ -3028,8 +3200,8 @@ function TodayView({
 
       <div className="q-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         <div>
-          {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
-          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
+          {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
+          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
             <span className="q-section-title">Today</span>
@@ -3062,6 +3234,18 @@ function TodayView({
                 const renderTask = todayItem
                   ? { ...t, completed: !!(todayItem.done || t.completed) }
                   : t;
+                // For split tasks, surface today's chunk note + part indicator
+                // so the user sees "what specifically am I doing today" without
+                // bouncing to the planner.
+                let chunkNote = null, chunkLabel = null;
+                if (todayItem) {
+                  const chunks = getTaskChunks(t.id, weekPlan);
+                  if (chunks.length > 1) {
+                    const idx = chunks.findIndex(c => c.date === todayIso);
+                    if (idx >= 0) chunkLabel = `${idx + 1}/${chunks.length}`;
+                  }
+                  if (todayItem.note) chunkNote = todayItem.note;
+                }
                 return (
                 <TaskRow key={t.id} task={renderTask}
                   onComplete={onCompleteHere} onUncomplete={onUncompleteHere}
@@ -3069,6 +3253,7 @@ function TodayView({
                   onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
                   projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
                   projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
+                  chunkNote={chunkNote} chunkLabel={chunkLabel}
                   expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                   dayStartHour={dayStartHour}
                 />
@@ -3264,14 +3449,32 @@ function TodayView({
 function QueueView({
   tasks, projects, projectsMap, tasksById, startFocus, energy,
   completeTask, uncompleteTask, addTask, updateTask,
-  deleteTask, toggleSub, splitTask, createProjectFromCapture, setView,
-  openNewTask, setOpenNewTask, dayStartHour = 0,
+  deleteTask, toggleSub, splitTask, createProject, createProjectFromCapture, setView,
+  openNewTask, setOpenNewTask, weekPlan,
+  customTags = [], addCustomTag = null,
+  dayStartHour = 0,
 }) {
   const [filter, setFilter] = useState("pending");
   const [sortBy, setSortBy] = useState("priority");
   const [editing, setEditing] = useState(null);
   const [exp,     setExp]     = useState(null);
   const [projectFilter, setProjectFilter] = useState(null);
+  const [tagFilter, setTagFilter] = useState(null);  // selected tag, or null
+  // Screenshot import state.
+  const [importing, setImporting] = useState(false);   // true while AI is parsing
+  const [parsedTasks, setParsedTasks] = useState(null); // null = no import in progress
+  const [importSelected, setImportSelected] = useState(new Set()); // indices to keep
+  const [importMakeProject, setImportMakeProject] = useState(false);
+  const [importProjectName, setImportProjectName] = useState("");
+  const fileInputRef = useRef(null);
+
+  // Available tags = anything actually applied to existing tasks (so the
+  // filter doesn't show stale entries) plus known custom tags.
+  const usedTags = useMemo(() => {
+    const set = new Set();
+    for (const t of tasks) for (const tag of (t.tags || [])) set.add(tag);
+    return Array.from(set).sort();
+  }, [tasks]);
 
   const filtered = tasks
     .filter(t => {
@@ -3280,7 +3483,8 @@ function QueueView({
       if (filter === "done")      return t.completed;
       return true;
     })
-    .filter(t => !projectFilter || t.projectId === projectFilter);
+    .filter(t => !projectFilter || t.projectId === projectFilter)
+    .filter(t => !tagFilter || (t.tags || []).includes(tagFilter));
   const list = (() => {
     if (filter !== "pending") return filtered.slice().sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
     if (sortBy === "energy")   return sortForEnergy(filtered, energy);
@@ -3294,17 +3498,106 @@ function QueueView({
   const handleAdd = (d) => { addTask(d); setOpenNewTask(false); };
   const handleUpdate = (d) => updateTask(editing.id, d).then(() => setEditing(null));
 
+  // Screenshot import: read the file as base64 (sans data: prefix), send to
+  // vision API, render results for user review.
+  const handleImportFile = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setImporting(true);
+    setParsedTasks(null);
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
+      if (!m) throw new Error("bad data URL");
+      const result = await aiImportFromScreenshot(m[2], m[1]);
+      if (!Array.isArray(result) || !result.length) {
+        setImporting(false);
+        return alert("Couldn't find any tasks in that screenshot. Try a clearer image.");
+      }
+      setParsedTasks(result);
+      setImportSelected(new Set(result.map((_, i) => i)));
+      // Default project name from first non-empty projectHint.
+      const hint = result.find(t => t.projectHint)?.projectHint || "";
+      setImportProjectName(hint);
+      setImportMakeProject(!!hint);
+    } catch (e) {
+      console.error("Screenshot import failed:", e);
+      alert("Import failed — check console for details.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const commitImport = () => {
+    if (!parsedTasks || !parsedTasks.length) return;
+    const picks = parsedTasks.filter((_, i) => importSelected.has(i));
+    if (!picks.length) { setParsedTasks(null); return; }
+    let projectId = null;
+    if (importMakeProject && importProjectName.trim()) {
+      // createProject (not createProjectFromCapture) so children aren't run
+      // through aiScore — we already have scores from the vision pass.
+      projectId = createProject({ title: importProjectName.trim(), type: "other" });
+    }
+    for (const p of picks) {
+      addTask({
+        title: p.title,
+        desc: p.description,
+        notes: "",
+        tags: [],
+        subtasks: [],
+        recurring: "none",
+        priority: p.priority,
+        projectId,
+        hours: p.hours,
+        xp: p.xp,
+        difficulty: p.difficulty,
+        manualScore: true,  // skip the AI rescore since we already have values
+      });
+    }
+    setParsedTasks(null);
+    setImportSelected(new Set());
+    setImportMakeProject(false);
+    setImportProjectName("");
+  };
+
   return (
     <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
       <PageHeader
         eyebrow="All tasks"
         title="Queue"
-        sub={`${list.length} ${filter === "pending" ? "pending" : filter}${projectFilter && projectsMap[projectFilter] ? ` · filtered by ${projectsMap[projectFilter].title}` : ""}`}
-        right={<QuickCapture
-          onCreateTask={handleAdd}
-          onCreateProject={(data) => { createProjectFromCapture(data); setView("pipeline"); }}
-          onOpenManual={() => { setEditing(null); setOpenNewTask(true); }}
-        />}
+        sub={`${list.length} ${filter === "pending" ? "pending" : filter}${projectFilter && projectsMap[projectFilter] ? ` · ${projectsMap[projectFilter].title}` : ""}${tagFilter ? ` · #${tagFilter}` : ""}`}
+        right={
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportFile(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              className="q-btn q-btn--outline q-btn--sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              title="Import tasks from a screenshot of another tool"
+            >
+              {importing ? "Reading…" : <><Icon name="bolt" size={11} /> Import</>}
+            </button>
+            <QuickCapture
+              onCreateTask={handleAdd}
+              onCreateProject={(data) => { createProjectFromCapture(data); setView("pipeline"); }}
+              onOpenManual={() => { setEditing(null); setOpenNewTask(true); }}
+            />
+          </div>
+        }
       />
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
@@ -3329,24 +3622,135 @@ function QueueView({
         )}
       </div>
 
-      {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} /></div>}
-      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} /></div>}
+      {usedTags.length > 0 && (
+        <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+          <span className="q-eyebrow" style={{ marginRight: 4 }}>Tags</span>
+          {usedTags.map(t => (
+            <ChipChoice
+              key={t}
+              active={tagFilter === t}
+              onClick={() => setTagFilter(tagFilter === t ? null : t)}
+            >#{t}</ChipChoice>
+          ))}
+          {tagFilter && (
+            <button className="q-link" onClick={() => setTagFilter(null)} style={{ marginLeft: 4 }}>clear</button>
+          )}
+        </div>
+      )}
+
+      {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
+      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
+
+      {parsedTasks && (
+        <div className="q-card q-fade-in" style={{ padding: 14, marginBottom: 16, borderColor: "var(--accent)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <Eyebrow>Import preview · {parsedTasks.length} task{parsedTasks.length === 1 ? "" : "s"} found</Eyebrow>
+            <button className="q-icon-btn" onClick={() => { setParsedTasks(null); setImportSelected(new Set()); }} aria-label="Discard import">
+              <Icon name="close" size={12} />
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 380, overflowY: "auto", marginBottom: 10 }}>
+            {parsedTasks.map((p, i) => {
+              const selected = importSelected.has(i);
+              return (
+                <div
+                  key={i}
+                  onClick={() => {
+                    setImportSelected(prev => {
+                      const next = new Set(prev);
+                      if (next.has(i)) next.delete(i); else next.add(i);
+                      return next;
+                    });
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "7px 10px",
+                    background: selected ? "var(--bg-elev)" : "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-sm)",
+                    opacity: selected ? 1 : 0.5,
+                    cursor: "pointer",
+                    borderLeft: "3px solid " + (selected ? (DIFFICULTY[p.difficulty]?.tone || "var(--info)") : "var(--border)"),
+                  }}
+                >
+                  <Checkbox checked={selected} onChange={() => {}} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
+                    {p.description && (
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.description}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+                    <span title={`${p.difficulty}`}><DifficultyPip d={p.difficulty} /></span>
+                    <span>{p.hours}h</span>
+                    <span>·</span>
+                    <span>{p.xp}XP</span>
+                    {p.completed && <span style={{ color: "var(--success)" }}>· done</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+              <Checkbox checked={importMakeProject} onChange={() => setImportMakeProject(v => !v)} />
+              <span>Group as project:</span>
+            </label>
+            <input
+              className="q-input q-input--sm"
+              value={importProjectName}
+              onChange={(e) => setImportProjectName(e.target.value)}
+              placeholder="Project name"
+              disabled={!importMakeProject}
+              style={{ flex: 1, maxWidth: 240 }}
+            />
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+              {importSelected.size} of {parsedTasks.length} selected
+            </span>
+            <button
+              className="q-btn q-btn--ghost q-btn--sm"
+              onClick={() => { setParsedTasks(null); setImportSelected(new Set()); }}
+            >Cancel</button>
+            <button
+              className="q-btn q-btn--primary q-btn--sm"
+              onClick={commitImport}
+              disabled={importSelected.size === 0}
+            >Import {importSelected.size}</button>
+          </div>
+        </div>
+      )}
 
       {list.length === 0 ? (
         <EmptyState>Nothing here.</EmptyState>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {list.map(t => (
+          {list.map(t => {
+            // Surface the next undone chunk's note + part indicator for split
+            // tasks so the queue shows "what's next" without opening planner.
+            const chunks = getTaskChunks(t.id, weekPlan);
+            let chunkNote = null, chunkLabel = null;
+            if (chunks.length > 1) {
+              const nextChunk = chunks.find(c => !c.item.done) || chunks[0];
+              const idx = chunks.indexOf(nextChunk);
+              chunkLabel = `${idx + 1}/${chunks.length}`;
+              if (nextChunk.item.note) chunkNote = nextChunk.item.note;
+            }
+            return (
             <TaskRow key={t.id} task={t}
               onComplete={completeTask} onUncomplete={uncompleteTask}
               onEdit={(task) => { setOpenNewTask(false); setEditing(task); }}
               onDelete={deleteTask} onToggleSub={toggleSub} onSplit={splitTask} onFocus={startFocus}
               projectName={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].title : null}
               projectColor={t.projectId && projectsMap[t.projectId] ? projectsMap[t.projectId].color : null}
+              chunkNote={chunkNote} chunkLabel={chunkLabel}
               expanded={exp === t.id} onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
               dayStartHour={dayStartHour}
             />
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -3725,7 +4129,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, pinTaskToDate, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, pinTaskToDate, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, customTags = [], addCustomTag = null, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -3901,6 +4305,8 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
             initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)}
             onSave={handleUpdate}
             onCancel={() => setEditing(null)}
+            customTags={customTags}
+            onAddCustomTag={addCustomTag}
           />
         </div>
       )}
@@ -5063,6 +5469,7 @@ export default function App() {
   const [dayClosed, setDayClosed] = useState(null); // { date, closedAt }
   const [dayLocks, setDayLocks] = useState({}); // { "YYYY-MM-DD": true }
   const [dayStartHour, setDayStartHour] = useState(0); // 0-23, when the "day" rolls over
+  const [customTags, setCustomTags] = useState([]);
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -5078,13 +5485,15 @@ export default function App() {
       const dsh = typeof rawHour === "number" && rawHour >= 0 && rawHour <= 23 ? rawHour : 0;
       setDayStartHour(dsh);
 
-      const [t, p, a, w, pr] = await Promise.all([
+      const [t, p, a, w, pr, ct] = await Promise.all([
         loadKV(KEYS.tasks, []),
         loadKV(KEYS.profile, { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
         loadKV(KEYS.achievements, []),
         loadKV(KEYS.weekplan, null),
         loadKV(KEYS.projects, []),
+        loadKV(KEYS.customTags, []),
       ]);
+      setCustomTags(Array.isArray(ct) ? ct : []);
       const todayStr = effectiveTodayDateStr(dsh);
       const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dsh);
       let streak = p.streak || 0;
@@ -5272,6 +5681,18 @@ export default function App() {
     }
   }, [tasks, profile, projects, notify, dayStartHour]);
 
+  // Persist a user-added tag so future tag pickers (and the queue filter)
+  // remember it. Built-in tags are skipped — they're already in the union.
+  const addCustomTag = useCallback((tag) => {
+    if (!tag || TASK_TAGS_BUILTIN.includes(tag)) return;
+    setCustomTags(prev => {
+      if (prev.includes(tag)) return prev;
+      const next = [...prev, tag];
+      saveKV(KEYS.customTags, next);
+      return next;
+    });
+  }, []);
+
   // Pin a task to a specific date in the weekPlan. Replaces any existing
   // undone scheduling for the task (preserves done chunks). Passing null
   // for date unschedules the task entirely (undone chunks only).
@@ -5300,17 +5721,25 @@ export default function App() {
   }, []);
 
   const addTask = useCallback((data) => {
+    // Pre-scored path: caller already has hours+xp+difficulty (e.g. screenshot
+    // import, aiExtendProject). Use them directly and skip the aiScore round
+    // trip. manualScore in the same shape as updateTask's signal.
+    const preScored = data.manualScore && typeof data.xp === "number" && typeof data.hours === "number" && data.difficulty;
     const optimistic = {
       id: uid(),
       title: data.title.trim(),
       desc: data.desc || "", notes: data.notes || "",
       tags: data.tags || [],
       subtasks: (data.subtasks || []).map((s, i) => ({ id: uid() + i, title: s, done: false })),
-      xp: 20, difficulty: "medium", hours: 1.5, reason: "scoring…",
+      xp: preScored ? data.xp : 20,
+      difficulty: preScored ? data.difficulty : "medium",
+      hours: preScored ? data.hours : 1.5,
+      reason: data.reason || (preScored ? "imported" : "scoring…"),
       recurring: data.recurring || "none",
       priority: data.priority || "medium",
       projectId: data.projectId || null,
-      completed: false,
+      completed: data.completed === true,
+      completedAt: data.completed === true ? Date.now() : null,
       createdAt: Date.now(),
     };
     setTasks(prev => {
@@ -5318,12 +5747,23 @@ export default function App() {
       saveKV(KEYS.tasks, next);
       return next;
     });
+    // If imported with a projectId, also append to the project's childTaskIds.
+    if (optimistic.projectId) {
+      setProjects(prev => {
+        const next = prev.map(p => p.id === optimistic.projectId
+          ? { ...p, childTaskIds: [...(p.childTaskIds || []), optimistic.id] }
+          : p);
+        saveKV(KEYS.projects, next);
+        return next;
+      });
+    }
     // Manual schedule pin from TaskForm — only applies to non-recurring tasks.
     if (data.scheduleDate && optimistic.recurring === "none") {
       pinTaskToDate(optimistic.id, data.scheduleDate);
     }
     notify("Task added");
 
+    if (preScored) return Promise.resolve(optimistic);
     aiScore(data.title, data.desc, data.subtasks, data.tags, data.notes).then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === optimistic.id
@@ -5948,6 +6388,7 @@ export default function App() {
     weekPlan, setWeekPlan, notify,
     completeTask, uncompleteTask, addTask, updateTask, deleteTask,
     toggleSub, splitTask, toggleChunkDone, pinTaskToDate,
+    customTags, addCustomTag,
     addChildToProject, removeChildFromProject,
     createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
     createProjectFromCapture,
