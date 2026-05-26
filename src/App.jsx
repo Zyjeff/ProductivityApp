@@ -545,6 +545,107 @@ const AI_CAPTURE_RULES =
   "Return ONLY valid JSON matching the requested mode's schema. No markdown, " +
   "no commentary, no code fences.";
 
+// AI-extend a project — adds N new tasks to an existing project, sized to
+// fit alongside the tasks already there. Returns scored tasks ready for
+// addChildToProject (no re-score needed). The AI sees the project title +
+// description plus the existing child tasks for context, so it can match
+// their sizing and avoid duplicates.
+const AI_PROJECT_EXTEND_RULES =
+  "OUTPUT FORMAT — STRICT. Your entire response is a single JSON array. " +
+  "Do NOT include prose, headers, or code fences. Starts with `[`, ends with `]`.\n\n" +
+  "You are adding new tasks to an existing project. Generate tasks that fit " +
+  "the project's scope, satisfy the user's request, and DO NOT duplicate " +
+  "existing tasks (you'll be shown the current list). Score each task with " +
+  "XP and hours so they integrate cleanly with the rest.\n\n" +
+  "Output schema: an array of task objects, each:\n" +
+  "{\"title\":\"<5-10 word action title, sentence case, no period>\"," +
+  "\"description\":\"<one-line summary or empty>\"," +
+  "\"hours\":<float 0.25-12>," +
+  "\"xp\":<int 5-100>," +
+  "\"difficulty\":\"easy|medium|hard|epic\"," +
+  "\"priority\":\"urgent|high|medium|low\"," +
+  "\"reason\":\"<10 word note explaining the score>\"}\n\n" +
+  "SIZING REFERENCE:\n" +
+  "  HOURS: easy 0.25-1, medium 1-2.5, hard 2.5-5, epic 5-10 (focused work).\n" +
+  "  XP base: admin/email 5-15, simple 15-30, component/feature 30-60, " +
+  "complex 60-85, major deliverable 85-100.\n\n" +
+  "GUIDELINES:\n" +
+  "1. Match the existing tasks' style + granularity. If the project has many " +
+  "small (~1h) tasks, prefer small. If it has a few big (~5h) tasks, you can " +
+  "go bigger.\n" +
+  "2. Tasks should be concrete and action-oriented (start with a verb).\n" +
+  "3. Default to 1-5 tasks unless the user explicitly asks for more.\n" +
+  "4. If the user asks for one specific task, return one. Don't pad.\n" +
+  "5. Priority: default medium unless the user request implies urgency.\n" +
+  "6. Recurring tasks aren't typical for projects — leave it out.\n\n" +
+  "Return ONLY the JSON array. No markdown, no commentary.";
+
+async function aiExtendProject(project, existingTasks, query) {
+  const existingLines = (existingTasks || [])
+    .map(t => `- "${t.title}" ~${taskHours(t)}h, ${t.xp}XP, ${t.difficulty}`)
+    .join("\n");
+  const dynamic =
+    `PROJECT: "${project.title}"\n` +
+    (project.desc ? `Description: ${project.desc}\n` : "") +
+    (project.notes ? `Notes: ${project.notes}\n` : "") +
+    `\nEXISTING TASKS (${existingTasks?.length || 0} — don't duplicate, match sizing):\n` +
+    (existingLines || "(none yet)") +
+    `\n\nUSER REQUEST: ${query.trim()}\n`;
+  try {
+    const r = await fetch("/api/anthropic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: AI_PROJECT_EXTEND_RULES, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dynamic },
+          ],
+        }],
+      }),
+    });
+    if (!r.ok) {
+      let errBody = "";
+      try { errBody = await r.text(); } catch {}
+      console.error(`aiExtendProject HTTP ${r.status}:`, errBody.slice(0, 800));
+      return null;
+    }
+    const d = await r.json();
+    const rawText = d?.content?.[0]?.text || "";
+    const parsed = extractJsonArray(rawText);
+    if (!Array.isArray(parsed)) {
+      console.warn("aiExtendProject: couldn't extract JSON array", rawText.slice(0, 500));
+      return null;
+    }
+    // Sanitize each task — clamp ranges, defaults for missing fields.
+    return parsed
+      .map(t => {
+        if (!t || !t.title) return null;
+        const difficulty = ["easy", "medium", "hard", "epic"].includes(t.difficulty) ? t.difficulty : "medium";
+        const priority = ["urgent", "high", "medium", "low"].includes(t.priority) ? t.priority : "medium";
+        const hours = typeof t.hours === "number" && t.hours > 0
+          ? Math.min(12, Math.max(0.25, Math.round(t.hours * 4) / 4))
+          : DIFFICULTY[difficulty]?.hours || 1.5;
+        const xp = typeof t.xp === "number" && t.xp > 0
+          ? Math.min(100, Math.max(5, Math.round(t.xp)))
+          : 20;
+        return {
+          title: String(t.title).trim().slice(0, 120),
+          description: typeof t.description === "string" ? t.description.trim().slice(0, 240) : "",
+          hours, xp, difficulty, priority,
+          reason: typeof t.reason === "string" ? t.reason.trim().slice(0, 80) : "ai-extended",
+        };
+      })
+      .filter(Boolean);
+  } catch (e) {
+    console.error("aiExtendProject failed:", e);
+    return null;
+  }
+}
+
 async function aiFromDescription(description, mode) {
   const dynamic = `MODE: ${mode.toUpperCase()}\nInput: ${description.trim()}`;
   try {
@@ -3258,6 +3359,7 @@ function PipelineView({
   completeTask, uncompleteTask, addTask, addChildToProject,
   removeChildFromProject, deleteTask, createProject, renameProject,
   updateProjectColor, shipProject, unshipProject, deleteProject, setView,
+  notify,
 }) {
   const [filter, setFilter] = useState("All");
   const [expandedId, setExpandedId] = useState(null);
@@ -3270,10 +3372,46 @@ function PipelineView({
   const [addingTaskTo, setAddingTaskTo] = useState(null);
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskPrio, setNewTaskPrio] = useState("medium");
+  // AI extend state — one project at a time, holds the text input and the
+  // loading flag while the model is generating.
+  const [aiAddingTo, setAiAddingTo] = useState(null);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
   const nameInputRef = useRef(null);
   const taskInputRef = useRef(null);
+  const aiInputRef = useRef(null);
   useEffect(() => { if (adding && nameInputRef.current) nameInputRef.current.focus(); }, [adding]);
   useEffect(() => { if (addingTaskTo && taskInputRef.current) taskInputRef.current.focus(); }, [addingTaskTo]);
+  useEffect(() => { if (aiAddingTo && aiInputRef.current) aiInputRef.current.focus(); }, [aiAddingTo]);
+
+  // AI-extend a project: send the project + its existing tasks + the user's
+  // query to the model, then add each returned task as a pre-scored child.
+  const submitAiExtend = async (project) => {
+    const q = aiQuery.trim();
+    if (!q || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const childTasks = (project.childTaskIds || [])
+        .map(id => tasksById.get(id))
+        .filter(Boolean);
+      const newTasks = await aiExtendProject(project, childTasks, q);
+      if (!Array.isArray(newTasks) || !newTasks.length) {
+        if (notify) notify("AI couldn't generate tasks — try rephrasing");
+        return;
+      }
+      for (const t of newTasks) {
+        addChildToProject(project.id, t);
+      }
+      if (notify) notify(`Added ${newTasks.length} task${newTasks.length > 1 ? "s" : ""}`);
+      setAiQuery("");
+      setAiAddingTo(null);
+    } catch (e) {
+      console.error("AI extend failed:", e);
+      if (notify) notify("AI extend failed — check console");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const active = projects.filter(p => !p.completedAt);
   const shipped = projects.filter(p => p.completedAt).sort((a, b) => (b.shippedAt || b.completedAt || 0) - (a.shippedAt || a.completedAt || 0));
@@ -3458,10 +3596,48 @@ function PipelineView({
                       <button className="q-btn q-btn--primary q-btn--sm" onClick={() => submitTask(p.id)} disabled={!newTaskName.trim()}>Add</button>
                       <button className="q-btn q-btn--ghost q-btn--sm" onClick={() => { setAddingTaskTo(null); setNewTaskName(""); }}>Cancel</button>
                     </div>
+                  ) : aiAddingTo === p.id ? (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <textarea
+                        ref={aiInputRef}
+                        className="q-textarea"
+                        placeholder="Describe the tasks to add — e.g. 'add API hookup and login screen, plus a polish pass at the end'"
+                        value={aiQuery}
+                        disabled={aiLoading}
+                        onChange={(e) => setAiQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submitAiExtend(p); }
+                          else if (e.key === "Escape" && !aiLoading) { setAiAddingTo(null); setAiQuery(""); }
+                        }}
+                        style={{ height: 56, fontSize: 13 }}
+                      />
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <button
+                          className="q-btn q-btn--primary q-btn--sm"
+                          onClick={() => submitAiExtend(p)}
+                          disabled={!aiQuery.trim() || aiLoading}
+                        >
+                          {aiLoading ? "Generating…" : "Generate tasks"}
+                        </button>
+                        <button
+                          className="q-btn q-btn--ghost q-btn--sm"
+                          onClick={() => { setAiAddingTo(null); setAiQuery(""); }}
+                          disabled={aiLoading}
+                        >Cancel</button>
+                        <span style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: "auto" }}>
+                          The AI sees the project's existing {children.length} task{children.length === 1 ? "" : "s"} for context.
+                        </span>
+                      </div>
+                    </div>
                   ) : (
-                    <button className="q-btn q-btn--ghost q-btn--sm" style={{ marginTop: 8 }} onClick={() => { setAddingTaskTo(p.id); setNewTaskName(""); }}>
-                      <Icon name="plus" size={11} /> Add task
-                    </button>
+                    <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+                      <button className="q-btn q-btn--ghost q-btn--sm" onClick={() => { setAddingTaskTo(p.id); setNewTaskName(""); }}>
+                        <Icon name="plus" size={11} /> Add task
+                      </button>
+                      <button className="q-btn q-btn--ghost q-btn--sm" onClick={() => { setAiAddingTo(p.id); setAiQuery(""); }} title="Ask the AI to generate tasks that fit this project">
+                        <Icon name="bolt" size={11} /> AI add tasks
+                      </button>
+                    </div>
                   )}
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
@@ -5379,10 +5555,24 @@ export default function App() {
   }, [tasks, projects, notify]);
 
   const addChildToProject = useCallback((projectId, data) => {
+    // If the caller already has hours/xp/difficulty (e.g. from aiExtendProject
+    // which scores at generation time), use them directly and skip the
+    // follow-up aiScore call. Otherwise the optimistic insert uses placeholder
+    // values and the score arrives async like before.
+    const preScored = typeof data.xp === "number" && typeof data.hours === "number" && data.difficulty;
+    const fallbackHours = DIFFICULTY[data.difficulty || "medium"]?.hours || 1.5;
     const child = {
-      id: "ct-" + uid(), title: data.title.trim(), desc: "", notes: "", tags: [],
-      subtasks: [], xp: 15, difficulty: "medium", reason: "scoring…",
-      recurring: "none", priority: data.priority || "medium",
+      id: "ct-" + uid(),
+      title: data.title.trim(),
+      desc: data.description || data.desc || "",
+      notes: "", tags: data.tags || [],
+      subtasks: [],
+      xp: preScored ? data.xp : 15,
+      difficulty: data.difficulty || "medium",
+      hours: preScored ? data.hours : fallbackHours,
+      reason: data.reason || (preScored ? "ai-extended" : "scoring…"),
+      recurring: "none",
+      priority: data.priority || "medium",
       projectId, completed: false, createdAt: Date.now(),
     };
     const updT = tasks.concat([child]);
@@ -5390,7 +5580,8 @@ export default function App() {
     setTasks(updT); setProjects(updP);
     saveKV(KEYS.tasks, updT); saveKV(KEYS.projects, updP);
 
-    aiScore(data.title, "", [], [], "").then(sc => {
+    if (preScored) return Promise.resolve(child);
+    aiScore(data.title, child.desc, [], [], "").then(sc => {
       setTasks(prev => {
         const next = prev.map(t => t.id === child.id
           ? {
