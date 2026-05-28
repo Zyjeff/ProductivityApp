@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 /* ───── CONSTANTS ───── */
 
@@ -475,7 +475,15 @@ const AI_PLAN_RULES =
   "7. Tasks already on the calendar (when listed) stay put unless you are " +
   "explicitly asked to optimize.\n" +
   "8. You may schedule onto any date in the workdays-available list, " +
-  "including months out — choose the date(s) that best fit the request.\n\n" +
+  "including months out — choose the date(s) that best fit the request.\n" +
+  "9. DEADLINES are immovable upper bounds. When a task line shows a " +
+  "`deadline: YYYY-MM-DD`, all of that task's scheduling MUST land on or " +
+  "before that date. If priority or earliest-first packing would push a " +
+  "deadlined task past its deadline, override the default and pull it " +
+  "forward — even if that displaces lower-priority work. If a deadline " +
+  "literally cannot fit (the date is in the past or the days before it " +
+  "have no capacity), schedule on the latest day you can and leave the " +
+  "overflow as your best attempt.\n\n" +
   "Output schema: a JSON array of day entries, each {\"date\":\"YYYY-MM-DD\"," +
   "\"items\":[...]}. Each item is one of:\n" +
   "  {\"title\":\"exact task title\"}                                — task fits in one day\n" +
@@ -829,12 +837,13 @@ async function aiReplanOps(tasks, caps, opts = {}) {
         if (!t) return null;
         const proj = projectTitleOf(t);
         const projPart = proj ? ` [${proj}]` : "";
+        const deadlinePart = t.deadlineAt ? ` (due ${isoDate(new Date(t.deadlineAt))})` : "";
         const lockedPart = isLocked ? " LOCKED-DAY" : "";
         const donePart = it.done ? " DONE" : "";
         const hoursPart = it.hours != null
           ? ` (${it.hours}h${it.note ? `: ${it.note}` : ""})`
           : "";
-        return `- ${e.date}: "${t.title}"${projPart}${donePart}${hoursPart}${lockedPart}`;
+        return `- ${e.date}: "${t.title}"${projPart}${deadlinePart}${donePart}${hoursPart}${lockedPart}`;
       }).filter(Boolean);
     }).join("\n");
 
@@ -845,7 +854,8 @@ async function aiReplanOps(tasks, caps, opts = {}) {
     .map(t => {
       const proj = projectTitleOf(t);
       const projPart = proj ? ` [${proj}]` : "";
-      return `- "${t.title}"${projPart} ~${taskHours(t)}h, ${t.priority || "medium"}`;
+      const deadlinePart = t.deadlineAt ? ` (due ${isoDate(new Date(t.deadlineAt))})` : "";
+      return `- "${t.title}"${projPart}${deadlinePart} ~${taskHours(t)}h, ${t.priority || "medium"}`;
     }).join("\n");
 
   // 90 workdays of available dates so the AI has room for "spread over 3
@@ -1099,7 +1109,10 @@ async function aiPlanWeek(tasks, caps, opts = {}) {
   const taskLines = sorted.map(t => {
     const proj = projectTitleOf(t);
     const projPart = proj ? `, project: "${proj}"` : "";
-    return `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${taskHours(t)}h, ${t.priority || "medium"}${projPart}`;
+    const deadlinePart = t.deadlineAt
+      ? `, deadline: ${isoDate(new Date(t.deadlineAt))}`
+      : "";
+    return `- "${t.title}" — ${t.xp}XP, ${t.difficulty}, ~${taskHours(t)}h, ${t.priority || "medium"}${projPart}${deadlinePart}`;
   }).join("\n");
 
   let existingBlock = "";
@@ -1949,7 +1962,7 @@ function ChipChoice({ active, color, onClick, children }) {
   );
 }
 
-function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null, customTags = [], onAddCustomTag = null, lockedFields = null }) {
+function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initialScheduledDate = null, customTags = [], onAddCustomTag = null, lockedFields = null, projects = [] }) {
   // lockedFields = Set<string> of field keys the form should display as
   // read-only. Used for split tasks where hours/xp/scheduleDate are
   // managed per-chunk in the queue's inline editor, not here.
@@ -1969,6 +1982,17 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
   // but preserves done chunks). Stays empty for daily-recurring tasks since
   // those don't get pinned to a single date.
   const [scheduleDate, setScheduleDate] = useState(initialScheduledDate || "");
+  // Project picker — null means unattached. Defaults to whatever the
+  // task is already attached to. Changes here flow as data.projectId
+  // through onSave.
+  const initialProjectId = initial?.projectId || "";
+  const [projectId, setProjectId] = useState(initialProjectId);
+  // Due date — immutable deadline. Distinct from scheduleDate (which is
+  // where the planner pinned the task). The planner respects this as a
+  // hard upper bound when present.
+  const [deadlineDate, setDeadlineDate] = useState(initial?.deadlineAt
+    ? isoDate(new Date(initial.deadlineAt)) : "");
+  const initialDeadlineStr = initial?.deadlineAt ? isoDate(new Date(initial.deadlineAt)) : "";
   // Manual hours/XP overrides — only show on edit (no estimate exists until AI
   // scores a fresh task). When the user edits hours, scale XP using the prior
   // XP-per-hour ratio so the relationship stays honest. Editing XP directly
@@ -2022,6 +2046,22 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
     if (scheduleDate !== (initialScheduledDate || "")) {
       payload.scheduleDate = scheduleDate || null;  // null = clear schedule
       payload.scheduleDateChanged = true;
+    }
+    // Deadline — store as timestamp at noon local on the chosen day so
+    // comparisons in either direction across timezones are safe. null
+    // means clear.
+    if (deadlineDate !== initialDeadlineStr) {
+      if (deadlineDate) {
+        const [y, m, d] = deadlineDate.split("-").map(Number);
+        payload.deadlineAt = new Date(y, m - 1, d, 12).getTime();
+      } else {
+        payload.deadlineAt = null;
+      }
+    }
+    // Project membership change — null = detach, string id = attach to.
+    if (projectId !== initialProjectId) {
+      payload.projectId = projectId || null;
+      payload.projectIdChanged = true;
     }
     onSave(payload);
   };
@@ -2123,6 +2163,54 @@ function TaskForm({ initial, onSave, onCancel, isEdit, autoFocus = true, initial
             )}
           </div>
         )}
+
+        {projects.length > 0 && (
+          <div>
+            <div className="q-eyebrow" style={{ marginBottom: 6 }}>Project</div>
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="q-input q-input--sm"
+              style={{ fontSize: 13, padding: "6px 8px", maxWidth: 280 }}
+            >
+              <option value="">No project</option>
+              {projects.filter(p => !p.completedAt).map(p => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+              {/* If the current project is shipped, keep it selectable so the
+                  user doesn't lose the link by editing the task. */}
+              {projects.filter(p => p.completedAt && p.id === initialProjectId).map(p => (
+                <option key={p.id} value={p.id}>{p.title} (shipped)</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <div className="q-eyebrow" style={{ marginBottom: 6 }}>
+            Deadline {deadlineDate ? "(hard date)" : "(optional)"}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="date"
+              value={deadlineDate}
+              onChange={(e) => setDeadlineDate(e.target.value)}
+              className="q-input q-input--sm"
+              style={{ fontFamily: "var(--font-mono)", padding: "6px 8px" }}
+            />
+            {deadlineDate && (
+              <button
+                type="button"
+                className="q-btn q-btn--ghost q-btn--sm"
+                onClick={() => setDeadlineDate("")}
+                style={{ color: "var(--text-faint)" }}
+              >Clear</button>
+            )}
+            <span style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: "auto" }}>
+              The planner treats deadlines as immovable upper bounds.
+            </span>
+          </div>
+        </div>
 
         {isEdit && hours != null && xp != null && (
           <div>
@@ -2295,6 +2383,39 @@ function TaskRow({
                 padding: "1px 5px",
               }}>{splitBadge}</span>
             )}
+            {task.deadlineAt && !done && (() => {
+              // Show "Due Fri" or "Due Jun 12". Color by urgency:
+              //   past         → red (overdue)
+              //   ≤ 3 days     → amber
+              //   ≤ 7 days     → faint
+              //   else         → very faint
+              const now = Date.now();
+              const dueDate = new Date(task.deadlineAt);
+              const daysLeft = Math.floor((task.deadlineAt - now) / 86400000);
+              const overdue = task.deadlineAt < now && daysLeft < 0;
+              const tone = overdue ? "var(--danger)"
+                : daysLeft <= 3 ? "var(--warning)"
+                : daysLeft <= 7 ? "var(--text-muted)" : "var(--text-faint)";
+              const label = overdue
+                ? `Overdue ${Math.abs(daysLeft)}d`
+                : daysLeft === 0 ? "Due today"
+                : daysLeft === 1 ? "Due tomorrow"
+                : daysLeft < 7 ? `Due ${dueDate.toLocaleDateString("en-US", { weekday: "short" })}`
+                : `Due ${dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+              return (
+                <span
+                  title={`Deadline: ${dueDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`}
+                  style={{
+                    fontSize: 10, fontFamily: "var(--font-mono)",
+                    color: tone, fontWeight: 600,
+                    border: `1px solid ${tone}`, borderRadius: 3,
+                    padding: "1px 5px",
+                    background: overdue ? "var(--danger-soft)"
+                      : daysLeft <= 3 ? "var(--warning-soft)" : "transparent",
+                  }}
+                >{label}</span>
+              );
+            })()}
             {!done && ageDays > 7 && (
               <span
                 title={`Pending ${ageDays} day${ageDays !== 1 ? "s" : ""}`}
@@ -2445,7 +2566,14 @@ function TaskRow({
 
 /* ───── SIDEBAR ───── */
 
-function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnterPreview, onExitPreview, dayStartHour, onChangeDayStartHour }) {
+function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnterPreview, onExitPreview, dayStartHour, onChangeDayStartHour, onExportData, onImportData }) {
+  // Day rollover presets — natural-language shortcuts to the numeric input
+  // for users who don't intuit what "rolls at 4" means.
+  const presets = [
+    { label: "Standard", hour: 0, hint: "rolls at midnight" },
+    { label: "Late", hour: 22, hint: "rolls at 10pm — tomorrow starts after 10pm tonight" },
+    { label: "Overnight", hour: 4, hint: "rolls at 4am — late-night work counts as today" },
+  ];
   return (
     <aside className="q-sidebar" style={{
       width: 200, flexShrink: 0, height: "100vh",
@@ -2505,32 +2633,72 @@ function Sidebar({ view, setView, lvl, profile, onOpenHelp, previewMode, onEnter
             </button>
           )}
         </div>
-        <label
-          style={{
-            marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between",
-            gap: 8, fontSize: 11, color: "var(--text-faint)",
-          }}
-          title="At what hour does your day roll over? Set to 4 if you work past midnight and want 1am to still count as today."
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <Icon name="moon" size={11} /> day rolls at
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-            <input
-              type="number" min="0" max="23"
-              value={dayStartHour}
-              onChange={(e) => onChangeDayStartHour && onChangeDayStartHour(e.target.value)}
-              style={{
-                width: 34, textAlign: "right",
-                padding: "2px 4px",
-                background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: 3,
-                color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11,
-              }}
-              aria-label="Day rollover hour"
-            />
-            <span style={{ fontFamily: "var(--font-mono)" }}>:00</span>
-          </span>
-        </label>
+        <div style={{ marginTop: 10 }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 8, fontSize: 11, color: "var(--text-faint)", marginBottom: 5,
+          }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <Icon name="moon" size={11} /> day rolls at
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <input
+                type="number" min="0" max="23"
+                value={dayStartHour}
+                onChange={(e) => onChangeDayStartHour && onChangeDayStartHour(e.target.value)}
+                style={{
+                  width: 34, textAlign: "right",
+                  padding: "2px 4px",
+                  background: "var(--bg-soft)", border: "1px solid var(--border)", borderRadius: 3,
+                  color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11,
+                }}
+                aria-label="Day rollover hour"
+              />
+              <span style={{ fontFamily: "var(--font-mono)" }}>:00</span>
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+            {presets.map(p => (
+              <button
+                key={p.label}
+                onClick={() => onChangeDayStartHour && onChangeDayStartHour(p.hour)}
+                title={p.hint}
+                style={{
+                  fontSize: 9, fontFamily: "var(--font-mono)",
+                  padding: "2px 5px", borderRadius: 3,
+                  background: dayStartHour === p.hour ? "var(--accent-soft)" : "transparent",
+                  border: "1px solid " + (dayStartHour === p.hour ? "var(--accent)" : "var(--border)"),
+                  color: dayStartHour === p.hour ? "var(--accent-strong)" : "var(--text-faint)",
+                  cursor: "pointer",
+                }}
+              >{p.label}</button>
+            ))}
+          </div>
+        </div>
+        {(onExportData || onImportData) && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 10,
+            borderTop: "1px solid var(--border)",
+            fontSize: 11, color: "var(--text-faint)",
+          }}>
+            {onExportData && (
+              <button
+                className="q-btn q-btn--ghost q-btn--xs"
+                style={{ padding: 0 }}
+                onClick={onExportData}
+                title="Download a JSON backup of every task, project, plan, profile, and trophy"
+              >export</button>
+            )}
+            {onImportData && (
+              <button
+                className="q-btn q-btn--ghost q-btn--xs"
+                style={{ padding: 0 }}
+                onClick={onImportData}
+                title="Restore from a JSON backup file"
+              >import</button>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -3144,6 +3312,7 @@ function TodayView({
   startFocus, energy, setEnergy,
   endOfDayOpen, setEndOfDayOpen, weeklyDismissed, setWeeklyDismissed,
   previewMode, dayClosed, reopenDay,
+  firstLaunch = false, enterPreview, dismissFirstLaunch,
   customTags = [], addCustomTag = null,
   dayStartHour = 0,
 }) {
@@ -3383,8 +3552,8 @@ function TodayView({
 
       <div className="q-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24, alignItems: "start" }}>
         <div>
-          {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
-          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} /></div>}
+          {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} projects={projects} /></div>}
+          {editing &&  <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} projects={projects} /></div>}
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
             <span className="q-section-title">Today</span>
@@ -3487,7 +3656,32 @@ function TodayView({
                         ? "Queue empty. Capture a task to get started."
                         : "No plan yet. Let the planner sort the next two weeks."}
                     </div>
-                    {allPending.length > 0 && (
+                    {allPending.length === 0 ? (
+                      firstLaunch ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                            <button
+                              className="q-btn q-btn--primary q-btn--sm"
+                              onClick={() => { dismissFirstLaunch && dismissFirstLaunch(); captureFocusBus.focus(); }}
+                            >Capture your first task</button>
+                            <button
+                              className="q-btn q-btn--outline q-btn--sm"
+                              onClick={() => { dismissFirstLaunch && dismissFirstLaunch(); enterPreview && enterPreview(); }}
+                            >
+                              <Icon name="bolt" size={11} /> Try with sample data
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", maxWidth: 320 }}>
+                            Preview loads tasks, projects, history, and a planner so you can poke around without committing.
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          className="q-btn q-btn--primary q-btn--sm"
+                          onClick={() => captureFocusBus.focus()}
+                        >Capture your first task</button>
+                      )
+                    ) : (
                       <button className="q-btn q-btn--outline q-btn--sm" disabled={planLoading} onClick={generatePlan}>
                         {planLoading ? "Planning…" : "Generate plan"}
                       </button>
@@ -3830,8 +4024,8 @@ function QueueView({
         </div>
       )}
 
-      {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} /></div>}
-      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} /></div>}
+      {openNewTask && <div style={{ marginBottom: 12 }}><TaskForm onSave={handleAdd} onCancel={() => setOpenNewTask(false)} customTags={customTags} onAddCustomTag={addCustomTag} projects={projects} /></div>}
+      {editing  && <div style={{ marginBottom: 12 }}><TaskForm initial={editing} isEdit initialScheduledDate={getTaskScheduledDate(editing.id, weekPlan)} onSave={handleUpdate} onCancel={() => setEditing(null)} customTags={customTags} onAddCustomTag={addCustomTag} lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null} projects={projects} /></div>}
 
       {parsedTasks && (
         <div className="q-card q-fade-in" style={{ padding: 14, marginBottom: 16, borderColor: "var(--accent)" }}>
@@ -4032,11 +4226,72 @@ function QueueView({
 
 /* ───── PIPELINE VIEW (ship-list lens) ───── */
 
+// Inline editable description for a project. Click to edit, blur to save,
+// Escape to cancel. Renders nothing visible when there's no description
+// AND nothing's being edited — adds a small "+ add description" affordance
+// instead so the field can be discovered.
+function ProjectDescField({ project, updateProjectMeta }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(project?.desc || "");
+  useEffect(() => { setDraft(project?.desc || ""); }, [project?.desc]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== (project.desc || "")) {
+      updateProjectMeta && updateProjectMeta(project.id, { desc: next });
+    }
+    setEditing(false);
+  };
+  const cancel = () => {
+    setDraft(project?.desc || "");
+    setEditing(false);
+  };
+  if (!editing) {
+    if (!project.desc) {
+      return (
+        <button
+          className="q-btn q-btn--ghost q-btn--xs"
+          style={{ marginTop: 12, padding: "2px 0", color: "var(--text-faint)", fontStyle: "italic" }}
+          onClick={() => setEditing(true)}
+        >+ add description</button>
+      );
+    }
+    return (
+      <div
+        onClick={() => setEditing(true)}
+        style={{
+          marginTop: 12, padding: "8px 10px",
+          background: "var(--bg-soft)",
+          border: "1px dashed var(--border)",
+          borderRadius: "var(--r-sm)",
+          fontSize: 12.5, color: "var(--text-muted)",
+          lineHeight: 1.5, cursor: "text", whiteSpace: "pre-wrap",
+        }}
+        title="Click to edit"
+      >{project.desc}</div>
+    );
+  }
+  return (
+    <textarea
+      autoFocus
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") { e.preventDefault(); cancel(); }
+        else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      }}
+      className="q-textarea"
+      placeholder="What this project is, why it matters, what done looks like."
+      style={{ marginTop: 12, height: 70, fontSize: 12.5 }}
+    />
+  );
+}
+
 function PipelineView({
   tasks, projects, projectsMap, tasksById,
   completeTask, uncompleteTask, addTask, addChildToProject,
   removeChildFromProject, deleteTask, createProject, renameProject,
-  updateProjectColor, shipProject, unshipProject, deleteProject, setView,
+  updateProjectMeta, updateProjectColor, shipProject, unshipProject, deleteProject, setView,
   notify,
 }) {
   const [filter, setFilter] = useState("All");
@@ -4233,6 +4488,7 @@ function PipelineView({
               {isOpen && (
                 <div className="q-fade-in" style={{ borderTop: "1px solid var(--border)", padding: "12px 16px 14px" }}>
                   <ProgressBar pct={pct} tone={tone} height={3} />
+                  <ProjectDescField project={p} updateProjectMeta={updateProjectMeta} />
                   <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 12 }}>
                     {children.map(t => (
                       <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 4px", borderRadius: "var(--r-sm)" }}>
@@ -4581,6 +4837,7 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
             customTags={customTags}
             onAddCustomTag={addCustomTag}
             lockedFields={getTaskChunks(editing.id, weekPlan).length > 1 ? ["hours", "xp", "scheduleDate"] : null}
+            projects={projects}
           />
         </div>
       )}
@@ -5043,31 +5300,62 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
           ))}
 
           {hasPlan && (
-            <div className="q-replan-bar q-fade-in">
-              <span className="q-replan-prefix">
-                <Icon name="bolt" size={12} /> Ask
-              </span>
-              <input
-                value={replanText}
-                disabled={replanLoading}
-                onChange={(e) => setReplanText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") { e.preventDefault(); runReplan(); }
-                  else if (e.key === "Escape") setReplanText("");
-                }}
-                placeholder={replanLoading
-                  ? "Rearranging…"
-                  : "Spread Acme project over 3 months, push audit to next week…"}
-                aria-label="Replan instruction"
-              />
-              <button
-                className="q-btn q-btn--primary q-btn--sm"
-                disabled={!replanText.trim() || replanLoading}
-                onClick={runReplan}
-              >
-                {replanLoading ? "Replanning…" : "Replan"}
-              </button>
-            </div>
+            <>
+              <div className="q-replan-bar q-fade-in">
+                <span className="q-replan-prefix">
+                  <Icon name="bolt" size={12} /> Ask
+                </span>
+                <input
+                  value={replanText}
+                  disabled={replanLoading}
+                  onChange={(e) => setReplanText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); runReplan(); }
+                    else if (e.key === "Escape") setReplanText("");
+                  }}
+                  placeholder={replanLoading
+                    ? "Rearranging…"
+                    : "Spread Acme project over 3 months, push audit to next week…"}
+                  aria-label="Replan instruction"
+                />
+                <button
+                  className="q-btn q-btn--primary q-btn--sm"
+                  disabled={!replanText.trim() || replanLoading}
+                  onClick={runReplan}
+                >
+                  {replanLoading ? "Replanning…" : "Replan"}
+                </button>
+              </div>
+              {!replanText && !replanLoading && (
+                <div style={{
+                  display: "flex", gap: 5, flexWrap: "wrap",
+                  marginTop: 6, paddingLeft: 4,
+                  fontSize: 10, color: "var(--text-faint)",
+                }}>
+                  <span style={{ fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 2 }}>Try</span>
+                  {[
+                    "Spread the IGP tasks over next 2 weeks",
+                    "Push everything past Friday",
+                    "Move client work to next month",
+                    "Move design tasks earlier",
+                  ].map(ex => (
+                    <button
+                      key={ex}
+                      onClick={() => setReplanText(ex)}
+                      style={{
+                        fontSize: 10, fontFamily: "var(--font-mono)",
+                        padding: "2px 6px", borderRadius: 3,
+                        background: "transparent",
+                        border: "1px solid var(--border)",
+                        color: "var(--text-faint)",
+                        cursor: "pointer",
+                      }}
+                      title={`Use this as the replan instruction`}
+                    >{ex}</button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
           {undoSnapshot && (
@@ -5286,7 +5574,26 @@ function HabitsView({ dayStartHour = 0 }) {
 
 /* ───── TROPHIES VIEW ───── */
 
-function TrophiesView({ unlocked }) {
+function TrophiesView({ unlocked, profile }) {
+  // Map each numeric-threshold achievement to a (current, target) pair so
+  // locked cards can show "8 / 20" instead of just the abstract goal.
+  // Streak/XP-day/streak7 use today's profile snapshot. Achievements that
+  // don't lend themselves to a count (epic, decompose, speed, clean_day,
+  // framer3, project) just show nothing — that's fine.
+  const progressFor = (id) => {
+    if (!profile) return null;
+    switch (id) {
+      case "first":   return { cur: profile.completedCount || 0, target: 1 };
+      case "five":    return { cur: profile.completedCount || 0, target: 5 };
+      case "twenty":  return { cur: profile.completedCount || 0, target: 20 };
+      case "streak3": return { cur: profile.streak || 0, target: 3 };
+      case "streak7": return { cur: profile.streak || 0, target: 7 };
+      case "day100":  return { cur: profile.todayXP || 0, target: 100 };
+      case "xp500":   return { cur: profile.totalXP || 0, target: 500 };
+      case "xp1000":  return { cur: profile.totalXP || 0, target: 1000 };
+      default:        return null;
+    }
+  };
   return (
     <div className="q-view-pad" style={{ padding: VIEW_PAD, maxWidth: 880, margin: "0 auto" }}>
       <PageHeader
@@ -5297,6 +5604,8 @@ function TrophiesView({ unlocked }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
         {ACHIEVEMENTS.map(a => {
           const done = unlocked.indexOf(a.id) >= 0;
+          const prog = !done ? progressFor(a.id) : null;
+          const pct = prog ? Math.min(100, Math.round((prog.cur / prog.target) * 100)) : 0;
           return (
             <div key={a.id} className="q-card" style={{
               padding: 16,
@@ -5311,6 +5620,15 @@ function TrophiesView({ unlocked }) {
               </div>
               <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4, color: "var(--text)" }}>{a.title}</div>
               <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{a.desc}</div>
+              {prog && !done && (
+                <div style={{ marginTop: 10 }}>
+                  <ProgressBar pct={pct} tone="var(--accent)" height={3} />
+                  <div style={{
+                    marginTop: 4, fontSize: 10, fontFamily: "var(--font-mono)",
+                    color: "var(--text-faint)", textAlign: "right",
+                  }}>{prog.cur} / {prog.target}</div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -5723,7 +6041,87 @@ function FocusTunnel({ task, nextTask, projectName, onComplete, onExit, onSkip, 
 
 /* ───── ROOT APP ───── */
 
-export default function App() {
+// Small error boundary so a render-time crash inside any one view doesn't
+// take out the whole tree (and silently throw away the user's session via
+// unmount). Renders a recovery card with the error message and a reload
+// affordance. Doesn't try to be clever — the only safe action after a
+// component-level crash is to reload from storage, which is already what
+// localStorage is for.
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // Surface the stack to the console for debugging without blowing up
+    // any toast or notify system that might also be broken.
+    console.error("[AppErrorBoundary]", error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      const msg = String(this.state.error?.message || this.state.error || "Unknown error");
+      return (
+        <div style={{
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24, background: "var(--bg)", color: "var(--text)",
+          fontFamily: "var(--font-sans)",
+        }}>
+          <div style={{
+            maxWidth: 520,
+            background: "var(--bg-elev)",
+            border: "1px solid var(--danger)",
+            borderRadius: "var(--r-md)",
+            padding: "20px 22px",
+          }}>
+            <div style={{
+              fontSize: 11, fontWeight: 600, color: "var(--danger)",
+              textTransform: "uppercase", letterSpacing: "0.1em",
+              marginBottom: 8,
+            }}>Quest hit a snag</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", marginBottom: 12 }}>
+              Something inside the app threw an error.
+            </div>
+            <div style={{
+              fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text-muted)",
+              background: "var(--bg-soft)", padding: "8px 10px",
+              borderRadius: "var(--r-sm)", border: "1px solid var(--border)",
+              marginBottom: 14, wordBreak: "break-word",
+            }}>{msg}</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+              Your data is still saved — nothing was lost. Reloading should
+              put you back where you were. If the error keeps happening,
+              the console has more detail.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="q-btn q-btn--primary"
+                onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+              >Reload</button>
+              <button
+                className="q-btn q-btn--ghost"
+                onClick={() => this.setState({ error: null })}
+              >Try again</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function AppWithBoundary() {
+  return (
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+function App() {
   const [view,     setView]     = useState("today");
   const [tasks,    setTasks]    = useState([]);
   const [projects, setProjects] = useState([]);
@@ -5744,6 +6142,10 @@ export default function App() {
   const [dayLocks, setDayLocks] = useState({}); // { "YYYY-MM-DD": true }
   const [dayStartHour, setDayStartHour] = useState(0); // 0-23, when the "day" rolls over
   const [customTags, setCustomTags] = useState([]);
+  // Fresh-install signal — surfaced as an inline CTA on Today's empty
+  // state. Doesn't persist; clears as soon as the user captures or enters
+  // preview from the banner.
+  const [firstLaunch, setFirstLaunch] = useState(false);
   const [ready,    setReady]    = useState(false);
   const planClearedRef = useRef(false);
   const prevLvlRef     = useRef(null);
@@ -5796,7 +6198,21 @@ export default function App() {
 
       // Preview mode: if a snapshot exists, we're in demo mode.
       const snap = await loadKV(PREVIEW_KEY, null);
-      setPreviewMode(!!snap);
+      let inPreview = !!snap;
+      setPreviewMode(inPreview);
+
+      // First-launch detection: no tasks, no projects, no XP, no existing
+      // preview. If true, mark this session as "fresh first launch" so the
+      // empty state can offer to load seed data. Don't auto-enter preview
+      // (that would be surprising) — surface an explicit CTA in the
+      // existing Today empty state instead. This flag clears the first
+      // time the user does anything substantive.
+      const isFreshLaunch = !inPreview
+        && (Array.isArray(processed) ? processed.length === 0 : true)
+        && (Array.isArray(pr) ? pr.length === 0 : true)
+        && (!p || (p.totalXP || 0) === 0)
+        && (!w || (Array.isArray(w) ? w.length === 0 : true));
+      setFirstLaunch(isFreshLaunch);
 
       // Day-closed marker
       const closed = await loadKV("quest_day_closed", null);
@@ -6076,6 +6492,7 @@ export default function App() {
       recurring: data.recurring || "none",
       priority: data.priority || "medium",
       projectId: data.projectId || null,
+      deadlineAt: typeof data.deadlineAt === "number" ? data.deadlineAt : null,
       completed: data.completed === true,
       completedAt: data.completed === true ? Date.now() : null,
       createdAt: Date.now(),
@@ -6135,6 +6552,28 @@ export default function App() {
     // Manual schedule changes from TaskForm.
     if (data.scheduleDateChanged) {
       pinTaskToDate(id, data.scheduleDate || null);
+    }
+    // Project membership change — keep both sides of the link consistent:
+    // remove from the old project's childTaskIds, add to the new one's.
+    if (data.projectIdChanged) {
+      const oldProjectId = existing.projectId || null;
+      const newProjectId = data.projectId || null;
+      if (oldProjectId !== newProjectId) {
+        setProjects(prev => {
+          const next = prev.map(p => {
+            const has = (p.childTaskIds || []).includes(id);
+            if (p.id === oldProjectId && has) {
+              return { ...p, childTaskIds: (p.childTaskIds || []).filter(x => x !== id) };
+            }
+            if (p.id === newProjectId && !has) {
+              return { ...p, childTaskIds: [...(p.childTaskIds || []), id] };
+            }
+            return p;
+          });
+          saveKV(KEYS.projects, next);
+          return next;
+        });
+      }
     }
     // If the user manually overrode hours/XP in the editor, skip the AI
     // rescore — we already saved their values above and they'd be clobbered.
@@ -6493,6 +6932,19 @@ export default function App() {
     setProjects(next); saveKV(KEYS.projects, next);
   }, [projects]);
 
+  // Patch a project's description / notes (or any subset of those). Pass
+  // null to clear, undefined to leave alone.
+  const updateProjectMeta = useCallback((id, patch) => {
+    const next = projects.map(p => {
+      if (p.id !== id) return p;
+      const merged = { ...p };
+      if (Object.prototype.hasOwnProperty.call(patch, "desc")) merged.desc = patch.desc || "";
+      if (Object.prototype.hasOwnProperty.call(patch, "notes")) merged.notes = patch.notes || "";
+      return merged;
+    });
+    setProjects(next); saveKV(KEYS.projects, next);
+  }, [projects]);
+
   const updateProjectColor = useCallback((id, color) => {
     const next = projects.map(p => p.id === id ? { ...p, color } : p);
     setProjects(next); saveKV(KEYS.projects, next);
@@ -6699,6 +7151,177 @@ export default function App() {
     notify("Day reopened");
   }, [notify]);
 
+  // Export everything into a single JSON download. Keyed by KEYS.* so it
+  // round-trips through importData cleanly. Schema version included so we
+  // can refuse to import older or newer dumps that we don't understand.
+  const exportData = useCallback(async () => {
+    if (previewMode) {
+      notify("Exit preview first");
+      return;
+    }
+    try {
+      const [t, p, pr, a, w, c, s, dl, dc, ds, ct] = await Promise.all([
+        loadKV(KEYS.tasks, []),
+        loadKV(KEYS.profile, { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
+        loadKV(KEYS.projects, []),
+        loadKV(KEYS.achievements, []),
+        loadKV(KEYS.weekplan, null),
+        loadKV(KEYS.caps, DEFAULT_CAPS),
+        loadKV(KEYS.screen, {}),
+        loadKV(LOCKS_KEY, {}),
+        loadKV("quest_day_closed", null),
+        loadKV("quest_day_start_hour", 0),
+        loadKV(KEYS.customTags, []),
+      ]);
+      const payload = {
+        app: "quest",
+        format: 1,
+        schema: SCHEMA_VERSION,
+        exportedAt: new Date().toISOString(),
+        data: {
+          tasks: t, profile: p, projects: pr, achievements: a, weekplan: w,
+          caps: c, screen: s, locks: dl, dayClosed: dc,
+          dayStartHour: ds, customTags: ct,
+        },
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a2 = document.createElement("a");
+      a2.href = url;
+      a2.download = `quest-backup-${isoDate(new Date())}.json`;
+      document.body.appendChild(a2);
+      a2.click();
+      a2.remove();
+      URL.revokeObjectURL(url);
+      notify("Backup downloaded");
+    } catch (e) {
+      console.error("Export failed:", e);
+      notify("Export failed — check the console");
+    }
+  }, [previewMode, notify]);
+
+  // Import from a JSON backup. Refuses if app/format don't match, refuses
+  // if the schema is newer than ours (we don't know how to read it). On a
+  // valid file, asks the user whether to REPLACE everything or MERGE.
+  // Replace fully overwrites the current data. Merge keeps the larger of
+  // each list (deduped by id), keeps the maximum totalXP/streak, and
+  // unions the achievement set — opinionated but safer than silent loss.
+  const importData = useCallback(() => {
+    if (previewMode) {
+      notify("Exit preview first");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json,.json";
+    input.onchange = async (ev) => {
+      const file = ev.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const payload = JSON.parse(text);
+        if (payload?.app !== "quest" || payload?.format !== 1) {
+          alert("That doesn't look like a Quest backup. Aborting.");
+          return;
+        }
+        if (typeof payload.schema === "number" && payload.schema > SCHEMA_VERSION) {
+          alert(`That backup was made by a newer version of Quest (schema v${payload.schema}, this app is v${SCHEMA_VERSION}). Update first, then re-import.`);
+          return;
+        }
+        const mode = window.prompt(
+          'Type "replace" to overwrite current data with the backup, or "merge" to combine them.\n\nReplace = current data is replaced entirely.\nMerge = both sets are kept, deduplicated by id.',
+          "merge",
+        );
+        const m = (mode || "").trim().toLowerCase();
+        if (m !== "replace" && m !== "merge") {
+          notify("Import canceled");
+          return;
+        }
+        const d = payload.data || {};
+        if (m === "replace") {
+          await Promise.all([
+            saveKV(KEYS.tasks, Array.isArray(d.tasks) ? d.tasks : []),
+            saveKV(KEYS.profile, d.profile || { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
+            saveKV(KEYS.projects, Array.isArray(d.projects) ? d.projects : []),
+            saveKV(KEYS.achievements, Array.isArray(d.achievements) ? d.achievements : []),
+            saveKV(KEYS.weekplan, d.weekplan || null),
+            saveKV(KEYS.caps, d.caps || DEFAULT_CAPS),
+            saveKV(KEYS.screen, d.screen || {}),
+            saveKV(LOCKS_KEY, d.locks || {}),
+            saveKV("quest_day_closed", d.dayClosed || null),
+            saveKV("quest_day_start_hour", typeof d.dayStartHour === "number" ? d.dayStartHour : 0),
+            saveKV(KEYS.customTags, Array.isArray(d.customTags) ? d.customTags : []),
+          ]);
+        } else {
+          // Merge — dedupe lists by id, keep maximum counters.
+          const mergeById = (a, b) => {
+            const byId = new Map();
+            for (const x of (a || [])) if (x?.id) byId.set(x.id, x);
+            for (const x of (b || [])) if (x?.id && !byId.has(x.id)) byId.set(x.id, x);
+            return Array.from(byId.values());
+          };
+          const [curT, curPr, curP, curA, curW, curC, curS, curDL, curCT] = await Promise.all([
+            loadKV(KEYS.tasks, []),
+            loadKV(KEYS.projects, []),
+            loadKV(KEYS.profile, { totalXP: 0, todayXP: 0, streak: 0, lastDate: "", completedCount: 0 }),
+            loadKV(KEYS.achievements, []),
+            loadKV(KEYS.weekplan, null),
+            loadKV(KEYS.caps, DEFAULT_CAPS),
+            loadKV(KEYS.screen, {}),
+            loadKV(LOCKS_KEY, {}),
+            loadKV(KEYS.customTags, []),
+          ]);
+          const mergedTasks = mergeById(curT, d.tasks);
+          const mergedProjects = mergeById(curPr, d.projects);
+          const mergedAch = Array.from(new Set([...(curA || []), ...(d.achievements || [])]));
+          const mergedCustomTags = Array.from(new Set([...(curCT || []), ...(d.customTags || [])]));
+          // weekplan: union by date — for each date keep all items from both
+          // sides deduped by taskId.
+          const wpByDate = new Map();
+          for (const e of (curW || [])) wpByDate.set(e.date, { date: e.date, items: [...(e.items || [])] });
+          for (const e of (d.weekplan || [])) {
+            const cur = wpByDate.get(e.date) || { date: e.date, items: [] };
+            const have = new Set(cur.items.map(i => i.taskId));
+            for (const it of (e.items || [])) {
+              if (!have.has(it.taskId)) cur.items.push(it);
+            }
+            wpByDate.set(e.date, cur);
+          }
+          const mergedWP = Array.from(wpByDate.values()).filter(e => e.items.length).sort((a, b) => a.date.localeCompare(b.date));
+          // Profile: keep the better of each counter, preserve current
+          // streak (since merging two timelines doesn't make streak meaningful).
+          const mergedProfile = {
+            ...curP,
+            totalXP: Math.max(curP.totalXP || 0, d.profile?.totalXP || 0),
+            completedCount: Math.max(curP.completedCount || 0, d.profile?.completedCount || 0),
+          };
+          // Screen log: shallow-merge per day, the existing entry wins on
+          // collision (the imported one is presumed older / archived).
+          const mergedScreen = { ...(d.screen || {}), ...(curS || {}) };
+          const mergedLocks = { ...(d.locks || {}), ...(curDL || {}) };
+          const mergedCaps = { ...DEFAULT_CAPS, ...(d.caps || {}), ...(curC || {}) };
+          await Promise.all([
+            saveKV(KEYS.tasks, mergedTasks),
+            saveKV(KEYS.projects, mergedProjects),
+            saveKV(KEYS.profile, mergedProfile),
+            saveKV(KEYS.achievements, mergedAch),
+            saveKV(KEYS.weekplan, mergedWP),
+            saveKV(KEYS.caps, mergedCaps),
+            saveKV(KEYS.screen, mergedScreen),
+            saveKV(LOCKS_KEY, mergedLocks),
+            saveKV(KEYS.customTags, mergedCustomTags),
+          ]);
+        }
+        notify("Import complete — reloading…");
+        setTimeout(() => window.location.reload(), 600);
+      } catch (e) {
+        console.error("Import failed:", e);
+        alert(`Import failed: ${e?.message || e}`);
+      }
+    };
+    input.click();
+  }, [previewMode, notify]);
+
   const exitPreview = useCallback(async () => {
     const snap = await loadKV(PREVIEW_KEY, null);
     if (!snap) { setPreviewMode(false); return; }
@@ -6728,14 +7351,14 @@ export default function App() {
     toggleSub, splitTask, toggleChunkDone, pinTaskToDate, updateChunk, moveChunkDate,
     customTags, addCustomTag,
     addChildToProject, removeChildFromProject,
-    createProject, renameProject, updateProjectColor, shipProject, unshipProject, deleteProject,
+    createProject, renameProject, updateProjectMeta, updateProjectColor, shipProject, unshipProject, deleteProject,
     createProjectFromCapture,
     setView,
     openNewTask, setOpenNewTask,
     startFocus, energy, setEnergy,
     endOfDayOpen, setEndOfDayOpen,
     weeklyDismissed, setWeeklyDismissed,
-    previewMode,
+    previewMode, firstLaunch, enterPreview, dismissFirstLaunch: () => setFirstLaunch(false),
     dayClosed, reopenDay,
     dayLocks, toggleDayLock,
     dayStartHour, updateDayStartHour,
@@ -6763,6 +7386,8 @@ export default function App() {
             onExitPreview={exitPreview}
             dayStartHour={dayStartHour}
             onChangeDayStartHour={updateDayStartHour}
+            onExportData={exportData}
+            onImportData={importData}
           />
           <main className="q-scroll" style={{ flex: 1, overflowY: "auto", maxHeight: "100vh" }}>
             {previewMode && (
@@ -6780,7 +7405,7 @@ export default function App() {
             {view === "pipeline" && <PipelineView {...shared} />}
             {view === "planner"  && <PlannerView  {...shared} />}
             {view === "habits"   && <HabitsView   dayStartHour={dayStartHour} />}
-            {view === "trophies" && <TrophiesView unlocked={unlocked} />}
+            {view === "trophies" && <TrophiesView unlocked={unlocked} profile={profile} />}
           </main>
           {toast && <Toast msg={toast.msg} xp={toast.xp} />}
           {confetti && <ShipConfetti onDone={() => setConfetti(false)} />}

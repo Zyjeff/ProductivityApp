@@ -1,0 +1,11 @@
+{
+  "name": "Quest",
+  "short_name": "Quest",
+  "description": "A personal OS for shipping. Capture tasks, plan with AI, focus, ship.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0d",
+  "theme_color": "#0a0a0d",
+  "categories": ["productivity", "lifestyle"],
+  "icons": []
+}
