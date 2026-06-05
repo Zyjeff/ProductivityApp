@@ -92,7 +92,7 @@ const KEYS = {
   schema: "quest_schema_v",
   customTags: "quest_custom_tags",
 };
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const NAV_ITEMS = [
   { id: "today",    label: "Today",    glyph: "T", shortcut: "1" },
@@ -299,6 +299,32 @@ async function runMigrations() {
         }),
       }));
       await saveKV(KEYS.weekplan, converted);
+    }
+  }
+
+  // v7 → v8: daily tasks gain `dailyCompletions: string[]` — array of ISO
+  // date strings on which the task was completed. Before this, daily
+  // tasks' historical completions were lost when processRecurring reset
+  // them at next-day rollover, so the This Week graph and trend stats
+  // had no record of yesterday's daily-task work after rollover.
+  //
+  // Seed: if a task is currently completed and we have a completedAt,
+  // push that completion's iso date so today's bar doesn't drop right
+  // after the migration runs. Otherwise empty — we can't reconstruct
+  // history we never stored.
+  if (v < 8) {
+    const ts = (await loadKV(KEYS.tasks, [])) || [];
+    if (Array.isArray(ts) && ts.some(t => t.recurring === "daily" && !Array.isArray(t.dailyCompletions))) {
+      const next = ts.map(t => {
+        if (t.recurring !== "daily") return t;
+        if (Array.isArray(t.dailyCompletions)) return t;
+        const seed = [];
+        if (t.completed && t.completedAt) {
+          seed.push(isoDate(new Date(t.completedAt)));
+        }
+        return { ...t, dailyCompletions: seed };
+      });
+      await saveKV(KEYS.tasks, next);
     }
   }
 
@@ -1337,14 +1363,19 @@ function getLevelInfo(xp) {
 }
 
 function processRecurring(tasks, dayStartHour = 0) {
-  const today = effectiveTodayDateStr(dayStartHour);
   const todayIso = effectiveTodayIso(dayStartHour);
   const now = Date.now();
   return tasks.map(t => {
     let next = t;
-    if (t.recurring === "daily" && t.completed
-        && effectiveDateStrOf(t.completedAt || 0, dayStartHour) !== today) {
-      next = { ...next, completed: false, completedAt: null };
+    // Daily: `completed` mirrors whether today's iso date is in the
+    // dailyCompletions history. This makes the "is it done today?" flag
+    // derived state — no risk of losing history during the rollover.
+    if (t.recurring === "daily") {
+      const history = Array.isArray(t.dailyCompletions) ? t.dailyCompletions : [];
+      const completedToday = history.includes(todayIso);
+      if (t.completed !== completedToday) {
+        next = { ...next, completed: completedToday };
+      }
     }
     if (t.recurring === "weekly" && t.completed && t.completedAt
         && (now - t.completedAt) >= 7 * 86400000) {
@@ -1408,7 +1439,15 @@ function buildActivityByDay(tasks, weekPlan, dayStartHour = 0) {
     set.add(taskId);
   };
   for (const t of tasks) {
-    if (t.completed && t.completedAt) {
+    if (t.recurring === "daily") {
+      // Iterate every iso date in the history — each day gets credit for
+      // this task once. This is what makes yesterday's daily-task tick
+      // survive the next-day rollover.
+      for (const iso of (t.dailyCompletions || [])) {
+        const d = parseIsoDate(iso);
+        if (d) add(d.toDateString(), t.id);
+      }
+    } else if (t.completed && t.completedAt) {
       add(effectiveDateStrOf(t.completedAt, dayStartHour), t.id);
     }
   }
@@ -1461,6 +1500,14 @@ function getTaskChunks(taskId, weekPlan) {
   chunks.sort((a, b) => a.date.localeCompare(b.date));
   chunks.forEach((c, i) => { c.index = i + 1; });
   return chunks;
+}
+
+// Was this daily task completed on a specific date? Reads from the
+// task.dailyCompletions history (ISO date strings). Defensive — returns
+// false for non-daily tasks, missing history, malformed inputs.
+function isDailyCompletedOn(task, dateIso) {
+  if (!task || task.recurring !== "daily" || !dateIso) return false;
+  return Array.isArray(task.dailyCompletions) && task.dailyCompletions.includes(dateIso);
 }
 
 function getTaskScheduledDate(taskId, weekPlan) {
@@ -4658,7 +4705,7 @@ function PipelineView({
 
 /* ───── PLANNER VIEW ───── */
 
-function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, toggleChunkDone, pinTaskToDate, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, customTags = [], addCustomTag = null, dayStartHour = 0 }) {
+function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWeekPlan, completeTask, uncompleteTask, completeDailyOn, uncompleteDailyOn, toggleChunkDone, pinTaskToDate, updateTask, deleteTask, toggleSub, splitTask, notify, dayLocks, toggleDayLock, customTags = [], addCustomTag = null, dayStartHour = 0 }) {
   const [loading, setLoading] = useState(false);
   const [loadMode, setLoadMode] = useState(null); // "fresh" | "append" | "optimize"
   const [caps, setCaps] = useState(DEFAULT_CAPS);
@@ -5147,10 +5194,13 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
                     {dailyPending.length > 0 && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 8, paddingBottom: 8, borderBottom: "1px dashed var(--border)" }}>
                         {dailyPending.map((t, i) => {
-                          // Daily recurrences only have a meaningful "done"
-                          // state on today's column — future / past columns
-                          // are informational ("this happens every day").
-                          const isDoneToday = t.completed && isToday;
+                          // Per-day state from the dailyCompletions history.
+                          // Past + today are toggleable; future days only
+                          // show the "this happens every day" indicator
+                          // since marking a day done in the future doesn't
+                          // make sense.
+                          const isDoneOnDate = isDailyCompletedOn(t, iso);
+                          const allowToggle = iso <= todayIso && completeDailyOn && uncompleteDailyOn;
                           const proj = t.projectId && projectsMap ? projectsMap[t.projectId] : null;
                           return (
                             <div key={"d-"+i}
@@ -5159,29 +5209,32 @@ function PlannerView({ tasks, tasksById, projects, projectsMap, weekPlan, setWee
                               title="Click to edit"
                               style={{
                                 borderLeft: "2px solid " + (proj?.color || DIFFICULTY[t.difficulty]?.tone || "var(--info)"),
-                                color: isDoneToday ? "var(--text-faint)" : "var(--text-muted)",
-                                textDecoration: isDoneToday ? "line-through" : "none",
+                                color: isDoneOnDate ? "var(--text-faint)" : "var(--text-muted)",
+                                textDecoration: isDoneOnDate ? "line-through" : "none",
                                 cursor: "pointer",
                               }}>
-                              {isToday ? (
+                              {allowToggle ? (
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    t.completed ? uncompleteTask(t.id) : completeTask(t.id);
+                                    if (isDoneOnDate) uncompleteDailyOn(t.id, iso);
+                                    else completeDailyOn(t.id, iso);
                                   }}
-                                  title={t.completed ? "Mark as not done" : "Complete daily for today"}
-                                  aria-label={t.completed ? "Reopen daily task" : "Complete daily task"}
+                                  title={isDoneOnDate
+                                    ? (isToday ? "Mark today as not done" : "Remove from this day")
+                                    : (isToday ? "Complete daily for today" : "Log as done for this day")}
+                                  aria-label={isDoneOnDate ? "Reopen daily task on this day" : "Complete daily task on this day"}
                                   style={{
                                     width: 13, height: 13, borderRadius: "50%",
-                                    border: "1.5px solid " + (t.completed ? "var(--success)" : "var(--border-strong)"),
-                                    background: t.completed ? "var(--success)" : "transparent",
+                                    border: "1.5px solid " + (isDoneOnDate ? "var(--success)" : "var(--border-strong)"),
+                                    background: isDoneOnDate ? "var(--success)" : "transparent",
                                     cursor: "pointer", padding: 0, flexShrink: 0,
                                     display: "inline-flex", alignItems: "center", justifyContent: "center",
                                     transition: "border-color var(--t-fast), background var(--t-fast)",
                                   }}
                                 >
-                                  {t.completed && (
+                                  {isDoneOnDate && (
                                     <svg width="7" height="7" viewBox="0 0 12 12" aria-hidden>
                                       <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                                     </svg>
@@ -6311,9 +6364,90 @@ function App() {
     });
   }, [projects, notify, dayStartHour]);
 
+  // Daily task completion on a specific date (today OR a past day). The
+  // history-aware path: appends to task.dailyCompletions, recomputes
+  // task.completed from "is today in the history", credits XP. If the date
+  // being marked is today, also bumps todayXP / streak / lastDate; if it's
+  // a past date the totalXP grows but today's session stats don't, since
+  // those are about *today*.
+  const completeDailyOn = useCallback((taskId, dateIso) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.recurring !== "daily" || !dateIso) return;
+    const history = Array.isArray(task.dailyCompletions) ? task.dailyCompletions : [];
+    if (history.includes(dateIso)) return;  // already counted that day
+    const newHistory = [...history, dateIso].sort();
+    const todayIso = effectiveTodayIso(dayStartHour);
+    const todayStr = effectiveTodayDateStr(dayStartHour);
+    const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dayStartHour);
+    const isToday = dateIso === todayIso;
+    const upd = tasks.map(t => t.id === taskId
+      ? {
+          ...t,
+          dailyCompletions: newHistory,
+          completed: newHistory.includes(todayIso),
+          completedAt: isToday ? Date.now() : t.completedAt,
+        }
+      : t);
+    const np = {
+      ...profile,
+      totalXP: profile.totalXP + task.xp,
+      todayXP: isToday
+        ? (profile.lastDate === todayStr ? profile.todayXP : 0) + task.xp
+        : profile.todayXP,
+      streak: isToday
+        ? (profile.lastDate === todayStr ? profile.streak
+           : profile.lastDate === yesterStr ? profile.streak + 1 : 1)
+        : profile.streak,
+      lastDate: isToday ? todayStr : profile.lastDate,
+      completedCount: profile.completedCount + 1,
+    };
+    setTasks(upd); setProfile(np);
+    saveKV(KEYS.tasks, upd); saveKV(KEYS.profile, np);
+    const dateLabel = parseIsoDate(dateIso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    notify(isToday ? "Task complete" : `Logged for ${dateLabel}`, task.xp);
+    checkAchievements(np, upd, unlocked);
+  }, [tasks, profile, unlocked, notify, checkAchievements, dayStartHour]);
+
+  // Inverse: remove a specific date from a daily task's history. Today's
+  // session counters back off accordingly only if today is the date being
+  // removed.
+  const uncompleteDailyOn = useCallback((taskId, dateIso) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.recurring !== "daily" || !dateIso) return;
+    const history = Array.isArray(task.dailyCompletions) ? task.dailyCompletions : [];
+    if (!history.includes(dateIso)) return;
+    const newHistory = history.filter(d => d !== dateIso);
+    const todayIso = effectiveTodayIso(dayStartHour);
+    const isToday = dateIso === todayIso;
+    const upd = tasks.map(t => t.id === taskId
+      ? {
+          ...t,
+          dailyCompletions: newHistory,
+          completed: newHistory.includes(todayIso),
+          completedAt: isToday ? null : t.completedAt,
+        }
+      : t);
+    const np = {
+      ...profile,
+      totalXP: Math.max(0, profile.totalXP - task.xp),
+      todayXP: isToday ? Math.max(0, profile.todayXP - task.xp) : profile.todayXP,
+      completedCount: Math.max(0, profile.completedCount - 1),
+    };
+    setTasks(upd); setProfile(np);
+    saveKV(KEYS.tasks, upd); saveKV(KEYS.profile, np);
+    const dateLabel = parseIsoDate(dateIso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    notify(isToday ? "Task reopened" : `Removed from ${dateLabel}`, -task.xp);
+  }, [tasks, profile, notify, dayStartHour]);
+
   const completeTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
     if (!task || task.completed) return;
+    // Daily tasks route through the history-aware path so today's
+    // completion is recorded in dailyCompletions and survives rollover.
+    if (task.recurring === "daily") {
+      completeDailyOn(id, effectiveTodayIso(dayStartHour));
+      return;
+    }
     const todayStr  = effectiveTodayDateStr(dayStartHour);
     const yesterStr = effectiveDateStrOf(Date.now() - 86400000, dayStartHour);
     const upd = tasks.map(t => t.id === id ? { ...t, completed: true, completedAt: Date.now() } : t);
@@ -6344,11 +6478,18 @@ function App() {
         }
       }
     }
-  }, [tasks, profile, unlocked, projects, notify, checkAchievements, dayStartHour]);
+  }, [tasks, profile, unlocked, projects, notify, checkAchievements, dayStartHour, completeDailyOn]);
 
   const uncompleteTask = useCallback((id) => {
     const task = tasks.find(t => t.id === id);
     if (!task || !task.completed) return;
+    // Daily tasks route through the history-aware path so removing today's
+    // completion just pops today from dailyCompletions; past days are
+    // unaffected.
+    if (task.recurring === "daily") {
+      uncompleteDailyOn(id, effectiveTodayIso(dayStartHour));
+      return;
+    }
     const todayStr = effectiveTodayDateStr(dayStartHour);
     const wasToday = task.completedAt && effectiveDateStrOf(task.completedAt, dayStartHour) === todayStr;
     const upd = tasks.map(t => t.id === id ? { ...t, completed: false, completedAt: null } : t);
@@ -6369,7 +6510,7 @@ function App() {
         setProjects(updP); saveKV(KEYS.projects, updP);
       }
     }
-  }, [tasks, profile, projects, notify, dayStartHour]);
+  }, [tasks, profile, projects, notify, dayStartHour, uncompleteDailyOn]);
 
   // Persist a user-added tag so future tag pickers (and the queue filter)
   // remember it. Built-in tags are skipped — they're already in the union.
@@ -6495,6 +6636,10 @@ function App() {
       deadlineAt: typeof data.deadlineAt === "number" ? data.deadlineAt : null,
       completed: data.completed === true,
       completedAt: data.completed === true ? Date.now() : null,
+      // History of ISO date strings on which a daily task was completed.
+      // Seeded on creation so daily tasks always have the field present —
+      // makes downstream reads safer than relying on a defensive default.
+      dailyCompletions: (data.recurring || "none") === "daily" ? [] : undefined,
       createdAt: Date.now(),
     };
     setTasks(prev => {
@@ -7347,7 +7492,7 @@ function App() {
   const shared = {
     tasks, projects, projectsMap, tasksById, profile, lvl, unlocked,
     weekPlan, setWeekPlan, notify,
-    completeTask, uncompleteTask, addTask, updateTask, deleteTask,
+    completeTask, uncompleteTask, completeDailyOn, uncompleteDailyOn, addTask, updateTask, deleteTask,
     toggleSub, splitTask, toggleChunkDone, pinTaskToDate, updateChunk, moveChunkDate,
     customTags, addCustomTag,
     addChildToProject, removeChildFromProject,
