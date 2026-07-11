@@ -1,0 +1,15 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Stale-asset requests from older deploys should 404, not rewrite to
+# index.html — otherwise the browser tries to parse HTML as a JS module.
+[[redirects]]
+  from = "/assets/*"
+  to = "/assets/:splat"
+  status = 404
+
+# No client-side routing, so no SPA fallback needed.

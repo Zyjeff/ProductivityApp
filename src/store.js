@@ -1,0 +1,660 @@
+// store.js — one store, one completion mutation, undo everywhere.
+// Views subscribe via useStore(selector). All XP/streak/level numbers
+// are derived in selectors from domain.js — never written.
+
+import { useSyncExternalStore, useRef } from "react";
+import * as D from "./domain.js";
+import * as db from "./db.js";
+
+/* ── core ──────────────────────────────────────────────────── */
+
+let state = null;
+const listeners = new Set();
+
+export function getState() { return state; }
+export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+function emit() { for (const fn of listeners) fn(); }
+
+// set() replaces slices immutably, persists the named slices, emits.
+function set(patch, slices = Object.keys(patch)) {
+  state = { ...state, ...patch };
+  db.persist(state, slices.filter((s) => s !== "ui"));
+  emit();
+}
+function setUI(patch) {
+  state = { ...state, ui: { ...state.ui, ...patch } };
+  emit();
+}
+export { setUI };
+
+export function initStore(storage = window.localStorage) {
+  db.bindPersistence(storage);
+  const loaded = db.loadState(storage);
+  state = {
+    ...loaded,
+    caps: loaded.caps || { ...D.DEFAULT_CAPS },
+    ui: {
+      view: "today",                 // today | plan | dock
+      statsOpen: false,
+      paletteOpen: false,
+      helpOpen: false,
+      captureMode: "task",
+      editingTaskId: null,
+      formOpen: false,
+      focusTaskId: null,
+      energy: "normal",
+      toast: null,                   // { msg, xp?, undoId? }
+      confetti: 0,
+      levelUp: null,
+      endOfDayOpen: false,
+      previewMode: !!loaded.previewSnapshot,
+      aiStatus: "unknown",           // unknown | ok | off | busy
+      aiDetail: "",
+      dockFilter: { tab: "projects", status: "pending", project: null, tag: null, sort: "priority", q: "" },
+      cursor: null,                  // keyboard cursor: { list, index }
+      externalChange: false,
+    },
+  };
+  db.maybeBackup(storage, state, state.meta.dayStartHour);
+  // Cross-tab awareness: warn instead of silently clobbering.
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (e) => {
+      if (e.key && e.key.startsWith("werf_") && !e.key.startsWith(db.KEYS.backupPrefix)) {
+        setUI({ externalChange: true });
+      }
+    });
+  }
+  emit();
+}
+
+export function useStore(selector) {
+  const sel = useRef(selector); sel.current = selector;
+  const last = useRef();
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      const next = sel.current(state);
+      // Shallow-compare arrays produced by selectors so unchanged
+      // results keep referential identity (avoids re-render loops).
+      if (Array.isArray(next) && Array.isArray(last.current)
+          && next.length === last.current.length
+          && next.every((v, i) => v === last.current[i])) {
+        return last.current;
+      }
+      last.current = next;
+      return next;
+    }
+  );
+}
+
+/* ── toasts + undo ─────────────────────────────────────────── */
+
+let toastTimer = null;
+const undoStack = new Map(); // undoId → fn
+let undoSeq = 0;
+
+export function notify(msg, xp = null, undoFn = null) {
+  let undoId = null;
+  if (undoFn) {
+    undoId = ++undoSeq;
+    undoStack.set(undoId, undoFn);
+    // Undo entries expire with their toast.
+    setTimeout(() => undoStack.delete(undoId), 8000);
+  }
+  setUI({ toast: { msg, xp, undoId, at: Date.now() } });
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => setUI({ toast: null }), undoFn ? 6000 : 2600);
+}
+export function runUndo(undoId) {
+  const fn = undoStack.get(undoId);
+  if (fn) { undoStack.delete(undoId); fn(); }
+  setUI({ toast: null });
+}
+export function undoLast() {
+  const ids = [...undoStack.keys()];
+  if (ids.length) runUndo(ids[ids.length - 1]);
+}
+
+/* ── derived selectors ─────────────────────────────────────── */
+
+export const sel = {
+  dayStartHour: (s) => s.meta.dayStartHour || 0,
+  todayIso: (s) => D.effectiveTodayIso(s.meta.dayStartHour || 0),
+  tasksById: (s) => {
+    const m = new Map();
+    for (const t of s.tasks) m.set(t.id, t);
+    return m;
+  },
+  projectsById: (s) => {
+    const m = new Map();
+    for (const p of s.projects) m.set(p.id, p);
+    return m;
+  },
+  totalXP: (s) => D.totalXP(s.tasks, s.plan, s.meta.xpBaseline, s.meta.dayStartHour),
+  todayXP: (s) => D.todayXP(s.tasks, s.plan, s.meta.dayStartHour),
+  streak: (s) => D.streak(s.tasks, s.plan, s.meta.dayStartHour),
+  level: (s) => D.levelInfo(D.totalXP(s.tasks, s.plan, s.meta.xpBaseline, s.meta.dayStartHour)),
+  missed: (s) => D.getMissedWork(s.tasks, s.plan, s.meta.dayStartHour),
+};
+
+// Today's lineup: recurring tasks due now + today's scheduled chunks.
+// Each entry: { task, chunk?, doneHere, chunkLabel?, chunkNote? }
+export function todayLineup(s) {
+  const hour = s.meta.dayStartHour || 0;
+  const todayIso = D.effectiveTodayIso(hour);
+  const byId = new Map(s.tasks.map((t) => [t.id, t]));
+  const entry = (s.plan || []).find((e) => e.date === todayIso);
+  const rows = [];
+  for (const t of s.tasks) {
+    if (t.recurring === "daily" || t.recurring === "weekly") {
+      rows.push({ task: t, doneHere: D.isRecurringDoneNow(t, hour), recurringRow: true });
+    }
+  }
+  const seen = new Set();
+  for (const it of entry?.items || []) {
+    const t = byId.get(it.taskId);
+    if (!t || seen.has(t.id)) continue;
+    seen.add(t.id);
+    const chunks = D.getTaskChunks(t.id, s.plan);
+    const idx = chunks.findIndex((c) => c.date === todayIso);
+    rows.push({
+      task: t,
+      chunk: it,
+      doneHere: !!(it.done || t.completed),
+      chunkLabel: chunks.length > 1 && idx >= 0 ? `${idx + 1}/${chunks.length}` : null,
+      chunkNote: it.note || null,
+    });
+  }
+  return D.sortForEnergy(rows.map((r) => ({ ...r, priority: r.task.priority, difficulty: r.task.difficulty })), s.ui.energy)
+    .map(({ priority, difficulty, ...r }) => r);
+}
+
+/* ── the ONE completion mutation ───────────────────────────── */
+// Everything that completes work goes through here. Semantics:
+//  - recurring task: toggles today's (or dateIso's) history entry
+//  - task with chunks, chunkDate given: toggles that chunk; task
+//    auto-completes when all chunks done, auto-reopens otherwise
+//  - task without chunkDate: completes the task AND all its chunks
+// XP is never written — the ledger derives it. The toast shows the
+// delta by diffing derived todayXP before/after.
+export function setCompletion(taskId, { done, chunkDate = null, dateIso = null } = {}) {
+  const s = state;
+  const hour = s.meta.dayStartHour || 0;
+  const task = s.tasks.find((t) => t.id === taskId);
+  if (!task) return;
+  const before = D.totalXP(s.tasks, s.plan, 0, hour);
+
+  let tasks = s.tasks;
+  let plan = s.plan;
+
+  if (task.recurring === "daily" || task.recurring === "weekly") {
+    const target = dateIso || D.effectiveTodayIso(hour);
+    const history = task.history || [];
+    const nextHistory = done
+      ? Array.from(new Set([...history, target])).sort()
+      : history.filter((d) => d !== target);
+    tasks = tasks.map((t) => t.id === taskId ? {
+      ...t,
+      history: nextHistory,
+      completed: D.isRecurringDoneNow({ ...t, history: nextHistory }, hour),
+      completedAt: done ? Date.now() : t.completedAt,
+    } : t);
+  } else if (chunkDate) {
+    const res = D.setChunkDone(plan, taskId, chunkDate, done);
+    plan = res.plan;
+    const nowCompleted = res.allDone;
+    if (nowCompleted !== task.completed) {
+      tasks = tasks.map((t) => t.id === taskId
+        ? { ...t, completed: nowCompleted, completedAt: nowCompleted ? Date.now() : null }
+        : t);
+    }
+  } else {
+    tasks = tasks.map((t) => t.id === taskId
+      ? { ...t, completed: done, completedAt: done ? Date.now() : null }
+      : t);
+    plan = D.setAllChunksDone(plan, taskId, done);
+  }
+
+  set({ tasks, plan });
+
+  const after = D.totalXP(tasks, plan, 0, hour);
+  const delta = after - before;
+  const nowTask = tasks.find((t) => t.id === taskId);
+  const chunks = D.getTaskChunks(taskId, plan);
+  const doneChunks = chunks.filter((c) => c.item.done).length;
+
+  let msg;
+  if (done && nowTask.completed) msg = "Done";
+  else if (done && chunkDate && chunks.length > 1) msg = `Chunk done · ${doneChunks}/${chunks.length}`;
+  else if (done) msg = "Logged";
+  else msg = "Reopened";
+  notify(msg, delta || null, done ? () => setCompletion(taskId, { done: false, chunkDate, dateIso }) : null);
+
+  checkNewAchievements();
+  if (done && nowTask.completed && nowTask.projectId) {
+    const proj = state.projects.find((p) => p.id === nowTask.projectId);
+    if (proj && !proj.completedAt) {
+      const allDone = (proj.childTaskIds || []).every((cid) => {
+        const c = tasks.find((t) => t.id === cid);
+        return c ? c.completed : true;
+      });
+      if (allDone && (proj.childTaskIds || []).length > 0) notify("Ready to launch: " + proj.title);
+    }
+  }
+  if (!done && nowTask.projectId) {
+    // Reopening a task un-ships its project (mirrors quest behavior).
+    const proj = state.projects.find((p) => p.id === nowTask.projectId);
+    if (proj && proj.completedAt) {
+      set({ projects: state.projects.map((p) => p.id === proj.id ? { ...p, completedAt: null, shippedAt: null } : p) });
+    }
+  }
+}
+
+/* ── achievements ──────────────────────────────────────────── */
+
+function checkNewAchievements() {
+  const s = state;
+  const hour = s.meta.dayStartHour || 0;
+  const screenToday = (s.screen || {})[D.effectiveTodayIso(hour)] || null;
+  const checks = D.checkAchievements({
+    tasks: s.tasks, plan: s.plan, projects: s.projects,
+    screenToday, dayStartHour: hour, baseline: s.meta.xpBaseline,
+  });
+  const fresh = Object.keys(checks).filter((id) => checks[id] && !s.achievements.includes(id));
+  if (fresh.length) {
+    set({ achievements: [...s.achievements, ...fresh] });
+    const def = D.ACHIEVEMENTS.find((a) => a.id === fresh[0]);
+    if (def) setTimeout(() => notify("Trophy: " + def.title), 900);
+  }
+}
+
+let lastLevel = null;
+export function watchLevel() {
+  const lvl = sel.level(state).lvl;
+  if (lastLevel != null && lvl > lastLevel) {
+    setUI({ levelUp: { lvl, title: D.LEVEL_NAMES[Math.min(lvl, D.LEVEL_NAMES.length) - 1] }, confetti: state.ui.confetti + 1 });
+    setTimeout(() => setUI({ levelUp: null }), 2800);
+  }
+  lastLevel = lvl;
+}
+subscribeLevelWatcher();
+function subscribeLevelWatcher() {
+  // Initialized after initStore; subscribe lazily.
+  let started = false;
+  subscribe(() => {
+    if (!state) return;
+    if (!started) { lastLevel = sel.level(state).lvl; started = true; return; }
+    watchLevel();
+  });
+}
+
+/* ── task CRUD ─────────────────────────────────────────────── */
+
+export function captureTask(rawTitle, { mode = "task", scheduleToday = false } = {}) {
+  const title = rawTitle.trim();
+  if (!title) return null;
+  const det = D.deterministicScore("medium");
+  const task = {
+    id: D.uid(),
+    title,                       // raw title NOW; AI may tidy it async
+    desc: "", notes: "", tags: [], subtasks: [],
+    xp: det.xp, difficulty: "medium", hours: det.hours,
+    recurring: "none", history: undefined,
+    priority: "medium", projectId: null, deadlineAt: null,
+    completed: false, completedAt: null,
+    createdAt: Date.now(), focusMs: 0, focusDate: null,
+    aiPending: true,
+  };
+  let plan = state.plan;
+  if (scheduleToday) plan = D.pinTask(plan, task.id, D.effectiveTodayIso(state.meta.dayStartHour));
+  set({ tasks: [task, ...state.tasks], plan });
+  return task;
+}
+
+export function applyEnrichment(taskId, patch) {
+  if (!state.tasks.some((t) => t.id === taskId)) return;
+  set({
+    tasks: state.tasks.map((t) => t.id === taskId ? { ...t, ...patch, aiPending: false, justEnriched: Date.now() } : t),
+  });
+}
+
+export function addTask(data) {
+  const hasScore = typeof data.xp === "number" && typeof data.hours === "number";
+  const det = D.deterministicScore(data.difficulty || "medium", data.hours);
+  const recurring = ["daily", "weekly"].includes(data.recurring) ? data.recurring : "none";
+  const task = {
+    id: D.uid(),
+    title: (data.title || "").trim(),
+    desc: data.desc || "", notes: data.notes || "",
+    tags: data.tags || [],
+    subtasks: (data.subtasks || []).map((st, i) => ({ id: D.uid() + i, title: st, done: false })),
+    xp: hasScore ? data.xp : det.xp,
+    difficulty: data.difficulty || "medium",
+    hours: hasScore ? data.hours : det.hours,
+    recurring,
+    history: recurring !== "none" ? [] : undefined,
+    priority: data.priority || "medium",
+    projectId: data.projectId || null,
+    deadlineAt: typeof data.deadlineAt === "number" ? data.deadlineAt : null,
+    completed: data.completed === true,
+    completedAt: data.completed === true ? Date.now() : null,
+    createdAt: Date.now(), focusMs: 0, focusDate: null,
+    aiPending: !hasScore,
+  };
+  if (!task.title) return null;
+  let plan = state.plan;
+  if (data.scheduleDate && recurring === "none") plan = D.pinTask(plan, task.id, data.scheduleDate);
+  let projects = state.projects;
+  if (task.projectId) {
+    projects = projects.map((p) => p.id === task.projectId
+      ? { ...p, childTaskIds: [...(p.childTaskIds || []), task.id] }
+      : p);
+  }
+  set({ tasks: [task, ...state.tasks], plan, projects });
+  notify("Task added");
+  return task;
+}
+
+export function updateTask(id, data) {
+  const existing = state.tasks.find((t) => t.id === id);
+  if (!existing) return;
+  const next = { ...existing, ...data };
+  if (data.subtasks) {
+    next.subtasks = data.subtasks.map((st, i) => {
+      const old = (existing.subtasks || []).find((x) => x.title === st);
+      return { id: D.uid() + i, title: st, done: old ? old.done : false };
+    });
+  }
+  if (data.recurring && ["daily", "weekly"].includes(data.recurring) && !next.history) next.history = [];
+  let tasks = state.tasks.map((t) => (t.id === id ? next : t));
+  let plan = state.plan;
+  if (data.scheduleDateChanged) plan = D.pinTask(plan, id, data.scheduleDate || null);
+  let projects = state.projects;
+  if (data.projectIdChanged) {
+    const oldP = existing.projectId, newP = data.projectId || null;
+    projects = projects.map((p) => {
+      const has = (p.childTaskIds || []).includes(id);
+      if (p.id === oldP && has) return { ...p, childTaskIds: p.childTaskIds.filter((x) => x !== id) };
+      if (p.id === newP && !has) return { ...p, childTaskIds: [...(p.childTaskIds || []), id] };
+      return p;
+    });
+  }
+  set({ tasks, plan, projects });
+}
+
+export function deleteTask(id) {
+  const task = state.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const snapshot = { tasks: state.tasks, plan: state.plan, projects: state.projects };
+  const tasks = state.tasks.filter((t) => t.id !== id);
+  const plan = state.plan.map((e) => ({ ...e, items: e.items.filter((i) => i.taskId !== id) })).filter((e) => e.items.length);
+  const projects = task.projectId
+    ? state.projects.map((p) => p.id === task.projectId ? { ...p, childTaskIds: (p.childTaskIds || []).filter((x) => x !== id) } : p)
+    : state.projects;
+  set({ tasks, plan, projects });
+  notify(`Deleted "${task.title.slice(0, 32)}${task.title.length > 32 ? "…" : ""}"`, null, () => {
+    set({ tasks: snapshot.tasks, plan: snapshot.plan, projects: snapshot.projects });
+  });
+}
+
+export function toggleSubtask(taskId, subId) {
+  set({
+    tasks: state.tasks.map((t) => t.id !== taskId ? t : {
+      ...t, subtasks: (t.subtasks || []).map((st) => st.id === subId ? { ...st, done: !st.done } : st),
+    }),
+  });
+}
+
+export function saveFocusTime(taskId, ms) {
+  const today = D.effectiveTodayIso(state.meta.dayStartHour);
+  set({
+    tasks: state.tasks.map((t) => t.id === taskId ? { ...t, focusMs: Math.max(0, Math.round(ms)), focusDate: today } : t),
+  });
+}
+
+/* ── plan mutations ────────────────────────────────────────── */
+
+export function pinTaskToDate(taskId, dateIso) {
+  set({ plan: D.pinTask(state.plan, taskId, dateIso) });
+}
+export function moveChunkDate(taskId, fromDate, toDate) {
+  set({ plan: D.moveChunk(state.plan, taskId, fromDate, toDate) });
+}
+export function updateChunk(taskId, dateIso, patch) {
+  set({ plan: D.patchChunk(state.plan, taskId, dateIso, patch) });
+}
+export function dismissChunk(taskId, dateIso) {
+  const before = state.plan;
+  set({ plan: D.removeChunk(state.plan, taskId, dateIso) });
+  notify("Removed from plan", null, () => set({ plan: before }));
+}
+export function applyPlan(nextPlan, { snapshotLabel = null } = {}) {
+  const before = state.plan;
+  set({ plan: nextPlan });
+  if (snapshotLabel) {
+    notify(snapshotLabel, null, () => set({ plan: before }));
+  }
+}
+export function toggleDayLock(iso) {
+  const locks = { ...state.locks };
+  if (locks[iso]) delete locks[iso]; else locks[iso] = true;
+  set({ locks });
+}
+export function setCaps(caps) { set({ caps }); }
+
+/* ── projects ──────────────────────────────────────────────── */
+
+export function createProject({ title, type = "other", desc = "" }) {
+  const proj = {
+    id: "p-" + D.uid(), title: title.trim(), desc, notes: "",
+    type, color: D.pickProjectColor(),
+    createdAt: Date.now(), completedAt: null, shippedAt: null, childTaskIds: [],
+  };
+  set({ projects: [proj, ...state.projects] });
+  return proj.id;
+}
+export function updateProject(id, patch) {
+  set({ projects: state.projects.map((p) => p.id === id ? { ...p, ...patch } : p) });
+}
+export function deleteProject(id) {
+  const proj = state.projects.find((p) => p.id === id);
+  if (!proj) return;
+  const snapshot = { tasks: state.tasks, projects: state.projects, plan: state.plan };
+  const childIds = new Set(proj.childTaskIds || []);
+  set({
+    tasks: state.tasks.filter((t) => !childIds.has(t.id)),
+    projects: state.projects.filter((p) => p.id !== id),
+    plan: state.plan.map((e) => ({ ...e, items: e.items.filter((i) => !childIds.has(i.taskId)) })).filter((e) => e.items.length),
+  });
+  notify(`Deleted project "${proj.title}"`, null, () => set(snapshot));
+}
+export function shipProject(id) {
+  const now = Date.now();
+  const proj = state.projects.find((p) => p.id === id);
+  set({ projects: state.projects.map((p) => p.id === id ? { ...p, completedAt: now, shippedAt: now } : p) });
+  setUI({ confetti: state.ui.confetti + 1 });
+  notify("Launched: " + (proj?.title || "project"));
+  checkNewAchievements();
+}
+export function unshipProject(id) {
+  set({ projects: state.projects.map((p) => p.id === id ? { ...p, completedAt: null, shippedAt: null } : p) });
+}
+export function addChildToProject(projectId, data) {
+  const task = addTask({ ...data, projectId });
+  return task;
+}
+export function detachFromProject(taskId) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task?.projectId) return;
+  set({
+    tasks: state.tasks.map((t) => t.id === taskId ? { ...t, projectId: null } : t),
+    projects: state.projects.map((p) => p.id === task.projectId ? { ...p, childTaskIds: (p.childTaskIds || []).filter((x) => x !== taskId) } : p),
+  });
+}
+
+/* ── misc slices ───────────────────────────────────────────── */
+
+export function patchScreenToday(patch) {
+  const today = D.effectiveTodayIso(state.meta.dayStartHour);
+  const entry = state.screen[today] || { xOpens: 0, ytOpens: 0, mobileHours: null };
+  set({ screen: { ...state.screen, [today]: { ...entry, ...patch } } });
+}
+export function addCustomTag(tag) {
+  if (!tag || D.TAGS_BUILTIN.includes(tag) || state.customTags.includes(tag)) return;
+  set({ customTags: [...state.customTags, tag] });
+}
+export function setDayStartHour(raw) {
+  const n = parseInt(raw, 10);
+  const safe = Number.isNaN(n) ? 0 : Math.max(0, Math.min(23, n));
+  set({ meta: { ...state.meta, dayStartHour: safe } });
+}
+export function closeDay({ rollForward }) {
+  let moved = 0;
+  const hour = state.meta.dayStartHour;
+  const todayIso = D.effectiveTodayIso(hour);
+  if (rollForward) {
+    const entry = (state.plan || []).find((e) => e.date === todayIso);
+    const byId = new Map(state.tasks.map((t) => [t.id, t]));
+    const moving = (entry?.items || []).filter((it) => {
+      const t = byId.get(it.taskId);
+      return t && !t.completed && !it.done;
+    });
+    if (moving.length) {
+      let target = null;
+      for (let off = 1; off < 21; off++) {
+        const d = D.addDays(D.parseIsoDate(todayIso), off);
+        if ((state.caps[D.weekdayName(d)] || 0) > 0) { target = D.isoDate(d); break; }
+      }
+      if (target) {
+        let plan = state.plan;
+        for (const it of moving) plan = D.moveChunk(plan, it.taskId, todayIso, target);
+        set({ plan });
+        moved = moving.length;
+      }
+    }
+  }
+  set({ meta: { ...state.meta, dayClosed: { date: todayIso, closedAt: Date.now() } } });
+  setUI({ endOfDayOpen: false });
+  notify(moved > 0 ? `Day closed · ${moved} task${moved > 1 ? "s" : ""} rolled forward` : "Day closed");
+}
+export function reopenDay() {
+  set({ meta: { ...state.meta, dayClosed: null } });
+  notify("Day reopened");
+}
+
+/* ── preview mode ──────────────────────────────────────────── */
+
+export function enterPreview() {
+  if (state.ui.previewMode) return;
+  const snap = {
+    tasks: state.tasks, projects: state.projects, plan: state.plan,
+    caps: state.caps, screen: state.screen, achievements: state.achievements,
+    meta: state.meta,
+  };
+  window.localStorage.setItem(db.KEYS.preview, JSON.stringify(snap));
+  const demo = generateDemoData();
+  set({ ...demo }, ["tasks", "projects", "plan", "caps", "screen", "achievements"]);
+  setUI({ previewMode: true, view: "today" });
+  notify("Preview on — your data is snapshotted");
+}
+export function exitPreview() {
+  const raw = window.localStorage.getItem(db.KEYS.preview);
+  if (!raw) { setUI({ previewMode: false }); return; }
+  const snap = JSON.parse(raw);
+  set({
+    tasks: snap.tasks || [], projects: snap.projects || [], plan: snap.plan || [],
+    caps: snap.caps || { ...D.DEFAULT_CAPS }, screen: snap.screen || {},
+    achievements: snap.achievements || [], meta: snap.meta || state.meta,
+  });
+  window.localStorage.removeItem(db.KEYS.preview);
+  setUI({ previewMode: false });
+  notify("Your data is back");
+}
+
+function generateDemoData() {
+  const now = Date.now();
+  const day = 86400000;
+  const mk = (title, o = {}) => ({
+    id: "demo-" + D.uid(), title, desc: o.desc || "", notes: "", tags: o.tags || [], subtasks: [],
+    xp: o.xp || 25, difficulty: o.diff || "medium", hours: o.hours || 1.5,
+    recurring: o.rec || "none", history: o.rec ? (o.history || []) : undefined,
+    priority: o.prio || "medium", projectId: o.pid || null, deadlineAt: o.deadline || null,
+    completed: !!o.done, completedAt: o.done ? (o.doneAt || now - day) : null,
+    createdAt: now - (o.age || 5) * day, focusMs: 0, focusDate: null, aiPending: false,
+  });
+  const p1 = { id: "demo-p1", title: "Landing redesign", desc: "Client site refresh", notes: "", type: "client", color: "#3fd68f", createdAt: now - 12 * day, completedAt: null, shippedAt: null, childTaskIds: [] };
+  const p2 = { id: "demo-p2", title: "Component kit", desc: "", notes: "", type: "component", color: "#5b9dff", createdAt: now - 8 * day, completedAt: null, shippedAt: null, childTaskIds: [] };
+  const t = [
+    mk("Audit hero section", { pid: "demo-p1", prio: "high" }),
+    mk("Rework navigation", { pid: "demo-p1", diff: "hard", xp: 45, hours: 3, prio: "urgent", deadline: now + 3 * day }),
+    mk("Build stat chips", { pid: "demo-p2" }),
+    mk("Tighten pricing copy", { pid: "demo-p1", diff: "easy", xp: 12, hours: 0.5, done: true, doneAt: now - 2 * 3600000 }),
+    mk("Reply to procurement", { prio: "urgent", diff: "easy", xp: 10, hours: 0.5 }),
+    mk("Morning planning", { rec: "daily", diff: "easy", xp: 10, hours: 0.25, history: [D.isoDate(new Date(now - 2 * day)), D.isoDate(new Date(now - day))] }),
+  ];
+  for (let i = 0; i < 10; i++) {
+    t.push(mk(["Fix drawer overlap", "Push staging", "Sketch onboarding", "Refactor toasts", "Write release notes", "Lighthouse pass", "Tidy Figma", "Draft case study", "Pair prep", "Update README"][i], {
+      done: true, doneAt: now - (1 + (i % 7)) * day - (i * 3600000) % (8 * 3600000), xp: 15 + (i % 4) * 10, age: 10,
+      pid: i % 3 === 0 ? "demo-p1" : i % 3 === 1 ? "demo-p2" : null,
+    }));
+  }
+  p1.childTaskIds = t.filter((x) => x.projectId === "demo-p1").map((x) => x.id);
+  p2.childTaskIds = t.filter((x) => x.projectId === "demo-p2").map((x) => x.id);
+  const todayIso = D.effectiveTodayIso(state.meta.dayStartHour);
+  const plan = [
+    { date: todayIso, items: [{ taskId: t[0].id, done: false }, { taskId: t[4].id, done: false }] },
+    { date: D.isoDate(D.addDays(new Date(), 1)), items: [{ taskId: t[1].id, done: false, hours: 1.5, note: "Wireframe + direction" }] },
+    { date: D.isoDate(D.addDays(new Date(), 2)), items: [{ taskId: t[1].id, done: false, hours: 1.5, note: "Build + polish" }, { taskId: t[2].id, done: false }] },
+  ];
+  return {
+    tasks: t, projects: [p1, p2], plan,
+    caps: { ...D.DEFAULT_CAPS }, screen: {},
+    achievements: ["first", "five", "speed"],
+  };
+}
+
+/* ── export / import ───────────────────────────────────────── */
+
+export function exportData() {
+  if (state.ui.previewMode) { notify("Exit preview first"); return; }
+  const payload = db.buildExport(state);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `werf-backup-${D.isoDate(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  notify("Backup downloaded");
+}
+
+export function importDataFromFile(file, mode) {
+  if (state.ui.previewMode) { notify("Exit preview first"); return Promise.resolve(false); }
+  return file.text().then((text) => {
+    const payload = JSON.parse(text);
+    const inc = db.parseImport(payload); // throws with readable message
+    if (mode === "replace") {
+      const meta = inc.meta
+        ? { ...state.meta, ...inc.meta }
+        : (() => {
+            // Quest backup: recompute baseline from its profile.
+            const derived = D.totalXP(inc.tasks, inc.plan, 0, state.meta.dayStartHour);
+            const legacy = inc.legacyProfile?.totalXP ?? null;
+            return { ...state.meta, xpBaseline: legacy != null ? Math.max(0, legacy - derived) : 0 };
+          })();
+      set({
+        tasks: inc.tasks, projects: inc.projects, plan: inc.plan,
+        caps: inc.caps || { ...D.DEFAULT_CAPS }, screen: inc.screen,
+        locks: inc.locks, achievements: inc.achievements, customTags: inc.customTags,
+        meta,
+      });
+    } else {
+      const merged = db.mergeStates(state, inc);
+      set({ ...merged });
+    }
+    notify("Import complete");
+    return true;
+  });
+}
