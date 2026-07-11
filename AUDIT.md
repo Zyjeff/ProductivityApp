@@ -320,7 +320,7 @@ focus/schedule, a Ctrl+K palette, undo-toast instead of confirm — which
 requires the centralized store the current architecture can't offer.
 Startup speed is already good; keep the instant-boot property.
 
-### C7. Visual identity & brand — REPLACE
+### C7. Visual identity & brand — REPLACE (contd. below)
 
 "Quest" + XP + levels frames a professional's shipping tool as an RPG,
 and the look is a competent but anonymous violet-on-black dashboard —
@@ -330,3 +330,76 @@ built in the yard, then launched. The owner is Dutch, a designer, and
 ships client sites for a living; the identity should be his, not
 Linear's. Decision + three explored directions recorded in VERDICT.md.
 
+
+---
+
+## Part D — Phase 5 verification log (Werf, the rebuild)
+
+Method mirrors Part B: drove the running product, not the code. Every
+claim below was observed in the browser; commands and outputs in the
+session log.
+
+**Build & tests.** `npm test`: 21/21 pass (derived-ledger invariants,
+migration from quest v8 / legacy title-shaped plans / vsq_* / shiplist,
+idempotence, replan-ops surgery, rollover hour). `npm run build`: clean,
+301.87 kB JS (91.62 kB gzip), 1.35s.
+
+**Migration, live.** Seeded a realistic quest_* v8 dataset (19 tasks,
+3 projects, split chunks incl. one done chunk, daily histories, weekly
+task, profile totalXP 2340 / streak 4) plus a never-imported
+`shiplist-projects-v2` entry. First load of Werf: 21 tasks, 4 projects
+(shiplist project arrived as launched), weekly history seeded, sidebar
+shows **exactly 2340 XP** (baseline 1957 + derived 383). Streak reads 8,
+not 4 — recomputed from the actual seeded activity history; the old
+counter was the drifted one.
+
+**The double-pay scenario, re-run.** Same steps that over-credited
+quest to 133%: chunk-complete one 2h slice of the 70-XP task (keyboard
+j → x: +23 exactly), then whole-complete from the Library circle. Werf:
++24 top-up, chunks all synced to done, total credited = 70/70. Toast
+carried Undo.
+
+**Focus chaining.** Scheduled task → tunnel → complete → advanced to
+the dailies → closed only when nothing pending remained. XP across the
+chain: 2427 → 2487 (+40 +10 +10, exact).
+
+**Honest AI, both paths.**
+- No key: capture saves instantly with full raw title, deterministic
+  score, dot = off; replan answers "AI is off — no API key configured
+  (see README)". No user-blaming, no silent flat-20s.
+- Dummy key through the real middleware: request reached
+  api.anthropic.com, came back 401 authentication_error, app toasted
+  "AI request failed upstream — try again shortly", task kept its
+  honest local values.
+- Stubbed upstream (canned Anthropic-shaped responses): capture
+  enrichment retitled + rescored the task in place; replan produced one
+  surgical `move` op — the invoice chunk moved 07-11 → 07-14 and every
+  other chunk stayed byte-identical (verified by flattening the plan).
+
+**Everything else.** Palette (Ctrl+K → fuzzy task hit → Enter → edit
+modal). Delete → undo (21 → 20 → 21 tasks). Launch ritual (project to
+100% → Launch → confetti → launched fleet). End-of-day dialog + closed
+banner + persistence. Logbook (Lv/trophies with derived progress,
+migration provenance line, export toast). Preview round-trip exact
+(23 → 16 demo → 23). Reload persistence. Mobile 375px: capture bar
+fully on-screen (70→351px), 56px rail, no overflow — the quest clip is
+gone. Planner agenda leads with Today; recurring tasks render once, not
+28 times.
+
+**Defects found in MY code by this pass (both fixed, then re-verified):**
+1. `watchLevel` infinite recursion — crossing a level threshold made
+   the level watcher call `setUI` before updating `lastLevel`; since
+   emit is synchronous it re-entered until the stack blew, and because
+   the watcher subscribes before React, every subsequent emit died
+   before reaching React: UI froze with state still persisting. Fixed
+   by updating `lastLevel` first + a re-entrancy guard + making emit()
+   isolate listener failures. Notably: the freeze corrupted nothing —
+   the derived ledger meant state stayed consistent throughout.
+2. Dev AI middleware read `.env` from `process.cwd()`, which isn't the
+   project dir when the server is launched from elsewhere. Anchored to
+   the config file's directory.
+
+Verdict vs build: re-read VERDICT.md against the tree — all 13 checklist
+items executed; no scope added beyond it (the only deviation: "Habits"
+survives as the Today screen-log card + Logbook history, exactly as the
+verdict specified).

@@ -1,5 +1,9 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // Dev-only middleware serving the same /api/anthropic contract as the
 // Netlify function, so AI features work under plain `npm run dev`.
@@ -50,7 +54,9 @@ function anthropicDevProxy(env) {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  // Anchor at the project dir, not process.cwd() — the dev server may be
+  // launched from anywhere and .env must still be found.
+  const env = loadEnv(mode, HERE, "");
   return {
     plugins: [react(), anthropicDevProxy(env)],
   };

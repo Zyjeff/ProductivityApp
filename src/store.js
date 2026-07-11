@@ -13,7 +13,13 @@ const listeners = new Set();
 
 export function getState() { return state; }
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
-function emit() { for (const fn of listeners) fn(); }
+function emit() {
+  // One faulty listener must never starve the others (React's
+  // subscriptions live in this set).
+  for (const fn of [...listeners]) {
+    try { fn(); } catch (e) { console.error("werf: listener failed", e); }
+  }
+}
 
 // set() replaces slices immutably, persists the named slices, emits.
 function set(patch, slices = Object.keys(patch)) {
@@ -275,13 +281,24 @@ function checkNewAchievements() {
 }
 
 let lastLevel = null;
+let levelWatcherBusy = false;
 export function watchLevel() {
+  // Guard order matters: update lastLevel BEFORE the setUI below —
+  // setUI synchronously re-enters this watcher via emit(), and with a
+  // stale lastLevel that recursion never terminates.
+  if (levelWatcherBusy) return;
   const lvl = sel.level(state).lvl;
-  if (lastLevel != null && lvl > lastLevel) {
-    setUI({ levelUp: { lvl, title: D.LEVEL_NAMES[Math.min(lvl, D.LEVEL_NAMES.length) - 1] }, confetti: state.ui.confetti + 1 });
+  const prev = lastLevel;
+  lastLevel = lvl;
+  if (prev != null && lvl > prev) {
+    levelWatcherBusy = true;
+    try {
+      setUI({ levelUp: { lvl, title: D.LEVEL_NAMES[Math.min(lvl, D.LEVEL_NAMES.length) - 1] }, confetti: state.ui.confetti + 1 });
+    } finally {
+      levelWatcherBusy = false;
+    }
     setTimeout(() => setUI({ levelUp: null }), 2800);
   }
-  lastLevel = lvl;
 }
 subscribeLevelWatcher();
 function subscribeLevelWatcher() {

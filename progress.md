@@ -1,21 +1,24 @@
 # progress
 
-## done
-- Phase 0: quest-original cloned read-only (origin removed); quest-next initialized, no remotes.
-- Phase 1–2: AUDIT.md — full code read + live driving session; all major defects confirmed with repros.
-- Phase 3: VERDICT.md committed — partial rebuild as **Werf**, harbor-at-night direction.
-- Scaffold: package.json / vite.config (dev AI middleware) / index.html / netlify function (contract unchanged) / manifest+icon / tokens.css.
-- Core: domain.js (derived XP ledger, one date convention), db.js (migration quest v≤8 + vsq_* + shiplist → werf v1 with XP baseline; debounced persist; 7-slot backup ring; export/import incl. quest format), store.js (single store, ONE completion mutation, undo stack), ai.js (status-aware client, ported prompts, typed failures).
-- Tests: 21/21 green (`npm test`) — no-double-pay, chunk share sums, migration idempotence, legacy plan shapes, replan ops surgical behavior, rollover hour.
+## done — all phases complete
+- Phase 0: quest-original cloned read-only (origin removed, never touched after); quest-next initialized, no remotes, never pushed.
+- Phase 1–2: AUDIT.md Parts A–C — full code read + live driving session of the original; all major defects confirmed with numeric repros.
+- Phase 3: VERDICT.md — partial rebuild as **Werf** (harbor-at-night identity); committed as its own checkpoint before building.
+- Phase 4: built per the 13-item checklist. Core: derived-XP ledger (domain.js), one-shot migration quest v≤8 + vsq_* + shiplist with lifetime-XP baseline (db.js), single store with ONE completion mutation + undo (store.js), status-aware AI client (ai.js), dev AI middleware in vite.config.js (same contract as the Netlify function). UI: Today / Plan / Dock + Logbook panel, command layer (j/k/x/e/f/t/del, Ctrl+K palette), focus tunnel with working chaining, end-of-day ritual, preview mode, rotating auto-backups.
+- Phase 5: verified in the running product — see AUDIT.md Part D. 21/21 tests, clean build (302 kB / 92 kB gz), live migration proof (2340 XP preserved exactly), double-pay scenario now sums 70/70, honest AI in all three modes (no key / bad key / working), mobile capture fixed, preview round-trip exact.
 
-## next
-- components.jsx + keys.js (command registry / palette)
-- views: today / plan / dock / focus / stats panel
-- app.jsx shell + main.jsx
-- README rewrite; Phase 5 verification
+## verification-found fixes
+- watchLevel synchronous recursion on level-up (froze React; ledger stayed consistent — derived state proved its worth). Fixed: order + re-entrancy guard + resilient emit().
+- Dev middleware read .env from process.cwd(); anchored to config dir.
 
 ## decisions
-- Weekly recurring tasks now use a Monday-anchored week window (was: "7 days since completion", which crept later every week). Both dailies and weeklies keep a `history[]` of ISO dates; XP derives from history.
-- Deterministic scoring is the default; AI is a suggester. Rationale in AUDIT C4/C5.
-- Legacy quest_*/vsq_* keys are left in place after migration (old app still works; re-migration possible by clearing werf_*).
-- Dependencies: zero added — react, react-dom, vite, @vitejs/plugin-react only.
+- Weekly recurring uses a Monday-anchored week window (old: creeping "7 days since done"). Recurring tasks keep `history[]`; XP derives from it.
+- Deterministic scoring is the default; AI refines when reachable. Capture never blocks on the network.
+- Capture on Today pins to today (fixes capture-to-void); capture on Dock goes to the library unscheduled.
+- Streak is recomputed from history at migration and may differ from the old counter (documented in README).
+- Legacy quest_*/vsq_* keys left in place after migration; werf_* clear re-runs it.
+- Dependencies: zero added — react, react-dom / vite, @vitejs/plugin-react.
+
+## next (owner's call, not started)
+- Real-key smoke test of aiPlan/aiReplan prompt quality (transport is proven; prompt tuning may want a pass with live traffic).
+- Optional: .ics export, per-task actual-time ledger, PWA service worker for full offline.
