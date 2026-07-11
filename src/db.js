@@ -324,6 +324,8 @@ export function maybeBackup(storage, state, dayStartHour = 0) {
       meta: { ...state.meta, lastBackupDay: today },
     },
   });
+  // Record the day so the ring advances once per day, not per load.
+  writeJSON(storage, KEYS.meta, { ...meta, ...state.meta, lastBackupDay: today });
   return true;
 }
 export function listBackups(storage = window.localStorage) {

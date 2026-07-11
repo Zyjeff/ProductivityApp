@@ -67,24 +67,30 @@ export function initStore(storage = window.localStorage) {
   emit();
 }
 
+function shallowEq(a, b) {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (!Object.is(a[k], b[k])) return false;
+  return true;
+}
+
 export function useStore(selector) {
-  const sel = useRef(selector); sel.current = selector;
-  const last = useRef();
-  return useSyncExternalStore(
-    subscribe,
-    () => {
-      const next = sel.current(state);
-      // Shallow-compare arrays produced by selectors so unchanged
-      // results keep referential identity (avoids re-render loops).
-      if (Array.isArray(next) && Array.isArray(last.current)
-          && next.length === last.current.length
-          && next.every((v, i) => v === last.current[i])) {
-        return last.current;
-      }
-      last.current = next;
-      return next;
-    }
-  );
+  // getSnapshot must return a STABLE reference for an unchanged store,
+  // or React loops. Cache on state identity (state only changes via
+  // set(), immutably) and keep the previous result when shallow-equal.
+  const ref = useRef({ state: null, value: undefined, selector: null });
+  ref.current.selector = selector;
+  return useSyncExternalStore(subscribe, () => {
+    const c = ref.current;
+    if (c.state === state) return c.value;
+    const next = c.selector(state);
+    c.state = state;
+    if (c.value !== undefined && shallowEq(next, c.value)) return c.value;
+    c.value = next;
+    return next;
+  });
 }
 
 /* ── toasts + undo ─────────────────────────────────────────── */
