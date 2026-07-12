@@ -177,8 +177,42 @@ export function todayLineup(s) {
       chunkNote: it.note || null,
     });
   }
-  return D.sortForEnergy(rows.map((r) => ({ ...r, priority: r.task.priority, difficulty: r.task.difficulty })), s.ui.energy)
+  const energySorted = D.sortForEnergy(rows.map((r) => ({ ...r, priority: r.task.priority, difficulty: r.task.difficulty })), s.ui.energy)
     .map(({ priority, difficulty, ...r }) => r);
+  // User-owned run order (F3) wins over the energy heuristic: rows the
+  // user has placed keep their placement; new arrivals append in energy
+  // order after them.
+  const order = s.meta.lineupOrder?.[todayIso];
+  if (!order || !order.length) return energySorted;
+  const pos = new Map(order.map((id, i) => [id, i]));
+  const placed = energySorted.filter((r) => pos.has(r.task.id)).sort((a, b) => pos.get(a.task.id) - pos.get(b.task.id));
+  const rest = energySorted.filter((r) => !pos.has(r.task.id));
+  return [...placed, ...rest];
+}
+
+// Persist today's run order (full ordered id list). Old days pruned.
+export function setLineupOrder(ids) {
+  const hour = state.meta.dayStartHour || 0;
+  const todayIso = D.effectiveTodayIso(hour);
+  const cutoff = D.isoDate(D.addDays(D.parseIsoDate(todayIso), -7));
+  const lineupOrder = {};
+  for (const [k, v] of Object.entries(state.meta.lineupOrder || {})) {
+    if (k >= cutoff) lineupOrder[k] = v;
+  }
+  lineupOrder[todayIso] = ids;
+  set({ meta: { ...state.meta, lineupOrder } });
+}
+
+// Move a lineup row up/down by one. Returns true if it moved.
+export function moveLineupRow(taskId, dir) {
+  const ids = todayLineup(state).map((r) => r.task.id);
+  const idx = ids.indexOf(taskId);
+  const to = idx + dir;
+  if (idx < 0 || to < 0 || to >= ids.length) return false;
+  ids.splice(idx, 1);
+  ids.splice(to, 0, taskId);
+  setLineupOrder(ids);
+  return true;
 }
 
 /* ── the ONE completion mutation ───────────────────────────── */

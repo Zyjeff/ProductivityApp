@@ -3,7 +3,7 @@
 // ordered, actionable rows through registerActiveList() so j/k/x/e/f/t/d
 // operate on whatever list is on screen.
 
-import { getState, setUI, setCompletion, deleteTask, pinTaskToDate, undoLast, notify, promoteToProject } from "./store.js";
+import { getState, setUI, setCompletion, deleteTask, pinTaskToDate, undoLast, notify, promoteToProject, moveLineupRow } from "./store.js";
 import { scoreTask } from "./enrich.js";
 import { effectiveTodayIso, isoDate, addDays } from "./domain.js";
 import { MOD } from "./components.jsx";
@@ -126,7 +126,18 @@ export function installKeyboard() {
     if (k === "k" || k === "ArrowUp") { e.preventDefault(); moveCursor(-1); return; }
 
     const row = cursorRow();
+    if ((k === "f" || k === "F") && !row) {
+      // No cursor: focus flows into NOW — the first pending lineup row.
+      const firstPending = activeList.rows.find((r) => !r.done);
+      if (firstPending) { e.preventDefault(); setUI({ focusTaskId: firstPending.taskId }); }
+      return;
+    }
     if (!row) return;
+    if ((k === "[" || k === "]") && activeList.viewName === "today") {
+      e.preventDefault();
+      if (moveLineupRow(row.taskId, k === "[" ? -1 : 1)) moveCursor(k === "[" ? -1 : 1);
+      return;
+    }
     if (k === "x" || k === "X" || k === "Enter") {
       e.preventDefault();
       setCompletion(row.taskId, { done: !row.done, chunkDate: row.chunkDate || null });
@@ -153,6 +164,7 @@ export const SHORTCUT_ROWS = [
   ["4", "Stats panel"],
   [`${MOD}+K`, "Command palette"],
   ["J / K", "Move cursor down / up"],
+  ["[ / ]", "Reorder lineup row up / down (Today)"],
   ["X or Enter", "Complete / reopen at cursor"],
   ["E", "Edit at cursor"],
   ["F", "Focus tunnel at cursor"],

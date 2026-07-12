@@ -10,7 +10,7 @@ import * as D from "../domain.js";
 import {
   useStore, getState, setUI, setCompletion, todayLineup, sel,
   pinTaskToDate, dismissChunk, moveChunkDate, patchScreenToday, reopenDay,
-  enterPreview,
+  enterPreview, setLineupOrder,
 } from "../store.js";
 import { registerActiveList } from "../keys.js";
 
@@ -25,11 +25,13 @@ export function TodayView() {
   const energy = useStore((s) => s.ui.energy);
   const cursor = useStore((s) => s.ui.cursor);
   const [exp, setExp] = useState(null);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
 
   const hour = meta.dayStartHour || 0;
   const todayIso = D.effectiveTodayIso(hour);
   const s = getState();
-  const lineup = useMemo(() => todayLineup(s), [tasks, plan, energy, hour]);
+  const lineup = useMemo(() => todayLineup(s), [tasks, plan, energy, hour, meta]);
   const missed = useMemo(() => D.getMissedWork(tasks, plan, hour), [tasks, plan, hour]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -177,6 +179,74 @@ export function TodayView() {
 
       <div className="w-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 22, alignItems: "start" }}>
         <div>
+          {/* NOW / NEXT stage (F3) */}
+          {lineup.length > 0 && (() => {
+            const pendingRows = lineup.filter((r) => !r.doneHere);
+            const nowRow = pendingRows[0];
+            const nextRow = pendingRows[1];
+            if (!nowRow) {
+              return (
+                <div className="w-card w-fade-in" style={{ padding: "16px 18px", marginBottom: 16, borderColor: "var(--starboard)", background: "var(--starboard-soft)", display: "flex", alignItems: "center", gap: 12 }}>
+                  <Icon name="ship" size={18} />
+                  <div style={{ flex: 1 }}>
+                    <div className="w-display" style={{ fontSize: 17, fontWeight: 600, color: "var(--starboard)" }}>Day cleared.</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Everything on the slate is done. Solid day.</div>
+                  </div>
+                  {!dayClosed && (
+                    <button className="w-btn w-btn--launch w-btn--sm" onClick={() => setUI({ endOfDayOpen: true })}>
+                      <Icon name="moon" size={12} /> Close the day
+                    </button>
+                  )}
+                </div>
+              );
+            }
+            const nowProject = nowRow.task.projectId ? projectsById.get(nowRow.task.projectId) : null;
+            const focusMin = D.todayFocusMs(nowRow.task, hour);
+            return (
+              <div className="w-card w-fade-in" style={{ marginBottom: 16, borderColor: "var(--amber)", boxShadow: "0 0 24px -12px var(--amber-glow)", overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="w-eyebrow" style={{ color: "var(--amber-strong)", marginBottom: 5 }}>Now</div>
+                    <div className="w-display" style={{ fontSize: 21, fontWeight: 600, color: "var(--text)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {nowRow.task.title}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 11.5, color: "var(--text-muted)", flexWrap: "wrap" }}>
+                      {nowProject && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: nowProject.color }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: nowProject.color, display: "inline-block" }} />
+                          {nowProject.title}
+                        </span>
+                      )}
+                      {nowRow.chunkNote && <span style={{ fontStyle: "italic" }}>{nowRow.chunkNote}</span>}
+                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>
+                        ~{nowRow.chunk?.hours ?? D.taskHours(nowRow.task)}h
+                        {focusMin > 0 && <> · {D.fmtMs(focusMin)} in</>}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className={"w-check"}
+                    style={{ width: 22, height: 22 }}
+                    title="Complete now"
+                    aria-label="Complete current task"
+                    onClick={() => setCompletion(nowRow.task.id, { done: true, chunkDate: nowRow.chunk ? todayIso : null })}
+                  />
+                  <button className="w-btn w-btn--primary" onClick={() => setUI({ focusTaskId: nowRow.task.id })}>
+                    <Icon name="focus" size={13} /> Focus <span className="w-kbd" style={{ marginLeft: 4 }}>F</span>
+                  </button>
+                </div>
+                {nextRow && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderTop: "1px solid var(--border)", background: "var(--bg-soft)", fontSize: 12, color: "var(--text-muted)" }}>
+                    <span className="w-eyebrow" style={{ fontSize: 9 }}>Next</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextRow.task.title}</span>
+                    <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>[ ] to reorder</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* missed work triage */}
           {missed.length > 0 && (
             <div className="w-fade-in" style={{ marginBottom: 16, border: "1px solid var(--warning)", borderRadius: "var(--r-md)", background: "var(--warning-soft)", padding: "12px 14px" }}>
@@ -229,24 +299,46 @@ export function TodayView() {
                 const globalIdx = missed.length + i;
                 const chunks = r.chunk ? D.getTaskChunks(r.task.id, plan) : [];
                 return (
-                  <TaskRow key={r.task.id}
-                    task={r.task}
-                    project={r.task.projectId ? projectsById.get(r.task.projectId) : null}
-                    doneHere={r.doneHere}
-                    onToggleDone={(done) => setCompletion(r.task.id, { done, chunkDate: r.chunk ? todayIso : null })}
-                    chunkNote={r.chunkNote} chunkLabel={r.chunkLabel}
-                    isCursor={cursorIdx === globalIdx}
-                    onHoverCursor={() => setUI({ cursor: { index: globalIdx } })}
-                    expanded={exp === r.task.id}
-                    onToggleExpand={() => setExp(exp === r.task.id ? null : r.task.id)}
-                    extraExpanded={chunks.length > 1 ? <ChunksEditor task={r.task} chunks={chunks} dayStartHour={hour} /> : null}
-                    dayStartHour={hour}
-                  />
+                  <div key={r.task.id}
+                    draggable
+                    onDragStart={(e) => { setDragIdx(i); e.dataTransfer.effectAllowed = "move"; }}
+                    onDragOver={(e) => { e.preventDefault(); if (dragOverIdx !== i) setDragOverIdx(i); }}
+                    onDragLeave={() => { if (dragOverIdx === i) setDragOverIdx(null); }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragIdx != null && dragIdx !== i) {
+                        const ids = lineup.map((x) => x.task.id);
+                        const [moved] = ids.splice(dragIdx, 1);
+                        ids.splice(i, 0, moved);
+                        setLineupOrder(ids);
+                      }
+                      setDragIdx(null); setDragOverIdx(null);
+                    }}
+                    onDragEnd={() => { setDragIdx(null); setDragOverIdx(null); }}
+                    style={{
+                      opacity: dragIdx === i ? 0.4 : 1,
+                      borderTop: dragOverIdx === i && dragIdx !== null && dragIdx !== i ? "2px solid var(--amber)" : "2px solid transparent",
+                      transition: "opacity var(--t-fast)",
+                    }}>
+                    <TaskRow
+                      task={r.task}
+                      project={r.task.projectId ? projectsById.get(r.task.projectId) : null}
+                      doneHere={r.doneHere}
+                      onToggleDone={(done) => setCompletion(r.task.id, { done, chunkDate: r.chunk ? todayIso : null })}
+                      chunkNote={r.chunkNote} chunkLabel={r.chunkLabel}
+                      isCursor={cursorIdx === globalIdx}
+                      onHoverCursor={() => setUI({ cursor: { index: globalIdx } })}
+                      expanded={exp === r.task.id}
+                      onToggleExpand={() => setExp(exp === r.task.id ? null : r.task.id)}
+                      extraExpanded={chunks.length > 1 ? <ChunksEditor task={r.task} chunks={chunks} dayStartHour={hour} /> : null}
+                      dayStartHour={hour}
+                    />
+                  </div>
                 );
               })}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
                 <span>{planDone}/{lineup.length} done</span>
-                <span>j/k to move · x to complete · f to focus</span>
+                <span>j/k move · x complete · [ ] reorder · drag to reorder</span>
               </div>
             </div>
           ) : (
