@@ -1,6 +1,6 @@
-// capture.jsx — the instant capture bar. Enter saves LOCALLY in the same
-// tick (raw title, deterministic score) and AI enrichment runs after,
-// updating the row in place. The AI status dot tells the truth.
+// capture.jsx — the command slab. Full-width well under the view
+// header; Enter saves locally in the same tick, AI enriches after.
+// Logic identical to the previous version — presentation only.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Kbd, AiDot } from "./components.jsx";
@@ -10,13 +10,13 @@ import { enrichCapturedTask, captureProject } from "./enrich.js";
 import { setCaptureFocus } from "./keys.js";
 
 const CHIP_TONE = {
-  priority: "var(--port)", tag: "var(--text-muted)", project: "var(--channel)",
-  hours: "var(--amber-strong)", date: "var(--starboard)", deadline: "var(--warning)",
+  priority: "var(--port)", tag: "var(--fg-dim)", project: "var(--channel)",
+  hours: "var(--amber-hot)", date: "var(--starboard)", deadline: "var(--warn)",
   recurring: "var(--channel)",
 };
 
 const MODES = [
-  { id: "task", label: "Task", sub: "single action item", placeholder: "Capture a task — saved instantly, AI tidies after" },
+  { id: "task", label: "Task", sub: "single action item", placeholder: "Capture — saved instantly · !prio #tag @project 2h fri…" },
   { id: "subtasks", label: "Steps", sub: "task with concrete steps", placeholder: "Describe a multi-step task — AI adds the steps" },
   { id: "project", label: "Project", sub: "multi-task initiative", placeholder: "Describe a project — AI drafts its tasks" },
 ];
@@ -31,7 +31,6 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
   const inputRef = useRef(null);
   const wrapRef = useRef(null);
 
-  // Live quick-add grammar preview (task mode only).
   const parsed = useMemo(
     () => (mode === "task" && text.trim() ? parseQuickAdd(text, { projects }) : null),
     [text, mode, projects]
@@ -56,9 +55,9 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
   const submit = () => {
     const v = text.trim();
     if (!v) return;
-    setText("");                      // input frees IMMEDIATELY
+    setText("");
     if (mode === "project") {
-      captureProject(v);              // async; its own toasts
+      captureProject(v);
       return;
     }
     const task = captureTask(v, { mode, scheduleToday, parsed });
@@ -70,12 +69,20 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
   };
 
   return (
-    <div className="w-capture-wrap" ref={wrapRef}>
-      <div className="w-capture">
-        <button type="button" className="w-capture-mode" onClick={() => setMenuOpen((o) => !o)}
-          aria-haspopup="listbox" aria-expanded={menuOpen} title="Capture mode">
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <div className="w-well" style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
+        <button type="button" onClick={() => setMenuOpen((o) => !o)}
+          aria-haspopup="listbox" aria-expanded={menuOpen} title="Capture mode"
+          className="w-stencil"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "0 12px", border: "none", cursor: "pointer",
+            background: menuOpen ? "var(--amber)" : "var(--plate-hi)",
+            color: menuOpen ? "var(--ink)" : "var(--fg-dim)",
+            flexShrink: 0, letterSpacing: "0.18em",
+          }}>
           {current.label}
-          <Icon name="chevron" size={10} />
+          <Icon name="chevron" size={9} />
         </button>
         <input ref={inputRef} value={text}
           onChange={(e) => setText(e.target.value)}
@@ -84,40 +91,49 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
             else if (e.key === "Escape") { setText(""); inputRef.current?.blur(); }
           }}
           placeholder={current.placeholder}
-          aria-label="Capture a task" />
-        <AiDot status={aiStatus} detail={aiDetail} />
-        <button type="button" className="w-icon-btn" onClick={() => setUI({ formOpen: true, editingTaskId: null })}
-          title="Full form (Shift+N)" aria-label="Open full task form"><Icon name="edit" size={13} /></button>
-        <Kbd>N</Kbd>
+          aria-label="Capture a task"
+          style={{ height: 40 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 12px", flexShrink: 0 }}>
+          <AiDot status={aiStatus} detail={aiDetail} />
+          <button type="button" className="w-icon-btn" onClick={() => setUI({ formOpen: true, editingTaskId: null })}
+            title="Full form (Shift+N)" aria-label="Open full task form" style={{ padding: 2 }}><Icon name="edit" size={12} /></button>
+          <Kbd>N</Kbd>
+        </div>
       </div>
+
       {grammarActive && !menuOpen && (
         <div className="w-fade-in" style={{
-          position: "absolute", top: "calc(100% + 5px)", left: 0, zIndex: 49,
+          position: "absolute", top: "100%", left: 0, zIndex: 49,
           display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap",
-          background: "var(--bg-elev)", border: "1px solid var(--border-strong)",
-          borderRadius: "var(--r-md)", padding: "5px 8px",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+          background: "var(--plate-hi)", boxShadow: "inset 0 1px 0 var(--line), 0 0 0 1px var(--ground)",
+          padding: "5px 9px", maxWidth: "100%",
         }}>
-          <span style={{ fontSize: 11, color: "var(--text)", fontWeight: 500, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 11, color: "var(--fg)", fontWeight: 500, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {parsed.title || "(untitled)"}
           </span>
           {parsed.chips.map((c, i) => (
-            <span key={i} style={{
-              fontSize: 10, fontFamily: "var(--font-mono)", padding: "1px 6px",
-              borderRadius: 3, border: `1px solid ${CHIP_TONE[c.type] || "var(--border)"}`,
-              color: CHIP_TONE[c.type] || "var(--text-muted)",
-            }}>{c.label}</span>
+            <span key={i} className="w-stamp w-stamp--lamp" style={{ color: CHIP_TONE[c.type] || "var(--fg-dim)" }}>{c.label}</span>
           ))}
         </div>
       )}
+
       {menuOpen && (
-        <div className="w-capture-menu" role="listbox">
+        <div role="listbox" className="w-fade-in" style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 50, minWidth: 240,
+          background: "var(--plate-hi)", boxShadow: "inset 0 1px 0 var(--line), 0 0 0 1px var(--ground)",
+          padding: 4, display: "flex", flexDirection: "column", gap: 2,
+        }}>
           {MODES.map((m) => (
             <button key={m.id} type="button" role="option" aria-selected={mode === m.id}
-              className={mode === m.id ? "is-active" : ""}
-              onClick={() => { setUI({ captureMode: m.id }); setMenuOpen(false); inputRef.current?.focus(); }}>
-              <span>{m.label}</span>
-              <span className="w-capture-menu-sub">{m.sub}</span>
+              onClick={() => { setUI({ captureMode: m.id }); setMenuOpen(false); inputRef.current?.focus(); }}
+              style={{
+                display: "flex", flexDirection: "column", gap: 2, textAlign: "left", cursor: "pointer",
+                background: "transparent", border: "none", padding: "8px 10px",
+                borderLeft: mode === m.id ? "3px solid var(--amber)" : "3px solid transparent",
+                color: "var(--fg)",
+              }}>
+              <span className="w-stencil" style={{ color: mode === m.id ? "var(--amber)" : "var(--fg-dim)" }}>{m.label}</span>
+              <span style={{ font: "400 11px var(--t-body)", color: "var(--fg-faint)" }}>{m.sub}</span>
             </button>
           ))}
         </div>

@@ -171,8 +171,10 @@ export function plateTex(seedString, fg = "#9fb0d0", alphaScale = 1) {
 // The statement-plate treatment: dark ink dither creeping from top and
 // bottom edges of an amber surface. Returns a two-layer background.
 export function statementBg(seedString, ink = "#14100a", amber = "#f5a524") {
-  const topUrl = edgeTex({ seed: seedString + ":t", algo: "bayer", side: "top", depth: 22, fg: ink, from: 0.42, cell: 2 });
-  const botUrl = edgeTex({ seed: seedString + ":b", algo: "noise", side: "bottom", depth: 34, fg: ink, from: 0.5, cell: 2 });
+  // Restrained by the legibility law: the dither creeps in from the
+  // edges but the center panel stays clean for text.
+  const topUrl = edgeTex({ seed: seedString + ":t", algo: "bayer", side: "top", depth: 10, fg: ink, from: 0.3, cell: 2 });
+  const botUrl = edgeTex({ seed: seedString + ":b", algo: "noise", side: "bottom", depth: 14, fg: ink, from: 0.34, cell: 2 });
   return {
     backgroundColor: amber,
     backgroundImage: `${topUrl}, ${botUrl}`,
