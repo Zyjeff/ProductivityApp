@@ -3,7 +3,37 @@
 import React, { useState } from "react";
 import { Icon, Chip, CompleteButton, Checkbox, PriorityDot, DifficultyPip } from "./components.jsx";
 import { DIFFICULTY, taskHours, effectiveTodayIso, todayFocusMs, fmtMs } from "./domain.js";
-import { setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "./store.js";
+import { useStore, setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "./store.js";
+
+// Actual-vs-estimate (F4): once sessions are logged, the row shows
+// lifetime actuals against the estimate (amber = over). Before any
+// session exists, today's live focus time is the running signal.
+function ActualsChip({ task, done, dayStartHour }) {
+  const actualMs = useStore((s) => {
+    let sum = 0;
+    for (const x of s.sessions || []) if (x.taskId === task.id) sum += x.ms || 0;
+    return sum;
+  });
+  if (task.recurring !== "none") return null;
+  if (actualMs >= 60000) {
+    const est = taskHours(task);
+    const actH = actualMs / 3600000;
+    const over = actH > est;
+    return (
+      <span title={`Actual focus ${fmtMs(actualMs)} vs ~${est}h estimated`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontFamily: "var(--font-mono)", color: over ? "var(--warning)" : "var(--text-muted)" }}>
+        <Icon name="focus" size={10} />{fmtMs(actualMs)}<span style={{ color: "var(--text-faint)" }}>/{est}h</span>
+      </span>
+    );
+  }
+  const fm = todayFocusMs(task, dayStartHour);
+  if (!fm || done) return null;
+  return (
+    <span title="Time focused today" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--amber-strong)" }}>
+      <Icon name="focus" size={10} />{fmtMs(fm)}
+    </span>
+  );
+}
 
 export function DeadlineChip({ task }) {
   if (!task.deadlineAt || task.completed) return null;
@@ -103,17 +133,7 @@ export function TaskRow({
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          {(() => {
-            // Actuals chip (F4) once real sessions exist; today's focus
-            // time as the running signal while working.
-            const fm = todayFocusMs(task, dayStartHour);
-            if (!fm || done) return null;
-            return (
-              <span title="Time focused today" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--amber-strong)" }}>
-                <Icon name="focus" size={10} />{fmtMs(fm)}
-              </span>
-            );
-          })()}
+          <ActualsChip task={task} done={done} dayStartHour={dayStartHour} />
           {sub.length > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{doneSub}/{sub.length}</span>
           )}

@@ -534,6 +534,20 @@ export function saveFocusTime(taskId, ms) {
   });
 }
 
+// Append one focus session to the ledger (F4). Sub-minute runs are
+// noise, not work — skipped.
+export function logSession(taskId, ms) {
+  if (!taskId || !(ms >= 60000)) return;
+  const entry = {
+    id: D.uid(),
+    taskId,
+    dateIso: D.effectiveTodayIso(state.meta.dayStartHour),
+    ms: Math.round(ms),
+    at: Date.now(),
+  };
+  set({ sessions: [...(state.sessions || []), entry] });
+}
+
 /* ── plan mutations ────────────────────────────────────────── */
 
 export function pinTaskToDate(taskId, dateIso) {
@@ -671,11 +685,12 @@ export function enterPreview() {
   const snap = {
     tasks: state.tasks, projects: state.projects, plan: state.plan,
     caps: state.caps, screen: state.screen, achievements: state.achievements,
+    sessions: state.sessions, briefs: state.briefs, reviews: state.reviews,
     meta: state.meta,
   };
   window.localStorage.setItem(db.KEYS.preview, JSON.stringify(snap));
   const demo = generateDemoData();
-  set({ ...demo }, ["tasks", "projects", "plan", "caps", "screen", "achievements"]);
+  set({ ...demo, sessions: [], briefs: {}, reviews: {} }, ["tasks", "projects", "plan", "caps", "screen", "achievements", "sessions", "briefs", "reviews"]);
   setUI({ previewMode: true, view: "today" });
   notify("Preview on — your data is snapshotted");
 }
@@ -687,6 +702,7 @@ export function exitPreview() {
     tasks: snap.tasks || [], projects: snap.projects || [], plan: snap.plan || [],
     caps: snap.caps || { ...D.DEFAULT_CAPS }, screen: snap.screen || {},
     achievements: snap.achievements || [], meta: snap.meta || state.meta,
+    sessions: snap.sessions || [], briefs: snap.briefs || {}, reviews: snap.reviews || {},
   });
   window.localStorage.removeItem(db.KEYS.preview);
   setUI({ previewMode: false });

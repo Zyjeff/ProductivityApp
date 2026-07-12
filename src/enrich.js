@@ -5,7 +5,7 @@
 
 import { aiScore, aiParseCapture, aiFailureMessage, AiError } from "./ai.js";
 import { applyEnrichment, getState, notify, addTask, createProject } from "./store.js";
-import { deterministicScore } from "./domain.js";
+import { deterministicScore, calibration, calibrationPromptLine } from "./domain.js";
 
 let warnedThisSession = false;
 function warnOnce(kind) {
@@ -49,10 +49,12 @@ export async function enrichCapturedTask(taskId, rawText, mode, { grammarUsed = 
 }
 
 export async function scoreTask(taskId) {
-  const t = getState().tasks.find((x) => x.id === taskId);
+  const s = getState();
+  const t = s.tasks.find((x) => x.id === taskId);
   if (!t) return;
   try {
-    const sc = await aiScore({ title: t.title, desc: t.desc, subtasks: t.subtasks, tags: t.tags, notes: t.notes });
+    const calibrationLine = calibrationPromptLine(calibration(s.tasks, s.sessions));
+    const sc = await aiScore({ title: t.title, desc: t.desc, subtasks: t.subtasks, tags: t.tags, notes: t.notes, calibrationLine });
     const det = deterministicScore(sc.difficulty, sc.hours);
     applyEnrichment(taskId, {
       xp: sc.xp || det.xp,

@@ -244,14 +244,16 @@ function sanitizeScoredTask(t) {
 /* ── public API ────────────────────────────────────────────── */
 
 // Score a task. Throws typed errors; callers decide the honest fallback.
-export async function aiScore({ title, desc, subtasks, tags, notes }) {
+// `calibrationLine` (F4) feeds the user's real actual/estimate ratios in.
+export async function aiScore({ title, desc, subtasks, tags, notes, calibrationLine = "" }) {
   const subs = subtasks || [];
   const dynamic =
     `Task: "${title}"\n` +
     (desc ? `Description: ${desc}\n` : "") +
     (notes ? `Notes: ${notes}\n` : "") +
     (subs.length ? `Subtasks (${subs.length}): ${subs.map((s) => s.title || s).join(", ")}\n` : "") +
-    (tags?.length ? `Tags: ${tags.join(", ")}\n` : "");
+    (tags?.length ? `Tags: ${tags.join(", ")}\n` : "") +
+    (calibrationLine ? calibrationLine + "\n" : "");
   const text = await call({
     model: MODELS.fast, max_tokens: 120,
     content: [

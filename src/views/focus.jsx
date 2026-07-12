@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Icon, Kbd } from "../components.jsx";
 import * as D from "../domain.js";
-import { useStore, getState, setUI, setCompletion, saveFocusTime, todayLineup } from "../store.js";
+import { useStore, getState, setUI, setCompletion, saveFocusTime, logSession, todayLineup } from "../store.js";
 
 function effectiveFocusMs(t, hour) {
   if (!t?.focusMs || !t.focusDate) return 0;
@@ -38,6 +38,14 @@ function Tunnel({ taskId }) {
   const [elapsed, setElapsed] = useState(() => effectiveFocusMs(task, hour));
   const baseRef = useRef(effectiveFocusMs(task, hour));
   const startRef = useRef(null);
+  // Session ledger (F4): whatever this tunnel visit adds beyond the
+  // seed gets logged once, on unmount (covers complete/skip/exit).
+  const sessionSeedRef = useRef(effectiveFocusMs(task, hour));
+  const latestRef = useRef(effectiveFocusMs(task, hour));
+  useEffect(() => { latestRef.current = elapsed; }, [elapsed]);
+  useEffect(() => () => {
+    logSession(taskId, latestRef.current - sessionSeedRef.current);
+  }, [taskId]);
 
   useEffect(() => {
     if (!running || !task) return;

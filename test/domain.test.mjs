@@ -181,3 +181,28 @@ test("quick-add grammar loses nothing: unmatched tokens stay in the title", () =
   assert.equal(p.title, "email friday's notes to @nosuchproject");
   assert.equal(p.chips.length, 0);
 });
+
+test("calibration derives weighted actual/estimate factors from sessions", () => {
+  const now = Date.now();
+  const tasks = [
+    task("a", { hours: 2, difficulty: "hard", completed: true, completedAt: now - day }),
+    task("b", { hours: 1, difficulty: "easy", completed: true, completedAt: now - 2 * day }),
+    task("c", { hours: 2, difficulty: "hard", completed: true, completedAt: now - 3 * day }),
+    task("skip-pending", { hours: 4, completed: false }),
+    task("skip-old", { hours: 4, completed: true, completedAt: now - 90 * day }),
+  ];
+  const sessions = [
+    { id: "s1", taskId: "a", dateIso: todayIso, ms: 3 * 3600000 },   // 3h vs 2h
+    { id: "s2", taskId: "b", dateIso: todayIso, ms: 1 * 3600000 },   // 1h vs 1h
+    { id: "s3", taskId: "c", dateIso: todayIso, ms: 3 * 3600000 },   // 3h vs 2h
+    { id: "s4", taskId: "skip-pending", dateIso: todayIso, ms: 3600000 },
+    { id: "s5", taskId: "skip-old", dateIso: todayIso, ms: 3600000 },
+  ];
+  const cal = D.calibration(tasks, sessions, { now });
+  assert.equal(cal.overall.n, 3);
+  assert.equal(cal.overall.factor, 1.4);          // (3+1+3)/(2+1+2)
+  assert.equal(cal.byDifficulty.hard.factor, 1.5); // 6/4
+  assert.ok(D.calibrationPromptLine(cal).includes("1.4x overall"));
+  const sparse = D.calibration(tasks.slice(0, 1), sessions.slice(0, 1), { now });
+  assert.equal(D.calibrationPromptLine(sparse), "", "n<3 must not emit a prompt line");
+});

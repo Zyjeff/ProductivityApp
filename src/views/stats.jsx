@@ -23,6 +23,58 @@ export function StatsPanel() {
   );
 }
 
+// Estimate calibration (F4): actual ÷ estimated hours, from the focus
+// session ledger. The honest mirror for a freelancer's estimates.
+function CalibrationCard({ tasks, sessions }) {
+  const cal = useMemo(() => D.calibration(tasks, sessions), [tasks, sessions]);
+  const focusTotal = (sessions || []).reduce((s, x) => s + (x.ms || 0), 0);
+  return (
+    <div>
+      <Eyebrow>Estimate calibration · last 60 days</Eyebrow>
+      {cal.overall.n < 3 ? (
+        <div style={{ fontSize: 12, color: "var(--text-faint)", lineHeight: 1.5 }}>
+          Not enough finished, focused work to calibrate yet
+          ({cal.overall.n}/3 tasks). Run the focus tunnel on real tasks and
+          this becomes your actual-vs-estimate mirror.
+          {focusTotal > 0 && <> Logged so far: {D.fmtMs(focusTotal)}.</>}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <span className="w-display" style={{ fontSize: 26, fontWeight: 600, color: cal.overall.factor > 1.15 ? "var(--warning)" : cal.overall.factor < 0.9 ? "var(--channel)" : "var(--starboard)" }}>
+              {cal.overall.factor}×
+            </span>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              actual vs estimate · {cal.overall.n} tasks · {D.fmtMs(focusTotal)} focused
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {Object.entries(cal.byDifficulty).map(([k, v]) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
+                <span style={{ width: 52, color: "var(--text-muted)" }}>{k}</span>
+                {v.factor && v.n >= 2 ? (
+                  <>
+                    <div style={{ flex: 1, height: 4, background: "var(--bg-muted)", borderRadius: 2, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: Math.min(100, v.factor * 50) + "%", background: v.factor > 1.15 ? "var(--warning)" : "var(--starboard)" }} />
+                    </div>
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)", width: 44, textAlign: "right" }}>{v.factor}×</span>
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", fontSize: 10 }}>n={v.n}</span>
+                  </>
+                ) : (
+                  <span style={{ color: "var(--text-faint)", fontSize: 11 }}>not enough data</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 8 }}>
+            The AI scorer reads these factors, so new estimates learn from your reality.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // The old Habits view's detail, restored: X-vs-YT stacked opens,
 // color-graded mobile-hours bars, 7-day totals and averages.
 function ScreenLogDetail({ days }) {
@@ -111,6 +163,7 @@ function StatsInner() {
   const plan = useStore((s) => s.plan);
   const projects = useStore((s) => s.projects);
   const screen = useStore((s) => s.screen);
+  const sessions = useStore((s) => s.sessions);
   const achievements = useStore((s) => s.achievements);
   const meta = useStore((s) => s.meta);
   const previewMode = useStore((s) => s.ui.previewMode);
@@ -180,6 +233,8 @@ function StatsInner() {
           </div>
         ))}
       </div>
+
+      <CalibrationCard tasks={tasks} sessions={sessions} />
 
       <div>
         <Eyebrow>Trophies · {achievements.length}/{D.ACHIEVEMENTS.length}</Eyebrow>

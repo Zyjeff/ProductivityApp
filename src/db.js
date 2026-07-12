@@ -18,12 +18,17 @@ export const KEYS = {
   locks: "werf_locks",
   achievements: "werf_achievements",
   customTags: "werf_custom_tags",
-  meta: "werf_meta",          // { schema, xpBaseline, migratedFrom, dayStartHour, dayClosed, pulseDismissed }
+  sessions: "werf_sessions",   // v2: focus session ledger [{id,taskId,dateIso,ms,at}]
+  briefs: "werf_briefs",       // v2: morning briefs { dateIso: {...} }
+  reviews: "werf_reviews",     // v2: weekly reviews { weekStartIso: {...} }
+  meta: "werf_meta",          // { schema, xpBaseline, migratedFrom, dayStartHour, dayClosed, ... }
   preview: "werf_preview_snapshot",
   backupPrefix: "werf_backup_", // + weekday index 0-6
 };
 
-export const SCHEMA_VERSION = 1;
+// v1 → v2: adds the sessions ledger, morning-brief cache, and weekly
+// review store (all empty defaults; nothing existing is touched).
+export const SCHEMA_VERSION = 2;
 
 const DEFAULT_META = {
   schema: SCHEMA_VERSION,
@@ -168,7 +173,18 @@ function normalizeProject(p) {
 //                          never opened quest post-migration)
 export function migrate(storage) {
   const existing = readJSON(storage, KEYS.meta, null);
-  if (existing && existing.schema >= 1) return { migrated: false, meta: existing };
+  if (existing && existing.schema >= 1) {
+    // Incremental werf upgrades (additive only).
+    if (existing.schema < 2) {
+      if (storage.getItem(KEYS.sessions) == null) writeJSON(storage, KEYS.sessions, []);
+      if (storage.getItem(KEYS.briefs) == null) writeJSON(storage, KEYS.briefs, {});
+      if (storage.getItem(KEYS.reviews) == null) writeJSON(storage, KEYS.reviews, {});
+      const upgraded = { ...existing, schema: 2 };
+      writeJSON(storage, KEYS.meta, upgraded);
+      return { migrated: false, meta: upgraded };
+    }
+    return { migrated: false, meta: existing };
+  }
 
   const q = (suffix) => readJSON(storage, "quest_" + suffix, null);
   const v = (suffix) => readJSON(storage, "vsq_" + suffix, null);
@@ -249,6 +265,9 @@ export function migrate(storage) {
   writeJSON(storage, KEYS.locks, rawLocks && typeof rawLocks === "object" ? rawLocks : {});
   writeJSON(storage, KEYS.achievements, Array.isArray(rawAch) ? rawAch : []);
   writeJSON(storage, KEYS.customTags, Array.isArray(rawTags) ? rawTags : []);
+  writeJSON(storage, KEYS.sessions, []);
+  writeJSON(storage, KEYS.briefs, {});
+  writeJSON(storage, KEYS.reviews, {});
   writeJSON(storage, KEYS.meta, meta);
   // Legacy keys are left untouched on purpose: the old app (and its
   // export) keeps working, and a re-migration can be forced by clearing
@@ -269,7 +288,10 @@ export function loadState(storage = window.localStorage) {
     locks: readJSON(storage, KEYS.locks, {}),
     achievements: readJSON(storage, KEYS.achievements, []),
     customTags: readJSON(storage, KEYS.customTags, []),
-    meta: { ...DEFAULT_META, ...meta },
+    sessions: readJSON(storage, KEYS.sessions, []),
+    briefs: readJSON(storage, KEYS.briefs, {}),
+    reviews: readJSON(storage, KEYS.reviews, {}),
+    meta: { ...DEFAULT_META, ...meta, schema: SCHEMA_VERSION },
     previewSnapshot: readJSON(storage, KEYS.preview, null),
   };
 }
@@ -278,6 +300,7 @@ const SLICE_TO_KEY = {
   tasks: KEYS.tasks, projects: KEYS.projects, plan: KEYS.plan,
   caps: KEYS.caps, screen: KEYS.screen, locks: KEYS.locks,
   achievements: KEYS.achievements, customTags: KEYS.customTags, meta: KEYS.meta,
+  sessions: KEYS.sessions, briefs: KEYS.briefs, reviews: KEYS.reviews,
 };
 
 // Debounced per-slice persistence: callers mark slices dirty; one timer
@@ -352,6 +375,7 @@ export function buildExport(state) {
       tasks: state.tasks, projects: state.projects, plan: state.plan,
       caps: state.caps, screen: state.screen, locks: state.locks,
       achievements: state.achievements, customTags: state.customTags,
+      sessions: state.sessions || [], briefs: state.briefs || {}, reviews: state.reviews || {},
       meta: state.meta,
     },
   };
@@ -374,6 +398,9 @@ export function parseImport(payload) {
       locks: d.locks || {},
       achievements: d.achievements || [],
       customTags: d.customTags || [],
+      sessions: Array.isArray(d.sessions) ? d.sessions : [],
+      briefs: d.briefs || {},
+      reviews: d.reviews || {},
       meta: d.meta || null,
     };
   }
@@ -389,6 +416,7 @@ export function parseImport(payload) {
       locks: d.locks || {},
       achievements: d.achievements || [],
       customTags: d.customTags || [],
+      sessions: [], briefs: {}, reviews: {},
       meta: null,
       legacyProfile: d.profile || null,
     };
@@ -420,5 +448,8 @@ export function mergeStates(cur, inc) {
     locks: { ...(inc.locks || {}), ...(cur.locks || {}) },
     achievements: Array.from(new Set([...(cur.achievements || []), ...(inc.achievements || [])])),
     customTags: Array.from(new Set([...(cur.customTags || []), ...(inc.customTags || [])])),
+    sessions: mergeById(cur.sessions, inc.sessions),
+    briefs: { ...(inc.briefs || {}), ...(cur.briefs || {}) },
+    reviews: { ...(inc.reviews || {}), ...(cur.reviews || {}) },
   };
 }

@@ -366,6 +366,61 @@ export function isRecurringDoneOn(task, dateIso) {
   return (task.history || []).includes(dateIso);
 }
 
+/* ── session ledger + calibration (F4) ─────────────────────── */
+
+export function actualsByTask(sessions) {
+  const map = new Map();
+  for (const s of sessions || []) {
+    map.set(s.taskId, (map.get(s.taskId) || 0) + (s.ms || 0));
+  }
+  return map;
+}
+
+export function focusMsByDay(sessions) {
+  const map = new Map();
+  for (const s of sessions || []) {
+    map.set(s.dateIso, (map.get(s.dateIso) || 0) + (s.ms || 0));
+  }
+  return map;
+}
+
+// Estimate calibration: actual ÷ estimate, weighted by estimate, over
+// completed non-recurring tasks with logged sessions in the window.
+// factor > 1 means work runs longer than estimated.
+export function calibration(tasks, sessions, { days = 60, now = Date.now() } = {}) {
+  const cutoff = now - days * 86400000;
+  const actuals = actualsByTask(sessions);
+  const per = { easy: { est: 0, act: 0, n: 0 }, medium: { est: 0, act: 0, n: 0 }, hard: { est: 0, act: 0, n: 0 }, epic: { est: 0, act: 0, n: 0 } };
+  let estAll = 0, actAll = 0, nAll = 0;
+  for (const t of tasks || []) {
+    if (t.recurring !== "none" || !t.completed || !t.completedAt || t.completedAt < cutoff) continue;
+    const actMs = actuals.get(t.id) || 0;
+    if (actMs < 5 * 60000) continue; // ignore sub-5-minute noise
+    const est = taskHours(t);
+    const act = actMs / 3600000;
+    const bucket = per[t.difficulty] || per.medium;
+    bucket.est += est; bucket.act += act; bucket.n += 1;
+    estAll += est; actAll += act; nAll += 1;
+  }
+  const factorOf = (b) => (b.est > 0 && b.n > 0 ? Math.round((b.act / b.est) * 100) / 100 : null);
+  return {
+    overall: { factor: estAll > 0 ? Math.round((actAll / estAll) * 100) / 100 : null, n: nAll },
+    byDifficulty: Object.fromEntries(Object.entries(per).map(([k, b]) => [k, { factor: factorOf(b), n: b.n }])),
+  };
+}
+
+// One-line summary for the AI scorer ("" when not enough data).
+export function calibrationPromptLine(cal) {
+  if (!cal || !cal.overall.factor || cal.overall.n < 3) return "";
+  const parts = Object.entries(cal.byDifficulty)
+    .filter(([, v]) => v.factor && v.n >= 2)
+    .map(([k, v]) => `${k} ${v.factor}x (n=${v.n})`);
+  return `USER CALIBRATION: this user's actual/estimated hours ratio is ` +
+    `${cal.overall.factor}x overall (n=${cal.overall.n})` +
+    (parts.length ? `; by difficulty: ${parts.join(", ")}` : "") +
+    `. Weight your HOURS estimate accordingly.`;
+}
+
 /* ── the XP ledger: one derivation for everything ──────────── */
 // xpEvents() flattens the completion history into [{dateIso, taskId, xp}].
 // totalXP, todayXP, per-day charts, streak — all read from this.

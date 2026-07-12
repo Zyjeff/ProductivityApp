@@ -147,3 +147,19 @@ test("mergeStates dedupes by id and unions plan items", () => {
   assert.equal(m.plan[0].items.length, 2);
   assert.deepEqual(m.achievements.sort(), ["first", "five"]);
 });
+
+test("werf v1 → v2 upgrade adds sessions/briefs/reviews without touching data", () => {
+  const storage = fakeStorage({
+    werf_meta: { schema: 1, xpBaseline: 500, dayStartHour: 4 },
+    werf_tasks: [{ id: "t1", title: "Keep me", xp: 20, recurring: "none", completed: false, createdAt: now }],
+  });
+  const { meta } = migrate(storage);
+  assert.equal(meta.schema, 2);
+  assert.equal(meta.xpBaseline, 500);
+  assert.equal(meta.dayStartHour, 4);
+  const st = loadState(storage);
+  assert.deepEqual(st.sessions, []);
+  assert.deepEqual(st.briefs, {});
+  assert.deepEqual(st.reviews, {});
+  assert.equal(st.tasks.length, 1, "existing tasks untouched");
+});
