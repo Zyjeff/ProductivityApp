@@ -66,8 +66,11 @@ export function buildCommands() {
   return cmds;
 }
 
-let captureFocusFn = () => setUI({ formOpen: true, editingTaskId: null });
-export function setCaptureFocus(fn) { captureFocusFn = fn || (() => {}); }
+// On views with a capture bar, N focuses it; anywhere else (e.g. Plan),
+// N falls back to opening the full task form — never a dead key.
+const DEFAULT_CAPTURE_FOCUS = () => setUI({ formOpen: true, editingTaskId: null });
+let captureFocusFn = DEFAULT_CAPTURE_FOCUS;
+export function setCaptureFocus(fn) { captureFocusFn = fn || DEFAULT_CAPTURE_FOCUS; }
 function focusCapture() { captureFocusFn(); }
 
 /* ── global handler ────────────────────────────────────────── */
