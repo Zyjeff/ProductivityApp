@@ -321,6 +321,51 @@ export async function aiImportFromScreenshot(imageBase64, mediaType) {
   return arr.map(sanitizeScoredTask).filter(Boolean);
 }
 
+/* ── morning brief (F1) ────────────────────────────────────── */
+
+const BRIEF_RULES =
+  "OUTPUT FORMAT — STRICT. Single JSON object, no prose outside it, no fences.\n" +
+  'Schema: {"text":"<2-3 short sentences>","order":["<exact task title>",...]}\n\n' +
+  "You write a morning brief for a freelance UI/UX developer's day. Tone: a " +
+  "sharp, warm first mate giving the skipper the morning rundown — concrete, " +
+  "zero fluff, no exclamation marks, no 'you got this'. Mention what actually " +
+  "matters: yesterday's momentum (or absence — plainly, not shaming), " +
+  "anything adrift, deadline pressure, and whether today's load fits the " +
+  "capacity. `order` = ALL of today's lineup titles (exact strings, every " +
+  "one, no inventions) arranged in the sequence you'd run the day: deadline " +
+  "pressure first, then hard/creative work early, admin in the gaps, " +
+  "recurring rituals where they naturally fit.";
+
+export async function aiMorningBrief(data) {
+  const dynamic =
+    `Date: ${data.dateIso}\n` +
+    `Yesterday: ${data.yesterday.count} completed, ${data.yesterday.xp} XP` +
+    (data.yesterday.focusMs ? `, ${Math.round(data.yesterday.focusMs / 360000) / 10}h focused` : "") +
+    (data.yesterday.titles.length ? ` — ${data.yesterday.titles.map((t) => `"${t}"`).join(", ")}` : "") + "\n" +
+    `Adrift (missed past chunks): ${data.adrift}\n` +
+    `Capacity today: ${data.dayOff ? "day off" : data.capacity + "h"} · lineup ${data.lineupHours}h${data.overloaded ? " (OVERLOADED)" : ""}\n` +
+    (data.deadlinesSoon.length
+      ? `Deadlines ≤3d: ${data.deadlinesSoon.map((d) => `"${d.title}" ${d.overdue ? "OVERDUE" : d.days === 0 ? "today" : "in " + d.days + "d"}`).join(", ")}\n`
+      : "") +
+    `Today's lineup:\n` +
+    (data.lineup.length
+      ? data.lineup.map((l) => `- "${l.title}" ~${l.hours}h, ${l.priority}${l.deadlineAt ? ", has deadline" : ""}${l.note ? `, chunk: ${l.note}` : ""}`).join("\n")
+      : "(empty)");
+  const text = await call({
+    model: MODELS.fast, max_tokens: 400,
+    content: [
+      { type: "text", text: BRIEF_RULES, cache_control: { type: "ephemeral" } },
+      { type: "text", text: dynamic },
+    ],
+  });
+  const j = extractJson(text);
+  if (!j || typeof j.text !== "string") throw parseError();
+  return {
+    text: j.text.trim().slice(0, 600),
+    order: Array.isArray(j.order) ? j.order.filter((x) => typeof x === "string") : [],
+  };
+}
+
 /* ── planning ──────────────────────────────────────────────── */
 
 function buildResolver(tasks) {

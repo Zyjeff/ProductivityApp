@@ -10,8 +10,9 @@ import * as D from "../domain.js";
 import {
   useStore, getState, setUI, setCompletion, todayLineup, sel,
   pinTaskToDate, dismissChunk, moveChunkDate, patchScreenToday, reopenDay,
-  enterPreview, setLineupOrder,
+  enterPreview, setLineupOrder, ensureMorningBrief, patchBrief, applyBriefOrder,
 } from "../store.js";
+import { generateBriefProse } from "../enrich.js";
 import { registerActiveList } from "../keys.js";
 
 const VIEW_PAD = "28px 36px 48px";
@@ -21,6 +22,10 @@ export function TodayView() {
   const plan = useStore((s) => s.plan);
   const projects = useStore((s) => s.projects);
   const screen = useStore((s) => s.screen);
+  const caps = useStore((s) => s.caps);
+  const sessions = useStore((s) => s.sessions);
+  const briefs = useStore((s) => s.briefs);
+  const aiStatus = useStore((s) => s.ui.aiStatus);
   const meta = useStore((s) => s.meta);
   const energy = useStore((s) => s.ui.energy);
   const cursor = useStore((s) => s.ui.cursor);
@@ -42,6 +47,17 @@ export function TodayView() {
     ...lineup.map((r) => ({ taskId: r.task.id, chunkDate: r.chunk ? todayIso : null, done: r.doneHere, recurring: r.recurringRow })),
   ], [missed, lineup, todayIso]);
   useEffect(() => { registerActiveList("today", kbRows); }, [kbRows]);
+
+  // Morning brief (F1): skeleton always, AI prose once per day.
+  const briefData = useMemo(
+    () => D.morningBriefData(tasks, plan, caps, sessions, hour),
+    [tasks, plan, caps, sessions, hour]
+  );
+  const brief = briefs?.[todayIso] || null;
+  useEffect(() => { ensureMorningBrief(); }, [todayIso]);
+  useEffect(() => {
+    if (brief && !brief.attempted) generateBriefProse(todayIso, briefData);
+  }, [brief, todayIso]);
 
   const stats = useMemo(() => {
     const xpMap = D.xpByDay(tasks, plan, hour);
@@ -179,6 +195,65 @@ export function TodayView() {
 
       <div className="w-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 22, alignItems: "start" }}>
         <div>
+          {/* Morning brief (F1) */}
+          {brief && (brief.dismissed ? (
+            <button className="w-fade-in" onClick={() => patchBrief(todayIso, { dismissed: false })}
+              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 14, padding: "6px 12px", background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "var(--r-md)", color: "var(--text-faint)", fontSize: 11, cursor: "pointer", fontFamily: "var(--font-mono)" }}>
+              <Icon name="bolt" size={10} /> Morning brief <span style={{ marginLeft: "auto" }} className="w-kbd">B</span>
+            </button>
+          ) : (
+            <div className="w-card w-fade-in" style={{ marginBottom: 16, padding: "14px 16px", background: "linear-gradient(135deg, rgba(245,165,36,0.06) 0%, rgba(245,165,36,0) 55%), var(--bg-elev)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span className="w-eyebrow" style={{ color: "var(--amber-strong)" }}>Morning brief</span>
+                <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>
+                  {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                </span>
+                <div style={{ flex: 1 }} />
+                <button className="w-icon-btn" title="Regenerate the written brief"
+                  onClick={() => patchBrief(todayIso, { attempted: false, text: null, order: null })}>
+                  <Icon name="reset" size={11} />
+                </button>
+                <button className="w-icon-btn" title="Collapse (B)" aria-label="Collapse brief"
+                  onClick={() => patchBrief(todayIso, { dismissed: true })}>
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+              {/* deterministic skeleton — always present */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: brief.text || aiStatus !== "ok" ? 10 : 0 }}>
+                <BriefFact label={briefData.yesterday.count > 0
+                  ? `yesterday: ${briefData.yesterday.count} done · ${briefData.yesterday.xp} XP${briefData.yesterday.focusMs ? " · " + D.fmtMs(briefData.yesterday.focusMs) + " focused" : ""}`
+                  : "yesterday: quiet"} />
+                {briefData.adrift > 0 && <BriefFact tone="var(--warning)" label={`${briefData.adrift} adrift`} />}
+                <BriefFact
+                  tone={briefData.overloaded ? "var(--port)" : undefined}
+                  label={briefData.dayOff
+                    ? `day off · ${briefData.lineup.length} lined up anyway`
+                    : `today: ${briefData.lineup.length} tasks · ${briefData.lineupHours}h of ${briefData.capacity}h${briefData.overloaded ? " — overloaded" : ""}`} />
+                {briefData.deadlinesSoon.map((d) => (
+                  <BriefFact key={d.title} tone={d.overdue ? "var(--port)" : "var(--warning)"}
+                    label={`${d.overdue ? "OVERDUE" : d.days === 0 ? "due today" : "due in " + d.days + "d"}: ${d.title.slice(0, 32)}`} />
+                ))}
+              </div>
+              {brief.text ? (
+                <>
+                  <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6 }}>{brief.text}</div>
+                  {brief.order?.length > 1 && (
+                    <button className="w-btn w-btn--outline w-btn--sm" style={{ marginTop: 10 }}
+                      onClick={() => applyBriefOrder(brief.order)}>
+                      Apply suggested run order
+                    </button>
+                  )}
+                </>
+              ) : brief.attempted && aiStatus !== "busy" ? (
+                <div style={{ fontSize: 11.5, color: "var(--text-faint)" }}>
+                  AI is off — the numbers above are the brief. <button className="w-link" style={{ fontSize: 11.5 }} onClick={() => patchBrief(todayIso, { attempted: false })}>retry</button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>writing the brief…</div>
+              )}
+            </div>
+          ))}
+
           {/* NOW / NEXT stage (F3) */}
           {lineup.length > 0 && (() => {
             const pendingRows = lineup.filter((r) => !r.doneHere);
@@ -453,6 +528,16 @@ function MobileHoursInput({ entry }) {
         className="w-input w-input--sm" style={{ flex: 1, fontFamily: "var(--font-mono)" }} />
       <button className="w-btn w-btn--outline w-btn--sm" disabled={!v} onClick={log}>Log</button>
     </div>
+  );
+}
+
+function BriefFact({ label, tone }) {
+  return (
+    <span style={{
+      fontSize: 10.5, fontFamily: "var(--font-mono)", padding: "2px 7px",
+      borderRadius: 3, border: `1px solid ${tone || "var(--border-strong)"}`,
+      color: tone || "var(--text-muted)", whiteSpace: "nowrap",
+    }}>{label}</span>
   );
 }
 

@@ -541,6 +541,59 @@ export function levelInfo(xp) {
   };
 }
 
+/* ── morning brief skeleton (F1) — deterministic, always works ── */
+
+export function morningBriefData(tasks, plan, caps, sessions, dayStartHour = 0, now = new Date()) {
+  const todayIso = effectiveTodayIso(dayStartHour, now);
+  const yIso = isoDate(addDays(parseIsoDate(todayIso), -1));
+  const activity = activityByDay(tasks, plan, dayStartHour);
+  const byId = new Map((tasks || []).map((t) => [t.id, t]));
+  const yesterdayIds = [...(activity.get(yIso) || [])];
+  const xpMap = xpByDay(tasks, plan, dayStartHour);
+  const focusMap = focusMsByDay(sessions || []);
+
+  const entry = (plan || []).find((e) => e.date === todayIso);
+  const lineupTasks = [];
+  const seen = new Set();
+  for (const t of tasks || []) {
+    if ((t.recurring === "daily" || t.recurring === "weekly") && !isRecurringDoneNow(t, dayStartHour, now)) {
+      lineupTasks.push({ t, hours: taskHours(t) });
+      seen.add(t.id);
+    }
+  }
+  for (const it of entry?.items || []) {
+    const t = byId.get(it.taskId);
+    if (!t || seen.has(t.id) || it.done || t.completed) continue;
+    seen.add(t.id);
+    lineupTasks.push({ t, hours: it.hours ?? taskHours(t), note: it.note });
+  }
+  const cap = caps?.[weekdayName(parseIsoDate(todayIso))] ?? 0;
+  const lineupHours = lineupTasks.reduce((s, x) => s + x.hours, 0);
+
+  const soon = now.getTime() + 3 * 86400000;
+  const deadlinesSoon = (tasks || [])
+    .filter((t) => !t.completed && t.deadlineAt && t.deadlineAt <= soon)
+    .map((t) => ({ title: t.title, days: Math.max(0, Math.floor((t.deadlineAt - now.getTime()) / 86400000)), overdue: t.deadlineAt < now.getTime() }))
+    .sort((a, b) => a.days - b.days);
+
+  return {
+    dateIso: todayIso,
+    yesterday: {
+      count: yesterdayIds.length,
+      titles: yesterdayIds.map((id) => byId.get(id)?.title).filter(Boolean).slice(0, 5),
+      xp: xpMap.get(yIso) || 0,
+      focusMs: focusMap.get(yIso) || 0,
+    },
+    adrift: getMissedWork(tasks, plan, dayStartHour, now).length,
+    lineup: lineupTasks.map((x) => ({ title: x.t.title, hours: x.hours, priority: x.t.priority, note: x.note || null, deadlineAt: x.t.deadlineAt || null })),
+    lineupHours: Math.round(lineupHours * 10) / 10,
+    capacity: cap,
+    overloaded: cap > 0 && lineupHours > cap,
+    dayOff: cap === 0,
+    deadlinesSoon,
+  };
+}
+
 /* ── plan helpers (pure transforms of the weekplan array) ──── */
 
 export function getMissedWork(tasks, plan, dayStartHour = 0, now = new Date()) {

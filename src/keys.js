@@ -48,6 +48,13 @@ export function buildCommands() {
     { id: "new-full", label: "New task (full form)", keys: "Shift+N", run: () => setUI({ formOpen: true, editingTaskId: null }) },
     { id: "stats", label: s.ui.statsOpen ? "Close stats panel" : "Open stats panel", keys: "4", run: () => setUI({ statsOpen: !s.ui.statsOpen }) },
     { id: "undo", label: "Undo last action", keys: "U", run: () => undoLast() },
+    { id: "brief", label: "Morning brief", keys: "B", run: () => {
+      const todayIso = effectiveTodayIso(s.meta.dayStartHour);
+      setUI({ view: "today", cursor: null });
+      if (s.briefs?.[todayIso]) {
+        import("./store.js").then((m) => m.patchBrief(todayIso, { dismissed: false }));
+      }
+    } },
     { id: "close-day", label: "Close the day", run: () => setUI({ endOfDayOpen: true }) },
     { id: "help", label: "Keyboard help", keys: "?", run: () => setUI({ helpOpen: !s.ui.helpOpen }) },
   ];
@@ -121,6 +128,18 @@ export function installKeyboard() {
     if (k === "n") { e.preventDefault(); focusCapture(); return; }
     if (k === "N") { e.preventDefault(); setUI({ formOpen: true, editingTaskId: null }); return; }
     if (k === "u" || k === "U") { e.preventDefault(); undoLast(); return; }
+    if (k === "b" || k === "B") {
+      e.preventDefault();
+      // Toggle the morning brief (jumping to Today if elsewhere).
+      import("./store.js").then((m) => {
+        const st = m.getState();
+        const todayIso = effectiveTodayIso(st.meta.dayStartHour);
+        const brief = st.briefs?.[todayIso];
+        if (st.ui.view !== "today") m.setUI({ view: "today", cursor: null });
+        if (brief) m.patchBrief(todayIso, { dismissed: st.ui.view === "today" ? !brief.dismissed : false });
+      });
+      return;
+    }
 
     if (k === "j" || k === "ArrowDown") { e.preventDefault(); moveCursor(1); return; }
     if (k === "k" || k === "ArrowUp") { e.preventDefault(); moveCursor(-1); return; }
@@ -162,6 +181,7 @@ export const SHORTCUT_ROWS = [
   ["Shift+N", "New task, full form"],
   ["1 / 2 / 3", "Today · Plan · Dock"],
   ["4", "Stats panel"],
+  ["B", "Morning brief (toggle)"],
   [`${MOD}+K`, "Command palette"],
   ["J / K", "Move cursor down / up"],
   ["[ / ]", "Reorder lineup row up / down (Today)"],

@@ -628,6 +628,48 @@ export function detachFromProject(taskId) {
   });
 }
 
+/* ── morning brief (F1) ────────────────────────────────────── */
+// The skeleton is deterministic and always fresh; the AI prose is
+// generated once per day (or on demand) and cached in the briefs slice.
+
+function pruneBriefs(briefs, todayIso) {
+  const cutoff = D.isoDate(D.addDays(D.parseIsoDate(todayIso), -14));
+  const out = {};
+  for (const [k, v] of Object.entries(briefs || {})) if (k >= cutoff) out[k] = v;
+  return out;
+}
+
+export function briefFor(s, dateIso) {
+  return (s.briefs || {})[dateIso] || null;
+}
+
+export function ensureMorningBrief() {
+  const hour = state.meta.dayStartHour || 0;
+  const todayIso = D.effectiveTodayIso(hour);
+  if (state.briefs?.[todayIso]) return;
+  const briefs = pruneBriefs(state.briefs, todayIso);
+  briefs[todayIso] = { text: null, order: null, ai: false, attempted: false, dismissed: false, generatedAt: Date.now() };
+  set({ briefs });
+}
+
+export function patchBrief(dateIso, patch) {
+  set({ briefs: { ...(state.briefs || {}), [dateIso]: { ...(state.briefs?.[dateIso] || {}), ...patch } } });
+}
+
+// Apply an AI-suggested run order (titles) to today's lineup.
+export function applyBriefOrder(titles) {
+  const rows = todayLineup(state);
+  const norm = new Map(rows.map((r) => [D.normalizeTitleKey(r.task.title), r.task.id]));
+  const orderedIds = [];
+  for (const title of titles || []) {
+    const id = norm.get(D.normalizeTitleKey(title));
+    if (id && !orderedIds.includes(id)) orderedIds.push(id);
+  }
+  for (const r of rows) if (!orderedIds.includes(r.task.id)) orderedIds.push(r.task.id);
+  setLineupOrder(orderedIds);
+  notify("Run order applied");
+}
+
 /* ── misc slices ───────────────────────────────────────────── */
 
 export function patchScreenToday(patch) {

@@ -3,8 +3,8 @@
 // if the AI is reachable. On failure the task simply keeps its honest
 // deterministic values — and the first failure per session says so once.
 
-import { aiScore, aiParseCapture, aiFailureMessage, AiError } from "./ai.js";
-import { applyEnrichment, getState, notify, addTask, createProject } from "./store.js";
+import { aiScore, aiParseCapture, aiMorningBrief, aiFailureMessage, AiError } from "./ai.js";
+import { applyEnrichment, getState, notify, addTask, createProject, patchBrief } from "./store.js";
 import { deterministicScore, calibration, calibrationPromptLine } from "./domain.js";
 
 let warnedThisSession = false;
@@ -71,6 +71,18 @@ export async function scoreTask(taskId) {
 // refines if the user didn't touch the score fields (caller decides).
 export async function enrichManualTask(taskId) {
   await scoreTask(taskId);
+}
+
+// Morning brief prose (F1): one attempt per day (or per explicit
+// regenerate). The deterministic skeleton renders regardless.
+export async function generateBriefProse(dateIso, data) {
+  patchBrief(dateIso, { attempted: true });
+  try {
+    const res = await aiMorningBrief(data);
+    patchBrief(dateIso, { text: res.text, order: res.order, ai: true, generatedAt: Date.now() });
+  } catch (e) {
+    warnOnce(e.kind);
+  }
 }
 
 // Project capture: create the project + child tasks from a description.
