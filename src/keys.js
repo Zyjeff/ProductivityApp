@@ -3,7 +3,8 @@
 // ordered, actionable rows through registerActiveList() so j/k/x/e/f/t/d
 // operate on whatever list is on screen.
 
-import { getState, setUI, setCompletion, deleteTask, pinTaskToDate, undoLast, notify } from "./store.js";
+import { getState, setUI, setCompletion, deleteTask, pinTaskToDate, undoLast, notify, promoteToProject } from "./store.js";
+import { scoreTask } from "./enrich.js";
 import { effectiveTodayIso, isoDate, addDays } from "./domain.js";
 import { MOD } from "./components.jsx";
 
@@ -61,6 +62,16 @@ export function buildCommands() {
         { id: "row-tomorrow", label: `Schedule tomorrow: ${t.title.slice(0, 40)}`, run: () => { pinTaskToDate(row.taskId, isoDate(addDays(new Date(), 1))); notify("Scheduled for tomorrow"); } },
         { id: "row-delete", label: `Delete: ${t.title.slice(0, 40)}`, keys: "⌫", run: () => deleteTask(row.taskId) },
       );
+      if ((t.subtasks || []).length > 0 && !t.projectId) {
+        cmds.splice(5, 0, {
+          id: "row-promote",
+          label: `Promote to project: ${t.title.slice(0, 36)} (${t.subtasks.length} subtasks)`,
+          run: () => {
+            const res = promoteToProject(row.taskId);
+            if (res) res.childIds.forEach((cid) => scoreTask(cid));
+          },
+        });
+      }
     }
   }
   return cmds;

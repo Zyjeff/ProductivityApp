@@ -431,6 +431,40 @@ export function deleteTask(id) {
   });
 }
 
+// Promote a task with subtasks into a project: subtasks become child
+// tasks (deterministic-scored; callers may AI-refine), the original
+// task and its undone plan chunks disappear. Fully undoable.
+export function promoteToProject(taskId) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task || !(task.subtasks || []).length) return null;
+  const snapshot = { tasks: state.tasks, projects: state.projects, plan: state.plan };
+  const projectId = "p-" + D.uid();
+  const proj = {
+    id: projectId, title: task.title, desc: task.desc || "", notes: task.notes || "",
+    type: "other", color: D.pickProjectColor(),
+    createdAt: Date.now(), completedAt: null, shippedAt: null, childTaskIds: [],
+  };
+  const det = D.deterministicScore("medium");
+  const children = task.subtasks.map((st, i) => ({
+    id: "ct-" + D.uid() + i,
+    title: st.title, desc: "", notes: "", tags: task.tags || [], subtasks: [],
+    xp: det.xp, difficulty: "medium", hours: det.hours,
+    recurring: "none", history: undefined,
+    priority: task.priority || "medium",
+    projectId, deadlineAt: task.deadlineAt || null,
+    completed: !!st.done, completedAt: st.done ? Date.now() : null,
+    createdAt: Date.now() + i, focusMs: 0, focusDate: null, aiPending: true,
+  }));
+  proj.childTaskIds = children.map((c) => c.id);
+  set({
+    projects: [proj, ...state.projects],
+    tasks: [...children, ...state.tasks.filter((t) => t.id !== taskId)],
+    plan: state.plan.map((e) => ({ ...e, items: e.items.filter((i) => i.taskId !== taskId) })).filter((e) => e.items.length),
+  });
+  notify(`Promoted to project · ${children.length} task${children.length > 1 ? "s" : ""}`, null, () => set(snapshot));
+  return { projectId, childIds: children.map((c) => c.id) };
+}
+
 export function toggleSubtask(taskId, subId) {
   set({
     tasks: state.tasks.map((t) => t.id !== taskId ? t : {

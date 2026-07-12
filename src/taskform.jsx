@@ -8,8 +8,8 @@ import {
   DIFFICULTY, PRIORITIES, allKnownTags, TAGS_BUILTIN, isoDate, addDays,
   deterministicScore, getTaskChunks, getTaskScheduledDate, uid,
 } from "./domain.js";
-import { useStore, getState, addTask, updateTask, setUI, notify, addCustomTag } from "./store.js";
-import { enrichManualTask } from "./enrich.js";
+import { useStore, getState, addTask, updateTask, setUI, notify, addCustomTag, promoteToProject } from "./store.js";
+import { enrichManualTask, scoreTask } from "./enrich.js";
 
 export function TaskFormModal() {
   const formOpen = useStore((s) => s.ui.formOpen);
@@ -267,6 +267,28 @@ function TaskForm({ initial, isEdit, onClose }) {
           <button className="w-btn w-btn--primary" onClick={submit} disabled={!canSubmit} style={{ flex: 1 }}>
             {isEdit ? "Save changes" : "Add task"}
           </button>
+          {isEdit && !initial?.projectId && (
+            <button
+              className="w-btn w-btn--outline"
+              disabled={subs.length === 0 && !stIn.trim()}
+              title={subs.length === 0 && !stIn.trim()
+                ? "Add at least one subtask first — they become the project's tasks"
+                : "Turn this task into a project; each subtask becomes its own scored task"}
+              onClick={() => {
+                // Commit any pending subtask text first, then promote.
+                const finalSubs = commitSubInput(subs);
+                if (!finalSubs.length) return;
+                updateTask(initial.id, { subtasks: finalSubs.map((x) => x.title) });
+                const res = promoteToProject(initial.id);
+                if (res) {
+                  for (const cid of res.childIds) scoreTask(cid);
+                  setUI({ formOpen: false, editingTaskId: null, view: "dock", dockFilter: { ...getState().ui.dockFilter, tab: "projects" } });
+                }
+              }}
+            >
+              <Icon name="ship" size={12} /> Promote to project
+            </button>
+          )}
           <button className="w-btn w-btn--ghost" onClick={onClose}>Cancel</button>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -4 }}>
