@@ -58,3 +58,41 @@ year heatmap · store.js slice refactor (platform, not product).
 - Charts swapped: Today XP + done sparklines, week bars, Review per-day bars, Logbook screen-log stacked + mobile bars. All solid meter fills carry a dither texture (.w-bar-fill); body + focus tunnel gained a faint dither grain.
 - Engine paints synchronously and only animates via rAF as enhancement (rAF is throttled in occluded tabs — found live when the preview pane rendered blank canvases).
 - Day rollover: was never missing — Logbook > Day rollover (presets + hour, migrated from quest_day_start_hour). Added a palette command and a README section for discoverability.
+
+## visual overhaul — 1-Bit Harbor (design-lead session)
+Total visual-language replacement; zero functional change. Backup at
+../werf-backup-pre-visual-2026-07-12 + tag pre-visual-overhaul.
+
+- KILL-LIST.md: 22 condemned patterns (rounded-card grammar, border-line
+  hierarchy, colored glows/shadows, pill chips, gradient buttons, emoji
+  accents, generic dark-dashboard tokens…). All 22 confirmed purged from
+  UI **and** code — grep sweep zero hits, legacy CSS block deleted
+  (tokens.css 26.4 → 18.25 kB built).
+- DESIGN.md: the 1-Bit Harbor system. Tonal elevation (no borders/
+  shadows) — ground/rail/plate/well; stencil labels + dither tails;
+  amber tape labels; chamfered statement plates; harbor-light circles as
+  the only round shapes; instrument-panel controls (switches, bezels);
+  display/mono type pairing.
+- src/texture.js: seeded procedural dither engine. Three algorithms
+  (ordered Bayer-8, tileable blue-noise cell hash, Floyd–Steinberg error
+  diffusion), xmur3/mulberry32 PRNG, density gradients, per-entity seeds
+  (`plateTex("berth-"+id)`, `statementBg("now-"+taskId)`) so every card's
+  texture is unique **and** stable across re-renders. All output Map-
+  cached dataURLs — generated once, never per frame. Honors
+  prefers-reduced-motion. Zero deps added.
+- Every view/modal/state rebuilt + screenshot-critiqued: Today (NOW
+  statement, instrument bar, dedicated right rail for NEXT UP + SCREEN
+  LOG), Plan (tide rail), Dock (berth gauges + manifest + ledger
+  library), Logbook (level stack), Review (week banner), palette (block
+  caret slab), task form (stamp toggles), end-of-day, focus tunnel
+  (phosphor timer), boundary, ticker, help.
+- Verify: tests 25/25; build 357.05 kB JS / 18.25 kB CSS, 1.15 s. Full
+  keyboard regression drive green (nav, capture grammar, j/k/x/undo,
+  [/] reorder persisting, B/W/F, palette, delete). Perf probes: idle
+  120 frames max 23.8 ms (nothing regenerates per frame); view-switch
+  avg 17.1 ms/frame, only mount frames spike (~53 ms worst); texture
+  cold-gen 14.2 ms, cache hit 0 ms, byte-identical across calls.
+  Legibility (WCAG): ink-on-amber statements 9.28:1, fg-on-plate
+  16.18:1, fg-dim 7.3–7.5:1, semantic colors 7.15–10.53:1; body text
+  never sits on raw dither (statement textures confined to edge bands).
+- Screenshots of every view taken in final state via the preview pane.
