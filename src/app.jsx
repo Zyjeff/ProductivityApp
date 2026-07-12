@@ -161,9 +161,9 @@ export default function App() {
       )}
 
       {helpOpen && (
-        <div onClick={() => setUI({ helpOpen: false })} style={{ position: "fixed", inset: 0, background: "rgba(6,8,12,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10001 }}>
-          <div onClick={(e) => e.stopPropagation()} className="w-card w-fade-in" style={{ padding: 24, minWidth: 340 }}>
-            <div className="w-eyebrow" style={{ marginBottom: 14 }}>Keyboard</div>
+        <div onClick={() => setUI({ helpOpen: false })} className="w-backdrop" style={{ display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10001 }}>
+          <div onClick={(e) => e.stopPropagation()} className="w-console w-fade-in" style={{ padding: 22, minWidth: 350 }}>
+            <div style={{ marginBottom: 16 }}><span className="w-tape">Keyboard</span></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {SHORTCUT_ROWS.map(([k, v]) => (
                 <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
@@ -172,7 +172,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <button className="w-btn w-btn--outline w-btn--sm" style={{ marginTop: 18, width: "100%" }} onClick={() => setUI({ helpOpen: false })}>Close</button>
+            <button className="w-bezel w-bezel--sm" style={{ marginTop: 18, width: "100%", justifyContent: "center" }} onClick={() => setUI({ helpOpen: false })}>Close</button>
           </div>
         </div>
       )}

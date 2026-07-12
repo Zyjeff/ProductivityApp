@@ -18,7 +18,8 @@ export function TaskFormModal() {
   const task = editingTaskId ? getState().tasks.find((t) => t.id === editingTaskId) : null;
   return (
     <div onClick={() => setUI({ formOpen: false, editingTaskId: null })}
-      style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(6,8,12,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "7vh 16px 16px", overflowY: "auto" }}>
+      className="w-backdrop"
+      style={{ zIndex: 10001, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "7vh 16px 16px", overflowY: "auto" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560 }}>
         <TaskForm key={editingTaskId || "new"} initial={task} isEdit={!!task} onClose={() => setUI({ formOpen: false, editingTaskId: null })} />
       </div>
@@ -125,21 +126,23 @@ function TaskForm({ initial, isEdit, onClose }) {
   };
 
   return (
-    <div className="w-card w-fade-in" style={{ padding: 18 }} onKeyDown={onFormKeys}>
-      <Eyebrow right={<button className="w-icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={13} /></button>}>
-        {isEdit ? "Edit task" : "New task"}
-      </Eyebrow>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <input ref={titleRef} className="w-input" placeholder="What needs doing?"
+    <div className="w-console w-fade-in" onKeyDown={onFormKeys}>
+      <div className="w-console-head">
+        <span className="w-tape">{isEdit ? "Edit task" : "New task"}</span>
+        <div style={{ flex: 1 }} />
+        <button className="w-icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={13} /></button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 18 }}>
+        <input ref={titleRef} className="w-field" placeholder="What needs doing?"
           value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) submit(); }}
           style={{ fontSize: 15, padding: "10px 12px" }} />
-        <textarea className="w-textarea" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} style={{ height: 52 }} />
-        <textarea className="w-textarea" placeholder="Notes — context, blockers, references" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ height: 40 }} />
+        <textarea className="w-field" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} style={{ height: 52 }} />
+        <textarea className="w-field" placeholder="Notes — context, blockers, references" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ height: 40 }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
-            <div className="w-eyebrow" style={{ marginBottom: 6 }}>Priority</div>
+            <div className="w-stencil" style={{ marginBottom: 6 }}>Priority</div>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
               {Object.keys(PRIORITIES).map((k) => (
                 <ChipChoice key={k} active={priority === k} color={PRIORITIES[k].dot} onClick={() => setPriority(k)}>
@@ -150,7 +153,7 @@ function TaskForm({ initial, isEdit, onClose }) {
             </div>
           </div>
           <div>
-            <div className="w-eyebrow" style={{ marginBottom: 6 }}>Repeats</div>
+            <div className="w-stencil" style={{ marginBottom: 6 }}>Repeats</div>
             <div style={{ display: "flex", gap: 5 }}>
               <ChipChoice active={recurring === "none"} onClick={() => setRecurring("none")}>Once</ChipChoice>
               <ChipChoice active={recurring === "daily"} onClick={() => setRecurring("daily")}>Daily</ChipChoice>
@@ -161,7 +164,7 @@ function TaskForm({ initial, isEdit, onClose }) {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
-            <div className="w-eyebrow" style={{ marginBottom: 6 }}>Difficulty</div>
+            <div className="w-stencil" style={{ marginBottom: 6 }}>Difficulty</div>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
               {Object.keys(DIFFICULTY).map((k) => (
                 <ChipChoice key={k} active={difficulty === k} color={DIFFICULTY[k].tone} onClick={() => applyDifficulty(k)}>{k}</ChipChoice>
@@ -169,19 +172,19 @@ function TaskForm({ initial, isEdit, onClose }) {
             </div>
           </div>
           <div>
-            <div className="w-eyebrow" style={{ marginBottom: 6 }}>Estimate</div>
+            <div className="w-stencil" style={{ marginBottom: 6 }}>Estimate</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: isSplit ? 0.5 : 1 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-muted)" }}>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>h</span>
                 <input type="number" min="0.25" max="24" step="0.25" value={hours} disabled={isSplit}
                   onChange={(e) => { applyHours(e.target.value); }}
-                  className="w-input w-input--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
+                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-muted)" }}>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>XP</span>
                 <input type="number" min="5" max="200" step="5" value={xp} disabled={isSplit}
                   onChange={(e) => { setXp(Math.max(5, Math.min(200, parseInt(e.target.value, 10) || 0))); setScoreTouched(true); }}
-                  className="w-input w-input--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
+                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
               </label>
               {isSplit && <span style={{ fontSize: 10, color: "var(--text-faint)" }}>per-chunk — edit in the chunk list</span>}
             </div>
@@ -191,21 +194,21 @@ function TaskForm({ initial, isEdit, onClose }) {
         {recurring === "none" && !isSplit && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div>
-              <div className="w-eyebrow" style={{ marginBottom: 6 }}>Scheduled {scheduleDate ? "" : "(planner decides)"}</div>
+              <div className="w-stencil" style={{ marginBottom: 6 }}>Scheduled {scheduleDate ? "" : "(planner decides)"}</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
-                  className="w-input w-input--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
-                <button type="button" className="w-btn w-btn--ghost w-btn--xs" onClick={() => setScheduleDate(isoDate(new Date()))}>Today</button>
-                <button type="button" className="w-btn w-btn--ghost w-btn--xs" onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}>Tomorrow</button>
-                {scheduleDate && <button type="button" className="w-btn w-btn--ghost w-btn--xs" onClick={() => setScheduleDate("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
+                  className="w-field w-field--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
+                <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate(isoDate(new Date()))}>Today</button>
+                <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}>Tomorrow</button>
+                {scheduleDate && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
               </div>
             </div>
             <div>
-              <div className="w-eyebrow" style={{ marginBottom: 6 }}>Deadline {deadline ? "(hard date)" : "(optional)"}</div>
+              <div className="w-stencil" style={{ marginBottom: 6 }}>Deadline {deadline ? "(hard date)" : "(optional)"}</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
-                  className="w-input w-input--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
-                {deadline && <button type="button" className="w-btn w-btn--ghost w-btn--xs" onClick={() => setDeadline("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
+                  className="w-field w-field--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
+                {deadline && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setDeadline("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
               </div>
             </div>
           </div>
@@ -213,9 +216,9 @@ function TaskForm({ initial, isEdit, onClose }) {
 
         {projects.length > 0 && (
           <div>
-            <div className="w-eyebrow" style={{ marginBottom: 6 }}>Project</div>
+            <div className="w-stencil" style={{ marginBottom: 6 }}>Project</div>
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}
-              className="w-input w-input--sm" style={{ fontSize: 13, maxWidth: 280 }}>
+              className="w-field w-field--sm" style={{ fontSize: 13, maxWidth: 280 }}>
               <option value="">No project</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.title}{p.completedAt ? " (launched)" : ""}</option>
@@ -225,7 +228,7 @@ function TaskForm({ initial, isEdit, onClose }) {
         )}
 
         <div>
-          <div className="w-eyebrow" style={{ marginBottom: 6 }}>Tags</div>
+          <div className="w-stencil" style={{ marginBottom: 6 }}>Tags</div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
             {allKnownTags(customTags).map((t) => (
               <ChipChoice key={t} active={tags.includes(t)} onClick={() => setTags((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t])}>{t}</ChipChoice>
@@ -233,7 +236,7 @@ function TaskForm({ initial, isEdit, onClose }) {
             {tags.filter((t) => !allKnownTags(customTags).includes(t)).map((t) => (
               <ChipChoice key={t} active onClick={() => setTags((p) => p.filter((x) => x !== t))}>{t}</ChipChoice>
             ))}
-            <input className="w-input w-input--sm" placeholder="+ new tag" style={{ width: 110, fontSize: 11 }}
+            <input className="w-field w-field--sm" placeholder="+ new tag" style={{ width: 110, fontSize: 11 }}
               value={tagIn} onChange={(e) => setTagIn(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -246,8 +249,8 @@ function TaskForm({ initial, isEdit, onClose }) {
         </div>
 
         <div>
-          <div className="w-eyebrow" style={{ marginBottom: 6 }}>Subtasks</div>
-          <input className="w-input w-input--sm" placeholder="Type subtask + Enter"
+          <div className="w-stencil" style={{ marginBottom: 6 }}>Subtasks</div>
+          <input className="w-field w-field--sm" placeholder="Type subtask + Enter"
             value={stIn} onChange={(e) => setStIn(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setSubs(commitSubInput(subs)); setStIn(""); } }} />
           {subs.length > 0 && (
@@ -264,12 +267,12 @@ function TaskForm({ initial, isEdit, onClose }) {
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 4, alignItems: "center" }}>
-          <button className="w-btn w-btn--primary" onClick={submit} disabled={!canSubmit} style={{ flex: 1 }}>
+          <button className="w-switch" onClick={submit} disabled={!canSubmit} style={{ flex: 1 }}>
             {isEdit ? "Save changes" : "Add task"}
           </button>
           {isEdit && !initial?.projectId && (
             <button
-              className="w-btn w-btn--outline"
+              className="w-bezel"
               disabled={subs.length === 0 && !stIn.trim()}
               title={subs.length === 0 && !stIn.trim()
                 ? "Add at least one subtask first — they become the project's tasks"
@@ -289,7 +292,7 @@ function TaskForm({ initial, isEdit, onClose }) {
               <Icon name="ship" size={12} /> Promote to project
             </button>
           )}
-          <button className="w-btn w-btn--ghost" onClick={onClose}>Cancel</button>
+          <button className="w-bezel" onClick={onClose}>Cancel</button>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -4 }}>
           <Kbd>{MOD}</Kbd> <Kbd>↵</Kbd> submit · <Kbd>Esc</Kbd> cancel. Unfinished subtask/tag text is included automatically.

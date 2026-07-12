@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo } from "react";
 import { Icon, Eyebrow, Kbd } from "../components.jsx";
 import { DitherBars } from "../dither.jsx";
+import { statementBg } from "../texture.js";
 import * as D from "../domain.js";
 import { useStore, getState, setUI, closeReview, patchReview } from "../store.js";
 import { generateReviewRetro } from "../enrich.js";
@@ -46,10 +47,10 @@ function Inner({ week }) {
   const maxSplit = Math.max(1, ...stats.effortSplit.map((e) => e.hours));
 
   return (
-    <div onClick={closeReview} style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(6,8,12,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px 16px", overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} className="w-card w-fade-in" style={{ width: "100%", maxWidth: 640, padding: "22px 24px 24px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-          <span className="w-eyebrow" style={{ color: "var(--amber-strong)" }}>Weekly review</span>
+    <div onClick={closeReview} className="w-backdrop" style={{ zIndex: 10002, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px 16px", overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} className="w-console w-fade-in" style={{ width: "100%", maxWidth: 640 }}>
+        <div className="w-console-head">
+          <span className="w-stencil w-stencil--lit">Weekly review</span>
           <div style={{ flex: 1 }} />
           <button className="w-icon-btn" disabled={idx >= weeks.length - 1} style={{ opacity: idx >= weeks.length - 1 ? 0.3 : 1 }}
             onClick={() => setUI({ reviewWeek: weeks[idx + 1] })} title="Older week" aria-label="Older week">
@@ -61,14 +62,19 @@ function Inner({ week }) {
           </button>
           <button className="w-icon-btn" onClick={closeReview} aria-label="Close"><Icon name="close" size={13} /></button>
         </div>
-        <div className="w-display" style={{ fontSize: 22, fontWeight: 600, marginBottom: 16 }}>{stats.label}</div>
+        <div style={{ padding: "18px 22px 22px" }}>
+        {/* the week banner — this screen's signature */}
+        <div className="w-statement" style={{ ...statementBg("week-" + week), padding: "10px 16px 12px", marginBottom: 18 }}>
+          <div className="w-stencil">The week</div>
+          <div className="w-display" style={{ fontSize: 23 }}>{stats.label}</div>
+        </div>
 
         {stats.total === 0 ? (
           <div style={{ padding: "28px 0", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
             Nothing logged this week — no completions, no focus sessions.
             {weeks.length > 1 && idx < weeks.length - 1 && (
               <div style={{ marginTop: 10 }}>
-                <button className="w-btn w-btn--ghost w-btn--sm" onClick={() => setUI({ reviewWeek: weeks[idx + 1] })}>← Older week</button>
+                <button className="w-bezel w-bezel--sm" onClick={() => setUI({ reviewWeek: weeks[idx + 1] })}>← Older week</button>
               </div>
             )}
           </div>
@@ -81,7 +87,7 @@ function Inner({ week }) {
                 { l: "Focused", v: stats.focusMs ? D.fmtMs(stats.focusMs) : "—" },
                 { l: "Launched", v: stats.launched.length || "—" },
               ].map((x) => (
-                <div key={x.l} style={{ background: "var(--bg-soft)", borderRadius: "var(--r-md)", padding: "10px 12px" }}>
+                <div key={x.l} style={{ background: "var(--well)", boxShadow: "inset 0 1px 0 rgba(0,0,0,0.5)", padding: "10px 12px" }}>
                   <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4 }}>{x.l}</div>
                   <div className="w-display" style={{ fontSize: 18, fontWeight: 600 }}>{x.v}</div>
                 </div>
@@ -105,7 +111,7 @@ function Inner({ week }) {
                 <Eyebrow>Launched</Eyebrow>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {stats.launched.map((l) => (
-                    <div key={l.title} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--starboard-soft)", border: "1px solid var(--starboard)", borderRadius: "var(--r-sm)", fontSize: 12.5, color: "var(--starboard)" }}>
+                    <div key={l.title} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--starboard-ground)", boxShadow: "inset 3px 0 0 var(--starboard)", fontSize: 12.5, color: "var(--starboard)" }}>
                       <Icon name="ship" size={12} /> {l.title}
                     </div>
                   ))}
@@ -152,6 +158,7 @@ function Inner({ week }) {
         )}
         <div style={{ marginTop: 16, textAlign: "right" }}>
           <Kbd>Esc</Kbd>
+        </div>
         </div>
       </div>
     </div>

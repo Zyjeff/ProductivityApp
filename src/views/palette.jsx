@@ -75,23 +75,27 @@ function PaletteInner() {
   };
 
   return (
-    <div className="w-palette-backdrop" onClick={() => setUI({ paletteOpen: false })}>
-      <div className="w-palette" onClick={(e) => e.stopPropagation()}>
-        <input ref={inputRef} value={q} placeholder="Type a command or search tasks…"
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown") { e.preventDefault(); setIdx((i) => Math.min(items.length - 1, i + 1)); }
-            else if (e.key === "ArrowUp") { e.preventDefault(); setIdx((i) => Math.max(0, i - 1)); }
-            else if (e.key === "Enter" && items[idx]) { e.preventDefault(); runItem(items[idx]); }
-          }} />
-        <div className="w-palette-list w-scroll">
-          {items.length === 0 && <div style={{ padding: 14, fontSize: 13, color: "var(--text-faint)" }}>Nothing matches.</div>}
+    <div className="w-slab-backdrop" onClick={() => setUI({ paletteOpen: false })}>
+      <div className="w-slab" onClick={(e) => e.stopPropagation()}>
+        <div className="w-slab-prompt">
+          <span className="w-slab-caret" aria-hidden />
+          <input ref={inputRef} value={q} placeholder="Type a command or search tasks…"
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") { e.preventDefault(); setIdx((i) => Math.min(items.length - 1, i + 1)); }
+              else if (e.key === "ArrowUp") { e.preventDefault(); setIdx((i) => Math.max(0, i - 1)); }
+              else if (e.key === "Enter" && items[idx]) { e.preventDefault(); runItem(items[idx]); }
+            }} />
+          <span className="w-stencil" style={{ fontSize: 8.5 }}>Command</span>
+        </div>
+        <div className="w-slab-list w-scroll">
+          {items.length === 0 && <div className="w-num" style={{ padding: "12px 16px", fontSize: 11, color: "var(--fg-faint)" }}>NOTHING MATCHES.</div>}
           {items.map((item, i) => (
-            <button key={item.id} className={"w-palette-item" + (i === idx ? " is-active" : "")}
+            <button key={item.id} className={"w-slab-item" + (i === idx ? " is-active" : "")}
               onMouseEnter={() => setIdx(i)} onClick={() => runItem(item)}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
-              {item.sub && <span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{item.sub}</span>}
-              {item.keys && <Kbd>{item.keys}</Kbd>}
+              {item.sub && <span className="w-num" style={{ fontSize: 9.5, color: "var(--fg-faint)", flexShrink: 0 }}>{item.sub}</span>}
+              {item.keys && <span className="w-key">{item.keys}</span>}
             </button>
           ))}
         </div>

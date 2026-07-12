@@ -87,11 +87,11 @@ function Tunnel({ taskId }) {
   return (
     <div className="w-focus-overlay" role="dialog" aria-label="Focus mode">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 28px" }}>
-        <button className="w-btn w-btn--ghost" onClick={() => setUI({ focusTaskId: null })}>
+        <button className="w-bezel" onClick={() => setUI({ focusTaskId: null })}>
           <Icon name="close" size={14} /> Exit <Kbd>Esc</Kbd>
         </button>
         {nextTask && (
-          <button className="w-btn w-btn--ghost w-btn--sm" onClick={() => setUI({ focusTaskId: nextId })}>
+          <button className="w-bezel w-bezel--sm" onClick={() => setUI({ focusTaskId: nextId })}>
             Skip <Icon name="chevronR" size={12} />
           </button>
         )}
@@ -100,26 +100,26 @@ function Tunnel({ taskId }) {
         <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--text-muted)", fontSize: 13 }}>
           <span style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--amber)", boxShadow: "0 0 16px 2px var(--amber-glow)" }} />
           {project && <><span style={{ color: project.color }}>{project.title}</span><span style={{ color: "var(--text-faint)" }}>·</span></>}
-          <span className="w-eyebrow">{task.difficulty} · ~{D.taskHours(task)}h</span>
+          <span className="w-stencil">{task.difficulty} · ~{D.taskHours(task)}h</span>
         </div>
         <h1 className="w-focus-title">{task.title}</h1>
         <div className="w-focus-timer">{timeStr}</div>
         <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
-          <button className="w-btn w-btn--outline" onClick={() => setRunning((r) => !r)} style={{ minWidth: 130 }}>
+          <button className="w-bezel" onClick={() => setRunning((r) => !r)} style={{ minWidth: 130 }}>
             {running ? "Pause" : "Resume"} <Kbd>Space</Kbd>
           </button>
-          <button className="w-btn w-btn--ghost" disabled={elapsed === 0}
+          <button className="w-bezel" disabled={elapsed === 0}
             onClick={() => { baseRef.current = 0; startRef.current = Date.now(); setElapsed(0); saveFocusTime(taskId, 0); }}>
             <Icon name="reset" size={13} /> Reset
           </button>
-          <button className="w-btn w-btn--launch" onClick={complete}>
+          <button className="w-switch w-switch--launch" onClick={complete}>
             <Icon name="check" size={13} /> Mark complete
           </button>
         </div>
       </div>
       {nextTask && (
-        <div className="w-fade-in" style={{ position: "absolute", left: "50%", bottom: 36, transform: "translateX(-50%)", background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", padding: "12px 18px", minWidth: 280 }}>
-          <div className="w-eyebrow" style={{ marginBottom: 4 }}>Up next</div>
+        <div className="w-fade-in" style={{ position: "absolute", left: "50%", bottom: 36, transform: "translateX(-50%)", background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line)", padding: "12px 18px", minWidth: 280 }}>
+          <div className="w-stencil" style={{ marginBottom: 4 }}>Up next</div>
           <div style={{ fontSize: 13, color: "var(--text)" }}>{nextTask.title}</div>
         </div>
       )}
