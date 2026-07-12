@@ -167,6 +167,68 @@ export function DitherBars({ data, activeIndex = -1, tone = "var(--amber)", mute
   );
 }
 
+/* ── arc gauge: the Dock's berth dial ──────────────────────── */
+// A circular progress gauge whose swept arc is dithered radially —
+// dense at the rim, airing toward the hub — with a bloomed tip.
+export function DitherArc({ pct, size = 52, tone = "var(--amber)", track = "var(--line-dim)", label = null }) {
+  const ref = useDitherCanvas((ctx, w, h, t) => {
+    const color = resolveColor(tone);
+    const trackC = resolveColor(track);
+    const cx = w / 2, cy = h / 2;
+    const rOut = Math.min(w, h) / 2 - 2;
+    const rIn = rOut - 9;
+    const sweep = Math.max(0, Math.min(100, pct)) / 100 * Math.PI * 2 * t;
+    const start = -Math.PI / 2;
+    // track ring (thin)
+    ctx.strokeStyle = trackC;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, (rOut + rIn) / 2, 0, Math.PI * 2);
+    ctx.stroke();
+    // dithered swept arc: sample a 2px cell grid in polar space
+    ctx.fillStyle = color;
+    const cell = 2;
+    for (let gx = 0; gx * cell < w; gx++) {
+      for (let gy = 0; gy * cell < h; gy++) {
+        const px = gx * cell + cell / 2, py = gy * cell + cell / 2;
+        const dx = px - cx, dy = py - cy;
+        const r = Math.hypot(dx, dy);
+        if (r < rIn || r > rOut) continue;
+        let a = Math.atan2(dy, dx) - start;
+        if (a < 0) a += Math.PI * 2;
+        if (a > sweep) continue;
+        const radial = (r - rIn) / (rOut - rIn);        // 0 hub → 1 rim
+        const density = 0.25 + radial * 0.75;
+        if (density > (BAYER8[(gy & 7) * 8 + (gx & 7)] + 0.5) / 64) {
+          ctx.fillRect(gx * cell, gy * cell, cell - 0.5, cell - 0.5);
+        }
+      }
+    }
+    // bloomed tip lamp
+    if (sweep > 0.05) {
+      const tipA = start + sweep;
+      const tr = (rOut + rIn) / 2;
+      ctx.save();
+      ctx.shadowColor = color; ctx.shadowBlur = 6;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(tipA) * tr, cy + Math.sin(tipA) * tr, 2.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }, [pct, tone, size]);
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <canvas ref={ref} aria-hidden style={{ display: "block", width: "100%", height: "100%" }} />
+      {label != null && (
+        <span className="w-num" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size >= 50 ? 11 : 9, fontWeight: 600, color: "var(--fg)" }}>
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /* ── stacked bars: two dithered series per column ──────────── */
 export function DitherStackedBars({ data, tones = ["var(--channel)", "var(--port)"], cell = 2, gap = 5, labelSpace = 14, valueSpace = 12 }) {
   const ref = useDitherCanvas((ctx, w, h, t) => {

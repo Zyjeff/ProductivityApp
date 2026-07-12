@@ -299,16 +299,19 @@ function TaskForm({ initial, isEdit, onClose }) {
   );
 }
 
+// Stamp toggle: inactive = quiet bezel stamp, active = amber tape
+// (or the passed lamp color as the tape ground).
 export function ChipChoice({ active, color, onClick, children }) {
   return (
     <button type="button" onClick={onClick} style={{
-      padding: "4px 10px", borderRadius: "var(--r-sm)",
-      font: (active ? 500 : 400) + " 11px var(--font-sans)",
+      padding: "3px 9px",
+      font: "600 9.5px var(--t-mono)",
+      letterSpacing: "0.12em", textTransform: "uppercase",
       cursor: "pointer",
-      border: `1px solid ${active ? (color || "var(--text)") : "var(--border)"}`,
-      background: active ? "var(--bg-soft)" : "var(--bg-elev)",
-      color: active ? (color || "var(--text)") : "var(--text-muted)",
-      transition: "all var(--t-fast)",
+      border: active ? "1px solid transparent" : "1px solid var(--line)",
+      background: active ? (color || "var(--amber)") : "transparent",
+      color: active ? "var(--ink)" : "var(--fg-dim)",
+      transition: "background var(--fast), color var(--fast), border-color var(--fast)",
       display: "inline-flex", alignItems: "center", gap: 5,
     }}>{children}</button>
   );
