@@ -49,6 +49,7 @@ export function initStore(storage = window.localStorage) {
       formOpen: false,
       focusTaskId: null,
       reviewWeek: null,
+      launchNoteFor: null,
       energy: "normal",
       toast: null,                   // { msg, xp?, undoId? }
       confetti: 0,
@@ -608,10 +609,19 @@ export function deleteProject(id) {
 export function shipProject(id) {
   const now = Date.now();
   const proj = state.projects.find((p) => p.id === id);
-  set({ projects: state.projects.map((p) => p.id === id ? { ...p, completedAt: now, shippedAt: now } : p) });
-  setUI({ confetti: state.ui.confetti + 1 });
+  if (!proj) return;
+  // Freeze the ship-log stats at the moment of launch (F5).
+  const launchStats = D.computeLaunchStats(proj, state.tasks, state.sessions, now);
+  set({ projects: state.projects.map((p) => p.id === id ? { ...p, completedAt: now, shippedAt: now, launchStats } : p) });
+  setUI({ confetti: state.ui.confetti + 1, launchNoteFor: id });
   notify("Launched: " + (proj?.title || "project"));
   checkNewAchievements();
+}
+
+export function saveLaunchNote(projectId, note) {
+  set({ projects: state.projects.map((p) => p.id === projectId ? { ...p, launchNote: (note || "").trim() } : p) });
+  setUI({ launchNoteFor: null });
+  if ((note || "").trim()) notify("Logged in the fleet");
 }
 export function unshipProject(id) {
   set({ projects: state.projects.map((p) => p.id === id ? { ...p, completedAt: null, shippedAt: null } : p) });

@@ -9,10 +9,10 @@ import * as D from "../domain.js";
 import {
   useStore, getState, setUI, setCompletion, addTask, notify,
   createProject, updateProject, deleteProject, shipProject, unshipProject,
-  addChildToProject, detachFromProject,
+  addChildToProject, detachFromProject, saveLaunchNote,
 } from "../store.js";
 import { registerActiveList } from "../keys.js";
-import { aiExtendProject, aiImportFromScreenshot, aiFailureMessage } from "../ai.js";
+import { aiExtendProject, aiImportFromScreenshot, aiLaunchNote, aiFailureMessage } from "../ai.js";
 import { scoreTask } from "../enrich.js";
 
 const VIEW_PAD = "28px 36px 48px";
@@ -33,6 +33,79 @@ export function DockView() {
         <ChipChoice active={tab === "library"} onClick={() => setUI({ dockFilter: { ...filter, tab: "library" }, cursor: null })}>Library</ChipChoice>
       </div>
       {tab === "projects" ? <ProjectsTab /> : <LibraryTab />}
+      <LaunchNoteDialog />
+    </div>
+  );
+}
+
+/* ── ship log: the launch-note ritual (F5) ─────────────────── */
+
+function deterministicLaunchDraft(stats) {
+  if (!stats) return "";
+  return `Launched with ${stats.doneTasks}/${stats.tasks} tasks done and ${stats.xp} XP earned. ` +
+    `Estimated ${stats.estHours}h${stats.actualMs ? `, actually focused ${D.fmtMs(stats.actualMs)}` : ""}. ` +
+    `First task to launch: ${stats.spanDays} day${stats.spanDays === 1 ? "" : "s"}.`;
+}
+
+function LaunchNoteDialog() {
+  const forId = useStore((s) => s.ui.launchNoteFor);
+  if (!forId) return null;
+  return <LaunchNoteInner key={forId} projectId={forId} />;
+}
+
+function LaunchNoteInner({ projectId }) {
+  const project = useStore((s) => s.projects.find((p) => p.id === projectId));
+  const aiStatus = useStore((s) => s.ui.aiStatus);
+  const [note, setNote] = useState(project?.launchNote || "");
+  const [drafting, setDrafting] = useState(false);
+  const stats = project?.launchStats;
+
+  useEffect(() => {
+    if (!project) return;
+    if (project.launchNote) return; // editing an existing note
+    let alive = true;
+    setDrafting(true);
+    setNote(deterministicLaunchDraft(stats)); // honest prefill, instantly
+    aiLaunchNote(project, stats || {}).then((text) => {
+      if (alive && text) setNote(text);
+    }).catch(() => {}).finally(() => alive && setDrafting(false));
+    return () => { alive = false; };
+  }, [projectId]);
+
+  if (!project) { setUI({ launchNoteFor: null }); return null; }
+
+  return (
+    <div onClick={() => setUI({ launchNoteFor: null })}
+      style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(6,8,12,0.7)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="w-card w-fade-in" style={{ width: "100%", maxWidth: 460, padding: 22, borderColor: "var(--starboard)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <Icon name="ship" size={16} />
+          <span className="w-eyebrow" style={{ color: "var(--starboard)" }}>Ship log entry</span>
+        </div>
+        <div className="w-display" style={{ fontSize: 20, fontWeight: 600, marginBottom: 12 }}>{project.title}</div>
+        {stats && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            <Chip kind="green">{stats.doneTasks}/{stats.tasks} tasks</Chip>
+            <Chip kind="amber">{stats.xp} XP</Chip>
+            <Chip>{stats.estHours}h est{stats.actualMs ? ` · ${D.fmtMs(stats.actualMs)} focused` : ""}</Chip>
+            <Chip>{stats.spanDays}d build</Chip>
+          </div>
+        )}
+        <textarea className="w-textarea" value={note} onChange={(e) => setNote(e.target.value)}
+          placeholder="What shipped, and what did it take?"
+          style={{ height: 96, fontSize: 13, marginBottom: 4 }} />
+        <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginBottom: 12 }}>
+          {drafting ? "AI is drafting — edit freely, your text wins…"
+            : aiStatus === "off" ? "AI off — deterministic draft prefilled; make it yours."
+            : "Drafted for you. Edit, then log it."}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="w-btn w-btn--launch" style={{ flex: 1 }} onClick={() => saveLaunchNote(projectId, note)}>
+            <Icon name="check" size={12} /> Log it
+          </button>
+          <button className="w-btn w-btn--ghost" onClick={() => setUI({ launchNoteFor: null })}>Skip</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -43,7 +116,8 @@ function ProjectsTab() {
   const projects = useStore((s) => s.projects);
   const tasks = useStore((s) => s.tasks);
   const [expandedId, setExpandedId] = useState(null);
-  const [showLaunched, setShowLaunched] = useState(false);
+  const [showLaunched, setShowLaunched] = useState(true);
+  const [openLogId, setOpenLogId] = useState(null);
   const [adding, setAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState("All");
   const [newName, setNewName] = useState("");
@@ -253,20 +327,56 @@ function ProjectsTab() {
         <div style={{ marginTop: 28, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
           <button className="w-btn w-btn--ghost w-btn--sm" style={{ padding: "4px 0", marginBottom: showLaunched ? 12 : 0 }} onClick={() => setShowLaunched(!showLaunched)}>
             <span style={{ transform: showLaunched ? "rotate(180deg)" : "none", transition: "transform var(--t-fast)", display: "inline-flex" }}><Icon name="chevron" size={12} /></span>
-            <span className="w-eyebrow" style={{ marginLeft: 4 }}>Launched fleet</span>
+            <span className="w-eyebrow" style={{ marginLeft: 4 }}>Ship log</span>
             <Chip kind="green" style={{ marginLeft: 6 }}>{launched.length}</Chip>
           </button>
           {showLaunched && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {launched.map((p) => (
-                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg-elev)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
-                  <Icon name="ship" size={13} />
-                  <span style={{ fontSize: 13, color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
-                  <Chip>{D.PROJECT_TYPES.find((t) => t.id === p.type)?.label || "Other"}</Chip>
-                  <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{D.fmtDate(p.shippedAt || p.completedAt)}</span>
-                  <button className="w-icon-btn" onClick={() => unshipProject(p.id)} title="Back to the yard" aria-label="Unlaunch"><Icon name="chevronR" size={11} /></button>
-                </div>
-              ))}
+              {launched.map((p) => {
+                const open = openLogId === p.id;
+                const stats = p.launchStats;
+                return (
+                  <div key={p.id} style={{ background: "var(--bg-elev)", border: "1px solid " + (open ? "var(--border-strong)" : "var(--border)"), borderRadius: "var(--r-md)" }}>
+                    <div onClick={() => setOpenLogId(open ? null : p.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", cursor: "pointer", userSelect: "none" }}>
+                      <Icon name="ship" size={13} />
+                      <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
+                      {p.launchNote && <span title="Has a log entry" style={{ fontSize: 9, color: "var(--starboard)" }}>●</span>}
+                      <Chip>{D.PROJECT_TYPES.find((t) => t.id === p.type)?.label || "Other"}</Chip>
+                      <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{D.fmtDate(p.shippedAt || p.completedAt)}</span>
+                      <span style={{ color: "var(--text-faint)", transform: open ? "rotate(180deg)" : "none", transition: "transform var(--t-fast)", display: "inline-flex" }}>
+                        <Icon name="chevron" size={12} />
+                      </span>
+                    </div>
+                    {open && (
+                      <div className="w-fade-in" style={{ borderTop: "1px solid var(--border)", padding: "10px 12px 12px" }}>
+                        {stats && (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: p.launchNote ? 10 : 8 }}>
+                            <Chip kind="green">{stats.doneTasks}/{stats.tasks} tasks</Chip>
+                            <Chip kind="amber">{stats.xp} XP</Chip>
+                            <Chip>{stats.estHours}h est{stats.actualMs ? ` · ${D.fmtMs(stats.actualMs)} focused` : ""}</Chip>
+                            <Chip>{stats.spanDays}d build</Chip>
+                          </div>
+                        )}
+                        {p.launchNote ? (
+                          <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: 8 }}>{p.launchNote}</div>
+                        ) : (
+                          <div style={{ fontSize: 11.5, color: "var(--text-faint)", fontStyle: "italic", marginBottom: 8 }}>No log entry for this launch yet.</div>
+                        )}
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="w-btn w-btn--ghost w-btn--sm" onClick={() => setUI({ launchNoteFor: p.id })}>
+                            <Icon name="edit" size={11} /> {p.launchNote ? "Edit entry" : "Write entry"}
+                          </button>
+                          <div style={{ flex: 1 }} />
+                          <button className="w-btn w-btn--ghost w-btn--sm" onClick={() => unshipProject(p.id)} title="Back to the yard">
+                            Unlaunch
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

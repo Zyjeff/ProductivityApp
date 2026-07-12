@@ -891,6 +891,25 @@ export function sortForEnergy(arr, energy) {
   });
 }
 
+// Frozen-at-launch stats for the Ship Log (F5).
+export function computeLaunchStats(project, tasks, sessions, now = Date.now()) {
+  const byId = new Map((tasks || []).map((t) => [t.id, t]));
+  const children = (project.childTaskIds || []).map((id) => byId.get(id)).filter(Boolean);
+  const done = children.filter((t) => t.completed);
+  const actuals = actualsByTask(sessions || []);
+  const actualMs = children.reduce((s, t) => s + (actuals.get(t.id) || 0), 0);
+  const first = Math.min(project.createdAt || now, ...children.map((t) => t.createdAt || now));
+  return {
+    tasks: children.length,
+    doneTasks: done.length,
+    xp: done.reduce((s, t) => s + (t.xp || 0), 0),
+    estHours: Math.round(done.reduce((s, t) => s + taskHours(t), 0) * 10) / 10,
+    actualMs,
+    spanDays: Math.max(1, Math.round((now - first) / 86400000)),
+    launchedAt: now,
+  };
+}
+
 export function progressOfProject(p, tasksById) {
   const ids = p.childTaskIds || [];
   if (!ids.length) return 0;

@@ -366,6 +366,37 @@ export async function aiMorningBrief(data) {
   };
 }
 
+/* ── launch note (F5) ──────────────────────────────────────── */
+
+const LAUNCH_NOTE_RULES =
+  "OUTPUT FORMAT — STRICT. Single JSON object, no fences. " +
+  'Schema: {"text":"<2-3 sentences>"}\n\n' +
+  "You draft the launch-log entry for a project a freelance UI/UX " +
+  "developer just shipped from their personal tool. Voice: a proud but " +
+  "dry shipyard record — what shipped, what it took, one number that " +
+  "tells the story. No exclamation marks, no marketing speak. The user " +
+  "will edit it, so keep it a solid draft, not a monument.";
+
+export async function aiLaunchNote(project, stats) {
+  const dynamic =
+    `Project: "${project.title}" (${project.type})\n` +
+    (project.desc ? `About: ${project.desc}\n` : "") +
+    `Tasks completed: ${stats.doneTasks}/${stats.tasks} · ${stats.xp} XP\n` +
+    `Estimated ${stats.estHours}h` +
+    (stats.actualMs ? ` · actually focused ${Math.round(stats.actualMs / 360000) / 10}h` : "") + "\n" +
+    `First activity → launch: ${stats.spanDays} day${stats.spanDays === 1 ? "" : "s"}\n`;
+  const text = await call({
+    model: MODELS.fast, max_tokens: 250,
+    content: [
+      { type: "text", text: LAUNCH_NOTE_RULES, cache_control: { type: "ephemeral" } },
+      { type: "text", text: dynamic },
+    ],
+  });
+  const j = extractJson(text);
+  if (!j || typeof j.text !== "string") throw parseError();
+  return j.text.trim().slice(0, 500);
+}
+
 /* ── weekly review retro (F2) ──────────────────────────────── */
 
 const REVIEW_RULES =
