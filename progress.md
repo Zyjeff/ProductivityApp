@@ -1,24 +1,54 @@
 # progress
 
-## done — all phases complete
-- Phase 0: quest-original cloned read-only (origin removed, never touched after); quest-next initialized, no remotes, never pushed.
-- Phase 1–2: AUDIT.md Parts A–C — full code read + live driving session of the original; all major defects confirmed with numeric repros.
-- Phase 3: VERDICT.md — partial rebuild as **Werf** (harbor-at-night identity); committed as its own checkpoint before building.
-- Phase 4: built per the 13-item checklist. Core: derived-XP ledger (domain.js), one-shot migration quest v≤8 + vsq_* + shiplist with lifetime-XP baseline (db.js), single store with ONE completion mutation + undo (store.js), status-aware AI client (ai.js), dev AI middleware in vite.config.js (same contract as the Netlify function). UI: Today / Plan / Dock + Logbook panel, command layer (j/k/x/e/f/t/del, Ctrl+K palette), focus tunnel with working chaining, end-of-day ritual, preview mode, rotating auto-backups.
-- Phase 5: verified in the running product — see AUDIT.md Part D. 21/21 tests, clean build (302 kB / 92 kB gz), live migration proof (2340 XP preserved exactly), double-pay scenario now sums 70/70, honest AI in all three modes (no key / bad key / working), mobile capture fixed, preview round-trip exact.
+## Platform phase (previous sessions) — done
+Full rebuild of Quest → Werf: derived-XP ledger, one completion
+mutation, migration (quest v≤8 / vsq_* / shiplist, lifetime-XP baseline),
+honest AI transport (Netlify fn + Vite dev middleware), 3-surface IA,
+keyboard-first command layer. See AUDIT.md, VERDICT.md.
 
-## verification-found fixes
-- watchLevel synchronous recursion on level-up (froze React; ledger stayed consistent — derived state proved its worth). Fixed: order + re-entrancy guard + resilient emit().
-- Dev middleware read .env from process.cwd(); anchored to config dir.
+## Product phase (this session) — done
+Rollback point: tag `pre-feature-expansion` + `../quest-next-backup-2026-07-12`.
+Docs: PARITY.md (6 restorations, 2 supersessions, 4 kills), IDEAS.md
+(26 candidates scored), ROADMAP.md.
 
-## decisions
-- Weekly recurring uses a Monday-anchored week window (old: creeping "7 days since done"). Recurring tasks keep `history[]`; XP derives from it.
-- Deterministic scoring is the default; AI refines when reachable. Capture never blocks on the network.
-- Capture on Today pins to today (fixes capture-to-void); capture on Dock goes to the library unscheduled.
-- Streak is recomputed from history at migration and may differ from the old counter (documented in README).
-- Legacy quest_*/vsq_* keys left in place after migration; werf_* clear re-runs it.
-- Dependencies: zero added — react, react-dom / vite, @vitejs/plugin-react.
+Shipped, each finished (nav + shortcut + identity + empty/error +
+persistence/migration + exercised live), one commit each:
+- R1 restorations: focus badge on rows · Dock type-filter chips ·
+  first-launch sample-data CTA · "Day cleared" moment (whole lineup).
+- R2 Promote to project (edit form + palette, undoable).
+- R3 Screen-log detail restored in Logbook (X/YT split, mobile, averages).
+- F3 Run order + NOW/NEXT stage (`[` `]` + drag, per-day persist).
+- F6 Natural-language quick add (grammar in capture bar + palette `>`).
+- F4 Session ledger + estimate calibration (schema v2; AI scorer reads it).
+- F1 Morning Brief (`B`; skeleton always + AI prose + apply run order).
+- F2 Weekly Review (`W`; stats overlay + browsable history + AI retro).
+- F5 Ship Log (launch freezes stats + AI-drafted editable note; fleet diary).
 
-## next (owner's call, not started)
-- Real-key smoke test of aiPlan/aiReplan prompt quality (transport is proven; prompt tuning may want a pass with live traffic).
-- Optional: .ics export, per-task actual-time ledger, PWA service worker for full offline.
+Schema: v1 → **v2**, additive (werf_sessions/briefs/reviews). v1→v2
+upgrade tested + verified live to leave existing data intact.
+
+## verification (Phase 5) — all green
+- `npm test` 25/25; `npm run build` clean (352 kB / 106 kB gz, ~0.85s).
+- Fresh quest-v8 + shiplist migration → schema 2, lifetime XP preserved
+  exactly (1850→1850), v2 slices created, brief renders, no real errors.
+- Every shortcut driven live: 1/2/3/4, B, W, Ctrl+K, ?, j/k, [/], x, u.
+- Each flagship exercised incl. AI working-path (stubbed Anthropic-shaped
+  responses) and degraded path (no key / off).
+- Bug found + fixed during verify: `fmtWeekLabel` wasn't ported into
+  domain.js (review overlay crashed to boundary on first open) → added +
+  re-verified. (Same "port a helper" class as the platform phase's dead
+  reads; caught by driving, not reading.)
+
+## decisions / engineering-gravity notes (resisted)
+- Wanted to refactor the growing store.js into slices — resisted; no
+  roadmap feature demanded it. Noted for a future platform pass.
+- Wanted a shared "AI-generated card" component (brief/review/note repeat
+  the attempted/text/degraded pattern) — resisted the abstraction mid-
+  build; three concrete copies ship finished, dedupe later if it earns it.
+- Kept run-order in meta (not a per-plan field) so it prunes cleanly and
+  never complicates the plan schema the platform phase locked down.
+
+## next (backlog, not built — see IDEAS.md)
+Deadline radar · plan-tomorrow inside Close Day · inbox/triage · full
+project notes drawer · ask-the-yard Q&A · streak stakes · day journal ·
+year heatmap · store.js slice refactor (platform, not product).
