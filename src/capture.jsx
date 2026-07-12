@@ -2,11 +2,18 @@
 // tick (raw title, deterministic score) and AI enrichment runs after,
 // updating the row in place. The AI status dot tells the truth.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Kbd, AiDot } from "./components.jsx";
+import { parseQuickAdd } from "./domain.js";
 import { useStore, captureTask, setUI, notify } from "./store.js";
 import { enrichCapturedTask, captureProject } from "./enrich.js";
 import { setCaptureFocus } from "./keys.js";
+
+const CHIP_TONE = {
+  priority: "var(--port)", tag: "var(--text-muted)", project: "var(--channel)",
+  hours: "var(--amber-strong)", date: "var(--starboard)", deadline: "var(--warning)",
+  recurring: "var(--channel)",
+};
 
 const MODES = [
   { id: "task", label: "Task", sub: "single action item", placeholder: "Capture a task — saved instantly, AI tidies after" },
@@ -18,10 +25,18 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
   const aiStatus = useStore((s) => s.ui.aiStatus);
   const aiDetail = useStore((s) => s.ui.aiDetail);
   const mode = useStore((s) => s.ui.captureMode);
+  const projects = useStore((s) => s.projects);
   const [text, setText] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const inputRef = useRef(null);
   const wrapRef = useRef(null);
+
+  // Live quick-add grammar preview (task mode only).
+  const parsed = useMemo(
+    () => (mode === "task" && text.trim() ? parseQuickAdd(text, { projects }) : null),
+    [text, mode, projects]
+  );
+  const grammarActive = !!(parsed && parsed.chips.length);
 
   useEffect(() => {
     if (!autoRegister) return;
@@ -46,9 +61,12 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
       captureProject(v);              // async; its own toasts
       return;
     }
-    const task = captureTask(v, { mode, scheduleToday });
+    const task = captureTask(v, { mode, scheduleToday, parsed });
     if (!task) return;
-    enrichCapturedTask(task.id, v, mode);   // fire-and-refine
+    enrichCapturedTask(task.id, grammarActive ? parsed.title : v, mode, {
+      grammarUsed: grammarActive,
+      hasHours: !!parsed?.hours,
+    });
   };
 
   return (
@@ -72,6 +90,26 @@ export function CaptureBar({ scheduleToday = false, autoRegister = true }) {
           title="Full form (Shift+N)" aria-label="Open full task form"><Icon name="edit" size={13} /></button>
         <Kbd>N</Kbd>
       </div>
+      {grammarActive && !menuOpen && (
+        <div className="w-fade-in" style={{
+          position: "absolute", top: "calc(100% + 5px)", left: 0, zIndex: 49,
+          display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap",
+          background: "var(--bg-elev)", border: "1px solid var(--border-strong)",
+          borderRadius: "var(--r-md)", padding: "5px 8px",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.45)",
+        }}>
+          <span style={{ fontSize: 11, color: "var(--text)", fontWeight: 500, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {parsed.title || "(untitled)"}
+          </span>
+          {parsed.chips.map((c, i) => (
+            <span key={i} style={{
+              fontSize: 10, fontFamily: "var(--font-mono)", padding: "1px 6px",
+              borderRadius: 3, border: `1px solid ${CHIP_TONE[c.type] || "var(--border)"}`,
+              color: CHIP_TONE[c.type] || "var(--text-muted)",
+            }}>{c.label}</span>
+          ))}
+        </div>
+      )}
       {menuOpen && (
         <div className="w-capture-menu" role="listbox">
           {MODES.map((m) => (

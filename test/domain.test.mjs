@@ -146,3 +146,38 @@ test("deterministic score scales with hours and clamps", () => {
   assert.ok(big.xp > base.xp);
   assert.ok(big.xp <= 100 && base.xp >= 5);
 });
+
+test("quick-add grammar: priority, tag, project, hours, weekday, deadline, recurrence", () => {
+  const projects = [{ id: "p1", title: "IGP Client Site", completedAt: null }, { id: "p2", title: "Old", completedAt: 1 }];
+  const now = new Date(2026, 6, 12); // Sunday
+  const p = D.parseQuickAdd("send invoice @igp fri 1h !high #admin", { projects, now });
+  assert.equal(p.title, "send invoice");
+  assert.equal(p.priority, "high");
+  assert.deepEqual(p.tags, ["admin"]);
+  assert.equal(p.projectId, "p1");
+  assert.equal(p.hours, 1);
+  assert.equal(p.scheduleDate, "2026-07-17"); // next Friday
+  assert.equal(p.chips.length, 5);
+
+  const d = D.parseQuickAdd("tax prep due 20-07 ~2.5h", { projects: [], now });
+  assert.equal(d.title, "tax prep");
+  assert.equal(d.hours, 2.5);
+  assert.equal(new Date(d.deadlineAt).getDate(), 20);
+  assert.equal(new Date(d.deadlineAt).getMonth(), 6);
+  assert.equal(d.scheduleDate, null, "due date must not also schedule");
+
+  const r = D.parseQuickAdd("standup every day 15m", { projects: [], now });
+  assert.equal(r.recurring, "daily");
+  assert.equal(r.hours, 0.25);
+  assert.equal(r.title, "standup");
+
+  const m = D.parseQuickAdd("review jul 20 designs", { projects: [], now });
+  assert.equal(m.scheduleDate, "2026-07-20");
+  assert.equal(m.title, "review designs");
+});
+
+test("quick-add grammar loses nothing: unmatched tokens stay in the title", () => {
+  const p = D.parseQuickAdd("email friday's notes to @nosuchproject", { projects: [], now: new Date(2026, 6, 12) });
+  assert.equal(p.title, "email friday's notes to @nosuchproject");
+  assert.equal(p.chips.length, 0);
+});

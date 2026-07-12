@@ -17,7 +17,15 @@ function warnOnce(kind) {
 // Full enrichment for quick-captured tasks: tidy title + detect
 // recurrence (capture parser), then score. Any failure → task stays
 // with its raw title and deterministic score, aiPending cleared.
-export async function enrichCapturedTask(taskId, rawText, mode) {
+// When the quick-add grammar was used, the user's tokens are explicit
+// intent: skip the AI rewrite entirely and only score (unless the
+// grammar already set hours — then the deterministic score stands).
+export async function enrichCapturedTask(taskId, rawText, mode, { grammarUsed = false, hasHours = false } = {}) {
+  if (grammarUsed) {
+    if (hasHours) { applyEnrichment(taskId, {}); return; }
+    await scoreTask(taskId);
+    return;
+  }
   try {
     const parsed = await aiParseCapture(rawText, mode);
     const patch = {};

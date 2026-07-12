@@ -145,6 +145,151 @@ export function todayFocusMs(task, dayStartHour = 0) {
   return task.focusDate === effectiveTodayIso(dayStartHour) ? task.focusMs : 0;
 }
 
+/* ── natural-language quick add (F6) ───────────────────────── */
+// A deterministic, offline grammar — not a model. Unrecognized tokens
+// stay in the title, so nothing typed is ever lost.
+//   !urgent/!high/!low (!u/!h/!l)  priority
+//   #tag                           tag
+//   @proj                          fuzzy project match
+//   2h · ~1.5h · 30m               estimate
+//   today · tomorrow · fri · jul 20 · 20-07   schedule date
+//   due <date> / by <date>         deadline instead of schedule
+//   every day · daily · every week · weekly   recurrence
+const WD_SHORT = { mon: 1, tue: 2, tues: 2, wed: 3, thu: 4, thur: 4, thurs: 4, fri: 5, sat: 6, sun: 0 };
+const WD_FULL = { monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6, sunday: 0 };
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 };
+
+function nextWeekday(dow, now) {
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  let delta = (dow - d.getDay() + 7) % 7;
+  if (delta === 0) delta = 7; // "fri" said on a Friday means next Friday
+  return addDays(d, delta);
+}
+
+function parseDateToken(tok, nextTok, now) {
+  const t = tok.toLowerCase();
+  if (t === "today") return { date: new Date(now), used: 1 };
+  if (t === "tomorrow" || t === "tmrw") return { date: addDays(now, 1), used: 1 };
+  if (t in WD_FULL) return { date: nextWeekday(WD_FULL[t], now), used: 1 };
+  if (t in WD_SHORT) return { date: nextWeekday(WD_SHORT[t], now), used: 1 };
+  // ISO 2026-07-20
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m) return { date: new Date(+m[1], +m[2] - 1, +m[3]), used: 1 };
+  // EU numeric 20-07 or 20/7
+  m = /^(\d{1,2})[/-](\d{1,2})$/.exec(t);
+  if (m && +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) {
+    const d = new Date(now.getFullYear(), +m[2] - 1, +m[1]);
+    if (d < now && d.toDateString() !== now.toDateString()) d.setFullYear(d.getFullYear() + 1);
+    return { date: d, used: 1 };
+  }
+  // "jul 20" / "20 jul"
+  if (t in MONTHS && nextTok && /^\d{1,2}$/.test(nextTok)) {
+    const d = new Date(now.getFullYear(), MONTHS[t], +nextTok);
+    if (d < now && d.toDateString() !== now.toDateString()) d.setFullYear(d.getFullYear() + 1);
+    return { date: d, used: 2 };
+  }
+  if (/^\d{1,2}$/.test(t) && nextTok && nextTok.toLowerCase() in MONTHS) {
+    const d = new Date(now.getFullYear(), MONTHS[nextTok.toLowerCase()], +t);
+    if (d < now && d.toDateString() !== now.toDateString()) d.setFullYear(d.getFullYear() + 1);
+    return { date: d, used: 2 };
+  }
+  return null;
+}
+
+export function parseQuickAdd(input, { projects = [], now = new Date() } = {}) {
+  const tokens = (input || "").trim().split(/\s+/).filter(Boolean);
+  const out = { title: "", priority: null, tags: [], projectId: null, projectTitle: null, hours: null, scheduleDate: null, deadlineAt: null, recurring: null, chips: [] };
+  const titleParts = [];
+  const activeProjects = projects.filter((p) => !p.completedAt);
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const low = tok.toLowerCase();
+
+    // priority
+    let m = /^!(u|urgent|h|high|m|med|medium|l|low)$/i.exec(tok);
+    if (m) {
+      const p = m[1][0].toLowerCase();
+      out.priority = p === "u" ? "urgent" : p === "h" ? "high" : p === "l" ? "low" : "medium";
+      out.chips.push({ type: "priority", label: "!" + out.priority });
+      continue;
+    }
+    // tag
+    m = /^#([a-z0-9][a-z0-9-]*)$/i.exec(tok);
+    if (m) {
+      const tag = m[1].toLowerCase();
+      if (!out.tags.includes(tag)) out.tags.push(tag);
+      out.chips.push({ type: "tag", label: "#" + tag });
+      continue;
+    }
+    // project
+    m = /^@(.+)$/.exec(tok);
+    if (m) {
+      const q = m[1].toLowerCase();
+      const hit = activeProjects.find((p) => p.title.toLowerCase().startsWith(q))
+        || activeProjects.find((p) => p.title.toLowerCase().includes(q));
+      if (hit) {
+        out.projectId = hit.id;
+        out.projectTitle = hit.title;
+        out.chips.push({ type: "project", label: "@" + hit.title });
+        continue;
+      }
+      titleParts.push(tok); // no match — keep the text, lose nothing
+      continue;
+    }
+    // hours: 2h ~1.5h 30m ~45m
+    m = /^~?(\d+(?:[.,]\d+)?)h$/i.exec(tok);
+    if (m) {
+      out.hours = Math.min(24, Math.max(0.25, parseFloat(m[1].replace(",", "."))));
+      out.chips.push({ type: "hours", label: out.hours + "h" });
+      continue;
+    }
+    m = /^~?(\d+)m$/i.exec(tok);
+    if (m) {
+      out.hours = Math.min(24, Math.max(0.25, Math.round((+m[1] / 60) * 4) / 4));
+      out.chips.push({ type: "hours", label: out.hours + "h" });
+      continue;
+    }
+    // recurrence
+    if (low === "daily" || (low === "every" && tokens[i + 1] && /^(day|morning|evening)$/i.test(tokens[i + 1]))) {
+      out.recurring = "daily";
+      out.chips.push({ type: "recurring", label: "daily" });
+      if (low === "every") i += 1;
+      continue;
+    }
+    if (low === "weekly" || (low === "every" && tokens[i + 1] && /^week$/i.test(tokens[i + 1]))) {
+      out.recurring = "weekly";
+      out.chips.push({ type: "recurring", label: "weekly" });
+      if (low === "every") i += 1;
+      continue;
+    }
+    // deadline: due <date> / by <date>
+    if ((low === "due" || low === "by") && tokens[i + 1]) {
+      const d = parseDateToken(tokens[i + 1], tokens[i + 2], now);
+      if (d) {
+        const dd = d.date; dd.setHours(12, 0, 0, 0);
+        out.deadlineAt = dd.getTime();
+        out.chips.push({ type: "deadline", label: "due " + isoDate(dd) });
+        i += d.used;
+        continue;
+      }
+    }
+    // schedule date
+    const d = parseDateToken(tok, tokens[i + 1], now);
+    if (d) {
+      out.scheduleDate = isoDate(d.date);
+      out.chips.push({ type: "date", label: out.scheduleDate });
+      i += d.used - 1;
+      continue;
+    }
+
+    titleParts.push(tok);
+  }
+
+  out.title = titleParts.join(" ").replace(/\s+/g, " ").trim();
+  return out;
+}
+
 /* ── task + chunk helpers ──────────────────────────────────── */
 
 export function taskHours(t) {

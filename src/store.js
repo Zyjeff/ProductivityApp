@@ -358,24 +358,44 @@ function subscribeLevelWatcher() {
 
 /* ── task CRUD ─────────────────────────────────────────────── */
 
-export function captureTask(rawTitle, { mode = "task", scheduleToday = false } = {}) {
-  const title = rawTitle.trim();
+export function captureTask(rawTitle, { mode = "task", scheduleToday = false, parsed = null } = {}) {
+  const grammar = parsed && parsed.chips?.length ? parsed : null;
+  const title = (grammar?.title || rawTitle).trim();
   if (!title) return null;
-  const det = D.deterministicScore("medium");
+  const det = D.deterministicScore("medium", grammar?.hours ?? null);
+  const recurring = grammar?.recurring || "none";
   const task = {
     id: D.uid(),
-    title,                       // raw title NOW; AI may tidy it async
-    desc: "", notes: "", tags: [], subtasks: [],
+    title,                       // grammar-cleaned or raw; AI may tidy async
+    desc: "", notes: "",
+    tags: grammar?.tags?.length ? [...grammar.tags] : [],
+    subtasks: [],
     xp: det.xp, difficulty: "medium", hours: det.hours,
-    recurring: "none", history: undefined,
-    priority: "medium", projectId: null, deadlineAt: null,
+    recurring, history: recurring !== "none" ? [] : undefined,
+    priority: grammar?.priority || "medium",
+    projectId: grammar?.projectId || null,
+    deadlineAt: grammar?.deadlineAt || null,
     completed: false, completedAt: null,
     createdAt: Date.now(), focusMs: 0, focusDate: null,
     aiPending: true,
   };
   let plan = state.plan;
-  if (scheduleToday) plan = D.pinTask(plan, task.id, D.effectiveTodayIso(state.meta.dayStartHour));
-  set({ tasks: [task, ...state.tasks], plan });
+  const pinDate = recurring === "none"
+    ? (grammar?.scheduleDate || (scheduleToday ? D.effectiveTodayIso(state.meta.dayStartHour) : null))
+    : null;
+  if (pinDate) plan = D.pinTask(plan, task.id, pinDate);
+  let projects = state.projects;
+  if (task.projectId) {
+    projects = projects.map((p) => p.id === task.projectId
+      ? { ...p, childTaskIds: [...(p.childTaskIds || []), task.id] }
+      : p);
+  }
+  for (const tag of task.tags) {
+    if (!D.TAGS_BUILTIN.includes(tag) && !state.customTags.includes(tag)) {
+      set({ customTags: [...state.customTags, tag] });
+    }
+  }
+  set({ tasks: [task, ...state.tasks], plan, projects });
   return task;
 }
 

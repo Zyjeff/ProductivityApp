@@ -2,7 +2,9 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Kbd } from "../components.jsx";
-import { useStore, getState, setUI } from "../store.js";
+import { parseQuickAdd } from "../domain.js";
+import { useStore, getState, setUI, captureTask, notify } from "../store.js";
+import { enrichCapturedTask } from "../enrich.js";
 import { buildCommands } from "../keys.js";
 
 export function Palette() {
@@ -19,11 +21,35 @@ function PaletteInner() {
 
   const items = useMemo(() => {
     const s = getState();
+    // "> ..." = quick add from anywhere, same grammar as the capture bar.
+    if (q.startsWith(">")) {
+      const raw = q.slice(1).trim();
+      const parsed = raw ? parseQuickAdd(raw, { projects: s.projects }) : null;
+      const chipStr = parsed?.chips.length ? "  ·  " + parsed.chips.map((c) => c.label).join("  ") : "";
+      return [{
+        type: "quickadd",
+        id: "quickadd",
+        label: raw ? `Add task: "${parsed.title || raw}"${chipStr}` : "Quick add — type a task, with !prio #tag @project 2h fri…",
+        sub: parsed?.scheduleDate ? "scheduled " + parsed.scheduleDate : "to the yard",
+        keepOpen: !raw,
+        run: () => {
+          if (!raw) return;
+          const task = captureTask(raw, { mode: "task", parsed });
+          if (task) {
+            enrichCapturedTask(task.id, parsed?.chips.length ? parsed.title : raw, "task", { grammarUsed: !!parsed?.chips.length, hasHours: !!parsed?.hours });
+            notify("Task added");
+          }
+        },
+      }];
+    }
     const commands = buildCommands().map((c) => ({ type: "cmd", id: c.id, label: c.label, keys: c.keys, run: c.run }));
     const needle = q.trim().toLowerCase();
     let out;
     if (!needle) {
-      out = commands.slice(0, 9);
+      out = [
+        { type: "hint", id: "hint-quickadd", label: "Quick add: start with >", sub: "e.g. > invoice IGP fri 1h !high", keepOpen: true, run: () => setQ("> ") },
+        ...commands.slice(0, 8),
+      ];
     } else {
       const cmdHits = commands.filter((c) => c.label.toLowerCase().includes(needle));
       const taskHits = s.tasks
@@ -44,7 +70,7 @@ function PaletteInner() {
   useEffect(() => { setIdx(0); }, [q]);
 
   const runItem = (item) => {
-    setUI({ paletteOpen: false });
+    if (!item.keepOpen) setUI({ paletteOpen: false });
     item.run();
   };
 
