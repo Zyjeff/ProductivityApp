@@ -119,7 +119,7 @@ export function DitherSparkline({ data, tone = "var(--amber)", cell = 2, bloom =
 }
 
 /* ── bar strip: dithered columns, active column blooms ─────── */
-export function DitherBars({ data, activeIndex = -1, tone = "var(--amber)", mutedTone = "var(--border-strong)", cell = 2, gap = 5, labelSpace = 14 }) {
+export function DitherBars({ data, activeIndex = -1, tone = "var(--amber)", mutedTone = "var(--line)", cell = 2, gap = 5, labelSpace = 14 }) {
   const ref = useDitherCanvas((ctx, w, h, t) => {
     if (!data || data.length === 0) return;
     const active = resolveColor(tone);
@@ -130,7 +130,7 @@ export function DitherBars({ data, activeIndex = -1, tone = "var(--amber)", mute
     data.forEach((d, i) => {
       const x0 = i * (barW + gap);
       const isActive = i === activeIndex;
-      const color = isActive ? active : d.value > 0 ? muted : resolveColor("var(--border)");
+      const color = isActive ? active : d.value > 0 ? muted : resolveColor("var(--line-dim)");
       const fullH = d.value > 0 ? Math.max(4, (d.value / max) * (chartH - 6)) : 2;
       const bh = fullH * t;
       const yTop = chartH - bh;
@@ -158,7 +158,7 @@ export function DitherBars({ data, activeIndex = -1, tone = "var(--amber)", mute
       <canvas ref={ref} aria-hidden style={{ display: "block", width: "100%", height: "100%" }} />
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, display: "flex", gap }}>
         {data.map((d, i) => (
-          <span key={i} title={d.title} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--font-mono)", color: i === activeIndex ? "var(--amber-strong)" : "var(--text-faint)" }}>
+          <span key={i} title={d.title} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--t-mono)", color: i === activeIndex ? "var(--amber-hot)" : "var(--fg-faint)" }}>
             {d.label}
           </span>
         ))}
@@ -242,7 +242,7 @@ export function DitherStackedBars({ data, tones = ["var(--channel)", "var(--port
       const x0 = i * (barW + gap);
       const total = d.values.reduce((s, v) => s + v, 0);
       if (total === 0) {
-        ctx.fillStyle = resolveColor("var(--border)");
+        ctx.fillStyle = resolveColor("var(--line-dim)");
         ctx.fillRect(x0, top0 + chartH - 2, barW, 2);
         return;
       }
@@ -270,13 +270,13 @@ export function DitherStackedBars({ data, tones = ["var(--channel)", "var(--port
       <div style={{ position: "absolute", left: 0, right: 0, top: 0, display: "flex", gap }}>
         {data.map((d, i) => {
           const total = d.values.reduce((s, v) => s + v, 0);
-          return <span key={i} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{total || ""}</span>;
+          return <span key={i} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--t-mono)", color: "var(--fg-faint)" }}>{total || ""}</span>;
         })}
       </div>
       <canvas ref={ref} aria-hidden style={{ display: "block", width: "100%", height: "100%" }} />
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, display: "flex", gap }}>
         {data.map((d, i) => (
-          <span key={i} title={d.title} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{d.label}</span>
+          <span key={i} title={d.title} style={{ flex: 1, textAlign: "center", fontSize: 9, fontFamily: "var(--t-mono)", color: "var(--fg-faint)" }}>{d.label}</span>
         ))}
       </div>
     </div>

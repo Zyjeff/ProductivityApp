@@ -114,7 +114,7 @@ export function ProgressRing({ pct, size = 28, stroke = 2.5, tone = "var(--amber
   const off = c - (Math.max(0, Math.min(100, pct)) / 100) * c;
   return (
     <svg width={size} height={size} style={{ transform: "rotate(-90deg)", flexShrink: 0 }} aria-hidden>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--bg-muted)" strokeWidth={stroke} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--plate-hi)" strokeWidth={stroke} />
       <circle cx={size / 2} cy={size / 2} r={r} fill="none"
         stroke={tone} strokeWidth={stroke}
         strokeDasharray={c} strokeDashoffset={off} strokeLinecap="round"

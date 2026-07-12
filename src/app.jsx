@@ -54,7 +54,7 @@ export default function App() {
   useEffect(() => installKeyboard(), []);
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", color: "var(--text)" }}>
+    <div style={{ display: "flex", minHeight: "100vh", color: "var(--fg)" }}>
       <aside className="w-mast">
         <div className="w-mast-brand" style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <BrandMark />

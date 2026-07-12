@@ -35,7 +35,7 @@ function CalibrationCard({ tasks, sessions }) {
     <div>
       <Eyebrow>Estimate calibration · last 60 days</Eyebrow>
       {cal.overall.n < 3 ? (
-        <div style={{ fontSize: 12, color: "var(--text-faint)", lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: "var(--fg-faint)", lineHeight: 1.5 }}>
           Not enough finished, focused work to calibrate yet
           ({cal.overall.n}/3 tasks). Run the focus tunnel on real tasks and
           this becomes your actual-vs-estimate mirror.
@@ -44,32 +44,32 @@ function CalibrationCard({ tasks, sessions }) {
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
-            <span className="w-display" style={{ fontSize: 26, fontWeight: 600, color: cal.overall.factor > 1.15 ? "var(--warning)" : cal.overall.factor < 0.9 ? "var(--channel)" : "var(--starboard)" }}>
+            <span className="w-display" style={{ fontSize: 26, fontWeight: 600, color: cal.overall.factor > 1.15 ? "var(--warn)" : cal.overall.factor < 0.9 ? "var(--channel)" : "var(--starboard)" }}>
               {cal.overall.factor}×
             </span>
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            <span style={{ fontSize: 12, color: "var(--fg-dim)" }}>
               actual vs estimate · {cal.overall.n} tasks · {D.fmtMs(focusTotal)} focused
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {Object.entries(cal.byDifficulty).map(([k, v]) => (
               <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
-                <span style={{ width: 52, color: "var(--text-muted)" }}>{k}</span>
+                <span style={{ width: 52, color: "var(--fg-dim)" }}>{k}</span>
                 {v.factor && v.n >= 2 ? (
                   <>
-                    <div style={{ flex: 1, height: 4, background: "var(--bg-muted)", borderRadius: 2, overflow: "hidden" }}>
-                      <div className="w-bar-fill" style={{ height: "100%", width: Math.min(100, v.factor * 50) + "%", background: v.factor > 1.15 ? "var(--warning)" : "var(--starboard)" }} />
+                    <div style={{ flex: 1, height: 4, background: "var(--plate-hi)", borderRadius: 2, overflow: "hidden" }}>
+                      <div className="w-bar-fill" style={{ height: "100%", width: Math.min(100, v.factor * 50) + "%", background: v.factor > 1.15 ? "var(--warn)" : "var(--starboard)" }} />
                     </div>
-                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)", width: 44, textAlign: "right" }}>{v.factor}×</span>
-                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", fontSize: 10 }}>n={v.n}</span>
+                    <span style={{ fontFamily: "var(--t-mono)", color: "var(--fg)", width: 44, textAlign: "right" }}>{v.factor}×</span>
+                    <span style={{ fontFamily: "var(--t-mono)", color: "var(--fg-faint)", fontSize: 10 }}>n={v.n}</span>
                   </>
                 ) : (
-                  <span style={{ color: "var(--text-faint)", fontSize: 11 }}>not enough data</span>
+                  <span style={{ color: "var(--fg-faint)", fontSize: 11 }}>not enough data</span>
                 )}
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 8 }}>
+          <div style={{ fontSize: 10.5, color: "var(--fg-faint)", marginTop: 8 }}>
             The AI scorer reads these factors, so new estimates learn from your reality.
           </div>
         </>
@@ -92,7 +92,7 @@ function ScreenLogDetail({ days }) {
     <div>
       <Eyebrow>Screen log · last 7 days</Eyebrow>
       {!hasAny ? (
-        <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "6px 0" }}>
+        <div style={{ fontSize: 12, color: "var(--fg-faint)", padding: "6px 0" }}>
           No screen data yet — log opens and mobile hours from the card on Today.
         </div>
       ) : (
@@ -104,12 +104,12 @@ function ScreenLogDetail({ days }) {
               { l: "Avg mobile", v: avgMobile },
             ].map((s) => (
               <div key={s.l} style={{ background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line-dim)", padding: "8px 10px" }}>
-                <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 3 }}>{s.l}</div>
-                <div style={{ fontSize: 15, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{s.v}</div>
+                <div style={{ fontSize: 10, color: "var(--fg-faint)", marginBottom: 3 }}>{s.l}</div>
+                <div style={{ fontSize: 15, fontWeight: 600, fontFamily: "var(--t-mono)" }}>{s.v}</div>
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: "var(--fg-faint)", marginBottom: 6 }}>
             Social opens · <span style={{ color: "var(--channel)" }}>X</span> vs <span style={{ color: "var(--port)" }}>YT</span>
           </div>
           <div style={{ width: "100%", height: 78, marginBottom: 14 }}>
@@ -120,12 +120,12 @@ function ScreenLogDetail({ days }) {
           </div>
           {mVals.length > 0 && (
             <>
-              <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 6 }}>Mobile hours</div>
+              <div style={{ fontSize: 10, color: "var(--fg-faint)", marginBottom: 6 }}>Mobile hours</div>
               <div style={{ width: "100%", height: 52 }}>
                 <DitherBars
                   data={days.map((d) => ({ label: d.label[0], value: d.mobile ?? 0, title: `${d.iso}: ${d.mobile ?? "—"}h` }))}
                   activeIndex={6}
-                  tone={"var(--warning)"}
+                  tone={"var(--warn)"}
                 />
               </div>
             </>
@@ -216,8 +216,8 @@ function StatsInner() {
           { l: "Launched", v: derived.launched },
         ].map((x) => (
           <div key={x.l} style={{ background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line-dim)", padding: "10px 12px" }}>
-            <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4 }}>{x.l}</div>
-            <div style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{x.v}</div>
+            <div style={{ fontSize: 10, color: "var(--fg-faint)", marginBottom: 4 }}>{x.l}</div>
+            <div style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--t-mono)" }}>{x.v}</div>
           </div>
         ))}
       </div>
@@ -228,7 +228,7 @@ function StatsInner() {
           <button className="w-bezel w-bezel--sm" onClick={() => { setUI({ statsOpen: false }); openReview(); }}>
             Weekly review <span className="w-key" style={{ marginLeft: 3 }}>W</span>
           </button>
-          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+          <span style={{ fontSize: 11, color: "var(--fg-faint)" }}>
             Browse any past week — stats + the written retro.
           </span>
         </div>
@@ -247,12 +247,12 @@ function StatsInner() {
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: done ? "var(--starboard-ground)" : "var(--plate)", boxShadow: done ? "inset 3px 0 0 var(--starboard)" : "inset 3px 0 0 var(--line-dim)", opacity: done ? 1 : 0.78 }}>
                 <Icon name="trophy" size={13} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: done ? "var(--starboard)" : "var(--text)" }}>{a.title}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{a.desc}</div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: done ? "var(--starboard)" : "var(--fg)" }}>{a.title}</div>
+                  <div style={{ fontSize: 11, color: "var(--fg-faint)" }}>{a.desc}</div>
                   {prog && (
                     <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ flex: 1 }}><ProgressBar pct={pct} height={2} /></div>
-                      <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{prog.cur}/{prog.target}</span>
+                      <span style={{ fontSize: 9, fontFamily: "var(--t-mono)", color: "var(--fg-faint)" }}>{prog.cur}/{prog.target}</span>
                     </div>
                   )}
                 </div>
@@ -275,12 +275,12 @@ function StatsInner() {
               {p.label}
             </button>
           ))}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--fg-faint)", fontFamily: "var(--t-mono)" }}>
             <input type="number" min="0" max="23" value={hour} onChange={(e) => setDayStartHour(e.target.value)}
-              className="w-input w-input--sm" style={{ width: 52, textAlign: "center" }} aria-label="Day rollover hour" />:00
+              className="w-bare" style={{ width: 52, textAlign: "center" }} aria-label="Day rollover hour" />:00
           </span>
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>
+        <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 6 }}>
           Work after midnight counts toward the previous day when this is set past 0.
         </div>
       </div>
@@ -304,11 +304,11 @@ function StatsInner() {
             ? <button className="w-bezel w-bezel--sm" style={{ color: "var(--amber-hot)", borderColor: "var(--amber-deep)" }} onClick={exitPreview}>Exit preview</button>
             : <button className="w-bezel w-bezel--sm" onClick={enterPreview}><Icon name="bolt" size={11} /> Preview with sample data</button>}
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 8, lineHeight: 1.5 }}>
           Auto-backup keeps the last 7 days in local storage{backups.length ? ` (latest: ${backups[0].day})` : ""}. Export weekly for an off-machine copy.
         </div>
         {meta.migratedFrom && (
-          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6, fontFamily: "var(--font-mono)" }}>
+          <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 6, fontFamily: "var(--t-mono)" }}>
             migrated from: {[meta.migratedFrom.quest && "quest", meta.migratedFrom.vsq && "vsq", meta.migratedFrom.shiplist && "shiplist"].filter(Boolean).join(" + ")} · lifetime XP preserved
           </div>
         )}

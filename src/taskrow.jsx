@@ -78,7 +78,7 @@ export function TaskRow({
 
   return (
     <div
-      className={"w-ledger-row" + (done ? " w-ledger-row--done" : "") + (isCursor ? " w-ledger-row--cursor" : "") + (settling ? " w-row--settling" : "")}
+      className={"w-ledger-row" + (done ? " w-ledger-row--done" : "") + (isCursor ? " w-ledger-row--cursor" : "") + (settling ? " w-settling" : "")}
       style={{ flexDirection: "column", alignItems: "stretch", "--row-lamp": done ? "var(--line-dim)" : lamp }}
       onMouseEnter={onHoverCursor}
     >

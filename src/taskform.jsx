@@ -174,19 +174,19 @@ function TaskForm({ initial, isEdit, onClose }) {
           <div>
             <div className="w-stencil" style={{ marginBottom: 6 }}>Estimate</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: isSplit ? 0.5 : 1 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-muted)" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>h</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--fg-dim)" }}>
+                <span style={{ fontFamily: "var(--t-mono)", fontSize: 11 }}>h</span>
                 <input type="number" min="0.25" max="24" step="0.25" value={hours} disabled={isSplit}
                   onChange={(e) => { applyHours(e.target.value); }}
-                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
+                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--t-mono)" }} />
               </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-muted)" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>XP</span>
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--fg-dim)" }}>
+                <span style={{ fontFamily: "var(--t-mono)", fontSize: 11 }}>XP</span>
                 <input type="number" min="5" max="200" step="5" value={xp} disabled={isSplit}
                   onChange={(e) => { setXp(Math.max(5, Math.min(200, parseInt(e.target.value, 10) || 0))); setScoreTouched(true); }}
-                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--font-mono)" }} />
+                  className="w-field w-field--sm" style={{ width: 68, textAlign: "center", fontFamily: "var(--t-mono)" }} />
               </label>
-              {isSplit && <span style={{ fontSize: 10, color: "var(--text-faint)" }}>per-chunk — edit in the chunk list</span>}
+              {isSplit && <span style={{ fontSize: 10, color: "var(--fg-faint)" }}>per-chunk — edit in the chunk list</span>}
             </div>
           </div>
         </div>
@@ -197,18 +197,18 @@ function TaskForm({ initial, isEdit, onClose }) {
               <div className="w-stencil" style={{ marginBottom: 6 }}>Scheduled {scheduleDate ? "" : "(planner decides)"}</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
-                  className="w-field w-field--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
+                  className="w-field w-field--sm" style={{ fontFamily: "var(--t-mono)", padding: "5px 7px", width: 140 }} />
                 <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate(isoDate(new Date()))}>Today</button>
                 <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}>Tomorrow</button>
-                {scheduleDate && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
+                {scheduleDate && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setScheduleDate("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
               </div>
             </div>
             <div>
               <div className="w-stencil" style={{ marginBottom: 6 }}>Deadline {deadline ? "(hard date)" : "(optional)"}</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
-                  className="w-field w-field--sm" style={{ fontFamily: "var(--font-mono)", padding: "5px 7px", width: 140 }} />
-                {deadline && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setDeadline("")} style={{ color: "var(--text-faint)" }}>Clear</button>}
+                  className="w-field w-field--sm" style={{ fontFamily: "var(--t-mono)", padding: "5px 7px", width: 140 }} />
+                {deadline && <button type="button" className="w-bezel w-bezel--sm" onClick={() => setDeadline("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
               </div>
             </div>
           </div>
@@ -257,8 +257,8 @@ function TaskForm({ initial, isEdit, onClose }) {
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
               {subs.map((x) => (
                 <div key={x.k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 4px" }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, border: "1.5px solid var(--border-strong)", flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: "var(--text-muted)", flex: 1 }}>{x.title}</span>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, border: "1.5px solid var(--line)", flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: "var(--fg-dim)", flex: 1 }}>{x.title}</span>
                   <button className="w-icon-btn" onClick={() => setSubs((p) => p.filter((y) => y.k !== x.k))} aria-label="Remove subtask"><Icon name="close" size={11} /></button>
                 </div>
               ))}
@@ -294,7 +294,7 @@ function TaskForm({ initial, isEdit, onClose }) {
           )}
           <button className="w-bezel" onClick={onClose}>Cancel</button>
         </div>
-        <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: -4 }}>
+        <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: -4 }}>
           <Kbd>{MOD}</Kbd> <Kbd>↵</Kbd> submit · <Kbd>Esc</Kbd> cancel. Unfinished subtask/tag text is included automatically.
         </div>
       </div>

@@ -97,9 +97,9 @@ function Tunnel({ taskId }) {
         )}
       </div>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--text-muted)", fontSize: 13 }}>
-          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--amber)", boxShadow: "0 0 16px 2px var(--amber-glow)" }} />
-          {project && <><span style={{ color: project.color }}>{project.title}</span><span style={{ color: "var(--text-faint)" }}>·</span></>}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--fg-dim)", fontSize: 13 }}>
+          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--amber)", boxShadow: "0 0 16px 2px rgba(245,165,36,0.35)" }} />
+          {project && <><span style={{ color: project.color }}>{project.title}</span><span style={{ color: "var(--fg-faint)" }}>·</span></>}
           <span className="w-stencil">{task.difficulty} · ~{D.taskHours(task)}h</span>
         </div>
         <h1 className="w-focus-title">{task.title}</h1>
@@ -120,7 +120,7 @@ function Tunnel({ taskId }) {
       {nextTask && (
         <div className="w-fade-in" style={{ position: "absolute", left: "50%", bottom: 36, transform: "translateX(-50%)", background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line)", padding: "12px 18px", minWidth: 280 }}>
           <div className="w-stencil" style={{ marginBottom: 4 }}>Up next</div>
-          <div style={{ fontSize: 13, color: "var(--text)" }}>{nextTask.title}</div>
+          <div style={{ fontSize: 13, color: "var(--fg)" }}>{nextTask.title}</div>
         </div>
       )}
     </div>

@@ -70,7 +70,7 @@ function Inner({ week }) {
         </div>
 
         {stats.total === 0 ? (
-          <div style={{ padding: "28px 0", textAlign: "center", color: "var(--text-faint)", fontSize: 13 }}>
+          <div style={{ padding: "28px 0", textAlign: "center", color: "var(--fg-faint)", fontSize: 13 }}>
             Nothing logged this week — no completions, no focus sessions.
             {weeks.length > 1 && idx < weeks.length - 1 && (
               <div style={{ marginTop: 10 }}>
@@ -88,7 +88,7 @@ function Inner({ week }) {
                 { l: "Launched", v: stats.launched.length || "—" },
               ].map((x) => (
                 <div key={x.l} style={{ background: "var(--well)", boxShadow: "inset 0 1px 0 rgba(0,0,0,0.5)", padding: "10px 12px" }}>
-                  <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 4 }}>{x.l}</div>
+                  <div style={{ fontSize: 10, color: "var(--fg-faint)", marginBottom: 4 }}>{x.l}</div>
                   <div className="w-display" style={{ fontSize: 18, fontWeight: 600 }}>{x.v}</div>
                 </div>
               ))}
@@ -100,10 +100,10 @@ function Inner({ week }) {
                 activeIndex={stats.bestDay ? stats.perDay.findIndex((d) => d.iso === stats.bestDay.iso) : -1}
               />
             </div>
-            <div style={{ display: "flex", gap: 14, fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 14, fontSize: 10.5, fontFamily: "var(--t-mono)", color: "var(--fg-faint)", marginBottom: 16, flexWrap: "wrap" }}>
               {stats.bestDay && <span>best: {stats.bestDay.label} ({stats.bestDay.count})</span>}
-              {stats.accuracy && <span style={{ color: stats.accuracy.factor > 1.15 ? "var(--warning)" : "var(--starboard)" }}>estimates ran {stats.accuracy.factor}× (n={stats.accuracy.n})</span>}
-              {stats.adriftNow > 0 && <span style={{ color: "var(--warning)" }}>{stats.adriftNow} adrift now</span>}
+              {stats.accuracy && <span style={{ color: stats.accuracy.factor > 1.15 ? "var(--warn)" : "var(--starboard)" }}>estimates ran {stats.accuracy.factor}× (n={stats.accuracy.n})</span>}
+              {stats.adriftNow > 0 && <span style={{ color: "var(--warn)" }}>{stats.adriftNow} adrift now</span>}
             </div>
 
             {stats.launched.length > 0 && (
@@ -125,18 +125,18 @@ function Inner({ week }) {
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {stats.effortSplit.map((e2) => (
                     <div key={e2.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
-                      <span style={{ width: 130, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e2.title}</span>
-                      <div style={{ flex: 1, height: 5, background: "var(--bg-muted)", borderRadius: 3, overflow: "hidden" }}>
+                      <span style={{ width: 130, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e2.title}</span>
+                      <div style={{ flex: 1, height: 5, background: "var(--plate-hi)", borderRadius: 3, overflow: "hidden" }}>
                         <div className="w-bar-fill" style={{ height: "100%", width: (e2.hours / maxSplit) * 100 + "%", background: e2.color, borderRadius: 3 }} />
                       </div>
-                      <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", width: 42, textAlign: "right" }}>{e2.hours}h</span>
+                      <span style={{ fontFamily: "var(--t-mono)", color: "var(--fg-faint)", width: 42, textAlign: "right" }}>{e2.hours}h</span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+            <div style={{ borderTop: "1px solid var(--line-dim)", paddingTop: 14 }}>
               <Eyebrow right={entry?.text ? (
                 <button className="w-icon-btn" title="Rewrite the retro"
                   onClick={() => { patchReview(week, { text: null, attempted: false }); generateReviewRetro(week, stats); }}>
@@ -144,14 +144,14 @@ function Inner({ week }) {
                 </button>
               ) : null}>The retro</Eyebrow>
               {entry?.text ? (
-                <div style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{entry.text}</div>
+                <div style={{ fontSize: 13, color: "var(--fg)", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{entry.text}</div>
               ) : entry?.attempted && aiStatus !== "busy" ? (
-                <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                <div style={{ fontSize: 12, color: "var(--fg-faint)" }}>
                   AI is off — the numbers above stand on their own.{" "}
                   <button className="w-link" style={{ fontSize: 12 }} onClick={() => generateReviewRetro(week, stats)}>Retry</button>
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>writing the retro…</div>
+                <div style={{ fontSize: 12, color: "var(--fg-faint)", fontFamily: "var(--t-mono)" }}>writing the retro…</div>
               )}
             </div>
           </>

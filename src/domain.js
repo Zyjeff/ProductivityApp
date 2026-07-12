@@ -9,16 +9,16 @@
 export const DIFFICULTY = {
   easy:   { label: "easy",   hours: 0.5, xp: 12, tone: "var(--starboard)" },
   medium: { label: "medium", hours: 1.5, xp: 25, tone: "var(--channel)" },
-  hard:   { label: "hard",   hours: 3.0, xp: 45, tone: "var(--warning)" },
+  hard:   { label: "hard",   hours: 3.0, xp: 45, tone: "var(--warn)" },
   epic:   { label: "epic",   hours: 5.0, xp: 70, tone: "var(--port)" },
 };
 export const DIFFICULTY_ORDER = ["easy", "medium", "hard", "epic"];
 
 export const PRIORITIES = {
   urgent: { label: "Urgent", dot: "var(--port)",       order: 0 },
-  high:   { label: "High",   dot: "var(--warning)",    order: 1 },
+  high:   { label: "High",   dot: "var(--warn)",    order: 1 },
   medium: { label: "Medium", dot: "var(--channel)",    order: 2 },
-  low:    { label: "Low",    dot: "var(--text-faint)", order: 3 },
+  low:    { label: "Low",    dot: "var(--fg-faint)", order: 3 },
 };
 
 export const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2400, 3700, 5500, 8000, 12000];
@@ -654,7 +654,7 @@ export function weeklyReviewData(tasks, plan, projects, sessions, weekStartIso, 
     .map(([k, hours]) => ({
       id: k,
       title: k === "solo" ? "Loose tasks" : projName.get(k).title,
-      color: k === "solo" ? "var(--text-faint)" : projName.get(k).color,
+      color: k === "solo" ? "var(--fg-faint)" : projName.get(k).color,
       hours: Math.round(hours * 10) / 10,
     }))
     .sort((a, b) => b.hours - a.hours);

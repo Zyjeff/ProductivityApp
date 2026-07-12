@@ -50,11 +50,11 @@ function Inner() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }}>
           <div style={{ background: "var(--well)", boxShadow: "inset 0 1px 0 rgba(0,0,0,0.5)", padding: "12px 14px" }}>
             <div className="w-stencil" style={{ marginBottom: 6 }}>Completed</div>
-            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{completedToday.length}</div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--t-mono)" }}>{completedToday.length}</div>
           </div>
           <div style={{ background: "var(--well)", boxShadow: "inset 0 1px 0 rgba(0,0,0,0.5)", padding: "12px 14px" }}>
             <div className="w-stencil" style={{ marginBottom: 6 }}>XP earned</div>
-            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", color: "var(--amber-strong)" }}>{xpToday}</div>
+            <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--t-mono)", color: "var(--amber-hot)" }}>{xpToday}</div>
           </div>
         </div>
 
@@ -65,7 +65,7 @@ function Inner() {
               {completedToday.map((t) => (
                 <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: "var(--well)", fontSize: 12.5 }}>
                   <Icon name="check" size={11} />
-                  <span style={{ flex: 1, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  <span style={{ flex: 1, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 </div>
               ))}
             </div>
@@ -76,14 +76,14 @@ function Inner() {
           <div style={{ marginBottom: 18 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <div className="w-stencil">Unfinished · {unfinished.length}</div>
-              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer" }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--fg-dim)", cursor: "pointer" }}>
                 <input type="checkbox" checked={rollForward} onChange={(e) => setRollForward(e.target.checked)} style={{ accentColor: "var(--amber)" }} />
                 Roll to next working day
               </label>
             </div>
             <div className="w-scroll" style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 110, overflowY: "auto" }}>
               {unfinished.map((t) => (
-                <div key={t.id} style={{ fontSize: 12.5, color: "var(--text-muted)", padding: "4px 8px", boxShadow: "inset 3px 0 0 var(--line-dim)", background: "var(--well)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
+                <div key={t.id} style={{ fontSize: 12.5, color: "var(--fg-dim)", padding: "4px 8px", boxShadow: "inset 3px 0 0 var(--line-dim)", background: "var(--well)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</div>
               ))}
             </div>
           </div>
@@ -92,7 +92,7 @@ function Inner() {
         <div style={{ marginBottom: 18 }}>
           <div className="w-stencil" style={{ marginBottom: 8 }}>Screen time</div>
           {screenEntry.mobileHours != null ? (
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+            <div style={{ fontSize: 12.5, color: "var(--fg-dim)" }}>
               {screenEntry.mobileHours}h mobile · {screenEntry.xOpens || 0} X · {screenEntry.ytOpens || 0} YT
             </div>
           ) : (
