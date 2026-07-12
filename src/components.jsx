@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo } from "react";
 import { DIFFICULTY, PRIORITIES } from "./domain.js";
 import { DitherSparkline, DitherBars } from "./dither.jsx";
+import { tex } from "./texture.js";
 
 export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
 export const MOD = IS_MAC ? "⌘" : "Ctrl";
@@ -36,8 +37,17 @@ export function Icon({ name, size = 14 }) {
   }
 }
 
+// Stamps — square mono markings. Bezel by default; semantic kinds get
+// their lamp color on the bezel (tape variants are applied per-surface).
+const STAMP_TONE = { green: "var(--starboard)", red: "var(--port)", amber: "var(--amber-hot)", blue: "var(--channel)" };
 export function Chip({ kind, children, style }) {
-  return <span className={"w-chip" + (kind ? " w-chip--" + kind : "")} style={style}>{children}</span>;
+  const tone = STAMP_TONE[kind];
+  return (
+    <span className={"w-stamp" + (tone ? " w-stamp--lamp" : "")}
+      style={tone ? { color: tone, ...style } : style}>
+      {children}
+    </span>
+  );
 }
 
 export function PriorityDot({ p }) {
@@ -54,48 +64,46 @@ export function Checkbox({ checked, onChange, label }) {
   return (
     <button
       type="button"
-      className={"w-check-sq" + (checked ? " w-check-sq--done" : "")}
+      className={"w-light-sq" + (checked ? " w-light-sq--on" : "")}
       onClick={(e) => { e.stopPropagation(); onChange(); }}
       aria-label={label || "toggle"}
       aria-pressed={checked}
     >
       {checked && (
         <svg width="9" height="9" viewBox="0 0 12 12">
-          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#0b0e14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="square" fill="none" />
         </svg>
       )}
     </button>
   );
 }
 
+// Harbor light — the completion control. Green = starboard: clear to go.
 export function CompleteButton({ done, onComplete, onReopen, tone }) {
   if (done) {
     return (
-      <button type="button" className="w-check w-check--done"
+      <button type="button" className="w-light w-light--on"
         onClick={(e) => { e.stopPropagation(); onReopen && onReopen(); }}
         title="Reopen" aria-label="Reopen task">
         <svg width="10" height="10" viewBox="0 0 12 12">
-          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#071a10" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="square" fill="none" />
         </svg>
       </button>
     );
   }
   return (
-    <button type="button" className="w-check"
+    <button type="button" className="w-light"
       style={tone ? { borderColor: tone } : undefined}
       onClick={(e) => { e.stopPropagation(); onComplete && onComplete(); }}
       title="Complete" aria-label="Complete task" />
   );
 }
 
-export function ProgressBar({ pct, tone = "var(--amber)", height = 4 }) {
+// Density meter — square track, quarter ticks, dithered fill.
+export function ProgressBar({ pct, tone = "var(--amber)", height = 5 }) {
   return (
-    <div style={{ height, background: "var(--bg-muted)", borderRadius: 999, overflow: "hidden", width: "100%" }}>
-      <div className="w-bar-fill" style={{
-        height: "100%", width: Math.max(0, Math.min(100, pct)) + "%",
-        background: tone, borderRadius: 999,
-        transition: "width 320ms cubic-bezier(.2,.8,.2,1)",
-      }} />
+    <div className="w-meter" style={{ height }}>
+      <div className="w-meter-fill" style={{ width: Math.max(0, Math.min(100, pct)) + "%", "--meter-tone": tone, backgroundColor: tone }} />
     </div>
   );
 }
@@ -115,37 +123,49 @@ export function ProgressRing({ pct, size = 28, stroke = 2.5, tone = "var(--amber
   );
 }
 
-export function Eyebrow({ children, right }) {
+// Stencil section label with a dither tail running to the plate edge.
+export function Eyebrow({ children, right, lit }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-      <span className="w-eyebrow">{children}</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      <div className="w-stencil-row" style={{ flex: 1, minWidth: 0 }}>
+        <span className={"w-stencil" + (lit ? " w-stencil--lit" : "")}>{children}</span>
+      </div>
       {right}
     </div>
   );
 }
 
-export function EmptyState({ children, dashed }) {
+// Dither ghost — no box, no dashes: a procedural FS-dithered horizon
+// band with a stencil caption floating above it.
+export function EmptyState({ children }) {
   return (
-    <div style={{
-      padding: "32px 20px", textAlign: "center",
-      color: "var(--text-faint)", fontSize: 13, lineHeight: 1.6,
-      border: `1px ${dashed ? "dashed" : "solid"} var(--border)`,
-      borderRadius: "var(--r-lg)", background: "var(--bg-elev)",
-    }}>{children}</div>
+    <div style={{ padding: "34px 20px 0", textAlign: "center", color: "var(--fg-faint)", fontSize: 13, lineHeight: 1.65 }}>
+      <div style={{ maxWidth: 460, margin: "0 auto" }}>{children}</div>
+      <GhostHorizon />
+    </div>
   );
+}
+export function GhostHorizon({ tone = "#33405c", height = 46 }) {
+  const url = useMemo(
+    () => tex({ seed: "ghost-horizon-" + tone, algo: "fs", w: 480, h: height, cell: 2, fg: tone, grad: { from: 0, to: 0.5, dir: "down" }, alpha: 0.75 }),
+    [tone, height]
+  );
+  return <div aria-hidden style={{ height, marginTop: 20, backgroundImage: url, backgroundRepeat: "repeat-x", backgroundPosition: "center bottom" }} />;
 }
 
 export function Kbd({ children }) {
-  return <span className="w-kbd">{children}</span>;
+  return <span className="w-key">{children}</span>;
 }
 
 export function PageHeader({ eyebrow, title, sub, right }) {
   return (
-    <div className="w-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 18, marginBottom: 22 }}>
+    <div className="w-header w-header-slab" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 18, marginBottom: 20 }}>
       <div style={{ minWidth: 0 }}>
-        <div className="w-eyebrow" style={{ marginBottom: 4 }}>{eyebrow}</div>
-        <div className="w-display" style={{ fontSize: 24, fontWeight: 600, color: "var(--text)" }}>{title}</div>
-        {sub && <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>{sub}</div>}
+        <div className="w-stencil-row" style={{ marginBottom: 7, maxWidth: 300 }}>
+          <span className="w-stencil">{eyebrow}</span>
+        </div>
+        <div className="w-display" style={{ fontSize: 31, lineHeight: 1.04, color: "var(--fg)" }}>{title}</div>
+        {sub && <div className="w-num" style={{ fontSize: 11, color: "var(--fg-dim)", marginTop: 7, letterSpacing: "0.02em" }}>{sub}</div>}
       </div>
       {right}
     </div>
@@ -198,7 +218,7 @@ export function BarStrip({ data, activeIndex = -1, height = 36 }) {
 }
 
 export function AiDot({ status, detail }) {
-  const cls = status === "ok" ? "w-ai-dot--ok" : status === "busy" ? "w-ai-dot--busy" : "w-ai-dot--off";
+  const cls = status === "ok" ? "w-lamp--ok" : status === "busy" ? "w-lamp--busy" : "w-lamp--off";
   const label = status === "ok" ? "AI ready" : status === "busy" ? "AI working…" : status === "off" ? `AI off${detail ? ` (${detail})` : ""} — everything still works, scored manually` : "AI status unknown until first use";
-  return <span className={"w-ai-dot " + cls} title={label} aria-label={label} />;
+  return <span className={"w-lamp " + cls} title={label} aria-label={label} />;
 }

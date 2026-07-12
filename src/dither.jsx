@@ -6,6 +6,7 @@
 // constitution is "no deps a daily driver doesn't need".
 
 import React, { useEffect, useRef } from "react";
+import { REDUCED_MOTION } from "./texture.js";
 
 // Classic 8×8 Bayer threshold matrix, normalized 0..1 at lookup.
 const BAYER8 = [
@@ -31,7 +32,8 @@ export function resolveColor(c) {
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
 // Shared canvas lifecycle: DPR-aware sizing + entrance animation loop.
-function useDitherCanvas(draw, deps, { animMs = 550 } = {}) {
+function useDitherCanvas(draw, deps, { animMs: animMsOpt = 550 } = {}) {
+  const animMs = REDUCED_MOTION ? 0 : animMsOpt;
   const ref = useRef(null);
   useEffect(() => {
     const canvas = ref.current;
