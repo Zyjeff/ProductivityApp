@@ -129,6 +129,22 @@ export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+export function fmtMs(ms) {
+  if (!ms || ms < 60000) return ms >= 1000 ? "<1m" : "0m";
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m.toString().padStart(2, "0")}`;
+}
+
+// Focus time counted for "today" — stale focusDate reads as 0.
+export function todayFocusMs(task, dayStartHour = 0) {
+  if (!task?.focusMs || !task.focusDate) return 0;
+  return task.focusDate === effectiveTodayIso(dayStartHour) ? task.focusMs : 0;
+}
+
 /* ── task + chunk helpers ──────────────────────────────────── */
 
 export function taskHours(t) {

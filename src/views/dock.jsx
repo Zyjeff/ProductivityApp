@@ -45,6 +45,7 @@ function ProjectsTab() {
   const [expandedId, setExpandedId] = useState(null);
   const [showLaunched, setShowLaunched] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [typeFilter, setTypeFilter] = useState("All");
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState("client");
   const [addingTaskTo, setAddingTaskTo] = useState(null);
@@ -59,7 +60,9 @@ function ProjectsTab() {
 
   const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
   const active = projects.filter((p) => !p.completedAt)
+    .filter((p) => typeFilter === "All" || p.type === typeFilter)
     .sort((a, b) => D.progressOfProject(b, tasksById) - D.progressOfProject(a, tasksById));
+  const activeAnyType = projects.some((p) => !p.completedAt);
   const launched = projects.filter((p) => p.completedAt)
     .sort((a, b) => (b.shippedAt || 0) - (a.shippedAt || 0));
 
@@ -94,7 +97,16 @@ function ProjectsTab() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {activeAnyType && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            <ChipChoice active={typeFilter === "All"} onClick={() => setTypeFilter("All")}>All</ChipChoice>
+            {D.PROJECT_TYPES.map((t) => (
+              <ChipChoice key={t.id} active={typeFilter === t.id} onClick={() => setTypeFilter(t.id)}>{t.label}</ChipChoice>
+            ))}
+          </div>
+        )}
+        <div style={{ flex: 1 }} />
         <button className="w-btn w-btn--primary w-btn--sm" onClick={() => setAdding(true)}>
           <Icon name="plus" size={12} /> New project
         </button>
@@ -118,7 +130,11 @@ function ProjectsTab() {
       )}
 
       {active.length === 0 && !adding && (
-        <EmptyState dashed>No projects in the yard. Create one, or capture with the Project mode.</EmptyState>
+        <EmptyState dashed>
+          {activeAnyType && typeFilter !== "All"
+            ? <>No {D.PROJECT_TYPES.find((t) => t.id === typeFilter)?.label.toLowerCase()} projects in the yard.</>
+            : <>No projects in the yard. Create one, or capture with the Project mode.</>}
+        </EmptyState>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

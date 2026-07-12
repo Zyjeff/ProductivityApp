@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { Icon, Chip, CompleteButton, Checkbox, PriorityDot, DifficultyPip } from "./components.jsx";
-import { DIFFICULTY, taskHours, effectiveTodayIso } from "./domain.js";
+import { DIFFICULTY, taskHours, effectiveTodayIso, todayFocusMs, fmtMs } from "./domain.js";
 import { setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "./store.js";
 
 export function DeadlineChip({ task }) {
@@ -103,6 +103,17 @@ export function TaskRow({
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {(() => {
+            // Actuals chip (F4) once real sessions exist; today's focus
+            // time as the running signal while working.
+            const fm = todayFocusMs(task, dayStartHour);
+            if (!fm || done) return null;
+            return (
+              <span title="Time focused today" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--amber-strong)" }}>
+                <Icon name="focus" size={10} />{fmtMs(fm)}
+              </span>
+            );
+          })()}
           {sub.length > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }}>{doneSub}/{sub.length}</span>
           )}

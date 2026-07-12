@@ -10,6 +10,7 @@ import * as D from "../domain.js";
 import {
   useStore, getState, setUI, setCompletion, todayLineup, sel,
   pinTaskToDate, dismissChunk, moveChunkDate, patchScreenToday, reopenDay,
+  enterPreview,
 } from "../store.js";
 import { registerActiveList } from "../keys.js";
 
@@ -254,6 +255,16 @@ export function TodayView() {
                 <>
                   <div style={{ fontWeight: 500, color: "var(--text)", marginBottom: 8 }}>Nothing in the yard.</div>
                   <div>Type in the capture bar above — it lands right here, scheduled for today.</div>
+                  {tasks.length === 0 && projects.length === 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <button className="w-btn w-btn--outline w-btn--sm" onClick={enterPreview}>
+                        <Icon name="bolt" size={11} /> Try with sample data
+                      </button>
+                      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>
+                        Loads a demo yard so you can poke around — your (empty) data is snapshotted and restored on exit.
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>

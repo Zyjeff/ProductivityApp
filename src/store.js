@@ -242,6 +242,17 @@ export function setCompletion(taskId, { done, chunkDate = null, dateIso = null }
   else msg = "Reopened";
   notify(msg, delta || null, done ? () => setCompletion(taskId, { done: false, chunkDate, dateIso }) : null);
 
+  // Day-cleared moment: once per effective day, when the LAST lineup
+  // item lands. (The original only counted dailies — dead-schema bug.)
+  if (done) {
+    const todayIsoNow = D.effectiveTodayIso(hour);
+    const rows = todayLineup(state);
+    if (rows.length > 0 && rows.every((r) => r.doneHere) && state.meta.dayClearedShown !== todayIsoNow) {
+      set({ meta: { ...state.meta, dayClearedShown: todayIsoNow } });
+      setTimeout(() => notify("Day cleared. Solid day."), 1400);
+    }
+  }
+
   checkNewAchievements();
   if (done && nowTask.completed && nowTask.projectId) {
     const proj = state.projects.find((p) => p.id === nowTask.projectId);
