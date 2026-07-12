@@ -2,7 +2,8 @@
 // progress), screen-log history, settings (day rollover), data tools.
 
 import React, { useMemo, useRef } from "react";
-import { Icon, Eyebrow, ProgressBar, BarStrip, Chip } from "../components.jsx";
+import { Icon, Eyebrow, ProgressBar, Chip } from "../components.jsx";
+import { DitherBars, DitherStackedBars } from "../dither.jsx";
 import * as D from "../domain.js";
 import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify, openReview } from "../store.js";
 import { listBackups } from "../db.js";
@@ -55,7 +56,7 @@ function CalibrationCard({ tasks, sessions }) {
                 {v.factor && v.n >= 2 ? (
                   <>
                     <div style={{ flex: 1, height: 4, background: "var(--bg-muted)", borderRadius: 2, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: Math.min(100, v.factor * 50) + "%", background: v.factor > 1.15 ? "var(--warning)" : "var(--starboard)" }} />
+                      <div className="w-bar-fill" style={{ height: "100%", width: Math.min(100, v.factor * 50) + "%", background: v.factor > 1.15 ? "var(--warning)" : "var(--starboard)" }} />
                     </div>
                     <span style={{ fontFamily: "var(--font-mono)", color: "var(--text)", width: 44, textAlign: "right" }}>{v.factor}×</span>
                     <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", fontSize: 10 }}>n={v.n}</span>
@@ -109,46 +110,21 @@ function ScreenLogDetail({ days }) {
           <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 6 }}>
             Social opens · <span style={{ color: "var(--channel)" }}>X</span> vs <span style={{ color: "var(--port)" }}>YT</span>
           </div>
-          <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 66, marginBottom: 14 }}>
-            {days.map((d) => {
-              const tot = d.x + d.yt;
-              const barH = tot > 0 ? Math.max(6, Math.round((tot / maxOpens) * 48)) : 0;
-              const xH = tot > 0 ? Math.round((d.x / tot) * barH) : 0;
-              return (
-                <div key={d.iso} title={`${d.iso}: ${d.x} X · ${d.yt} YT`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                  <div style={{ fontSize: 9, color: "var(--text-faint)", fontFamily: "var(--font-mono)", minHeight: 12 }}>{tot > 0 ? tot : ""}</div>
-                  <div style={{ width: "100%", height: 48, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                    {barH > 0 ? (
-                      <div style={{ width: "100%", height: barH, borderRadius: "3px 3px 0 0", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                        {xH > 0 && <div style={{ height: xH, background: "var(--channel)" }} />}
-                        {barH - xH > 0 && <div style={{ height: barH - xH, background: "var(--port)" }} />}
-                      </div>
-                    ) : (
-                      <div style={{ width: "100%", height: 3, background: "var(--border)", borderRadius: 2 }} />
-                    )}
-                  </div>
-                  <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{d.label[0]}</div>
-                </div>
-              );
-            })}
+          <div style={{ width: "100%", height: 78, marginBottom: 14 }}>
+            <DitherStackedBars
+              data={days.map((d) => ({ label: d.label[0], values: [d.x, d.yt], title: `${d.iso}: ${d.x} X · ${d.yt} YT` }))}
+              tones={["var(--channel)", "var(--port)"]}
+            />
           </div>
           {mVals.length > 0 && (
             <>
               <div style={{ fontSize: 10, color: "var(--text-faint)", marginBottom: 6 }}>Mobile hours</div>
-              <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 52 }}>
-                {days.map((d) => {
-                  const h = d.mobile != null ? Math.max(4, Math.round((d.mobile / maxMobile) * 34)) : 0;
-                  const col = d.mobile == null ? "var(--border)" : d.mobile <= 2 ? "var(--starboard)" : d.mobile <= 4 ? "var(--warning)" : "var(--port)";
-                  return (
-                    <div key={d.iso} title={`${d.iso}: ${d.mobile ?? "—"}h`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                      <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)", minHeight: 12 }}>{d.mobile ?? ""}</div>
-                      <div style={{ width: "100%", height: 34, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                        <div style={{ width: "100%", height: h || 3, background: col, borderRadius: "3px 3px 0 0" }} />
-                      </div>
-                      <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{d.label[0]}</div>
-                    </div>
-                  );
-                })}
+              <div style={{ width: "100%", height: 52 }}>
+                <DitherBars
+                  data={days.map((d) => ({ label: d.label[0], value: d.mobile ?? 0, title: `${d.iso}: ${d.mobile ?? "—"}h` }))}
+                  activeIndex={6}
+                  tone={"var(--warning)"}
+                />
               </div>
             </>
           )}

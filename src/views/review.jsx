@@ -4,6 +4,7 @@
 
 import React, { useEffect, useMemo } from "react";
 import { Icon, Eyebrow, Kbd } from "../components.jsx";
+import { DitherBars } from "../dither.jsx";
 import * as D from "../domain.js";
 import { useStore, getState, setUI, closeReview, patchReview } from "../store.js";
 import { generateReviewRetro } from "../enrich.js";
@@ -87,21 +88,11 @@ function Inner({ week }) {
               ))}
             </div>
 
-            <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height: 64, marginBottom: 4 }}>
-              {stats.perDay.map((d) => (
-                <div key={d.iso} title={`${d.iso}: ${d.count} done · ${d.xp} XP${d.focusMs ? " · " + D.fmtMs(d.focusMs) : ""}`}
-                  style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                  <div style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)", minHeight: 12 }}>{d.count || ""}</div>
-                  <div style={{ width: "100%", height: 40, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-                    <div style={{
-                      width: "100%", height: d.count ? Math.max(4, Math.round((d.count / maxCount) * 38)) : 2,
-                      background: stats.bestDay && d.iso === stats.bestDay.iso ? "var(--amber)" : d.count ? "var(--border-strong)" : "var(--border)",
-                      borderRadius: "2px 2px 0 0",
-                    }} />
-                  </div>
-                  <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: "var(--text-faint)" }}>{d.label[0]}</span>
-                </div>
-              ))}
+            <div style={{ width: "100%", height: 64, marginBottom: 4 }}>
+              <DitherBars
+                data={stats.perDay.map((d) => ({ label: d.label[0], value: d.count, title: `${d.iso}: ${d.count} done · ${d.xp} XP${d.focusMs ? " · " + D.fmtMs(d.focusMs) : ""}` }))}
+                activeIndex={stats.bestDay ? stats.perDay.findIndex((d) => d.iso === stats.bestDay.iso) : -1}
+              />
             </div>
             <div style={{ display: "flex", gap: 14, fontSize: 10.5, fontFamily: "var(--font-mono)", color: "var(--text-faint)", marginBottom: 16, flexWrap: "wrap" }}>
               {stats.bestDay && <span>best: {stats.bestDay.label} ({stats.bestDay.count})</span>}
@@ -130,7 +121,7 @@ function Inner({ week }) {
                     <div key={e2.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}>
                       <span style={{ width: 130, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e2.title}</span>
                       <div style={{ flex: 1, height: 5, background: "var(--bg-muted)", borderRadius: 3, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: (e2.hours / maxSplit) * 100 + "%", background: e2.color, borderRadius: 3 }} />
+                        <div className="w-bar-fill" style={{ height: "100%", width: (e2.hours / maxSplit) * 100 + "%", background: e2.color, borderRadius: 3 }} />
                       </div>
                       <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-faint)", width: 42, textAlign: "right" }}>{e2.hours}h</span>
                     </div>

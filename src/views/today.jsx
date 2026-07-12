@@ -188,7 +188,7 @@ export function TodayView() {
           </div>
           <div className="w-stat-bottom" style={{ padding: "8px 16px 14px", display: "flex", alignItems: "flex-end" }}>
             <div style={{ height: 4, background: "var(--bg-muted)", borderRadius: 999, overflow: "hidden", width: "100%" }}>
-              <div style={{ height: "100%", width: (lineup.length ? (planDone / lineup.length) * 100 : 0) + "%", background: "var(--starboard)", borderRadius: 999, transition: "width 320ms" }} />
+              <div className="w-bar-fill" style={{ height: "100%", width: (lineup.length ? (planDone / lineup.length) * 100 : 0) + "%", background: "var(--starboard)", borderRadius: 999, transition: "width 320ms" }} />
             </div>
           </div>
         </div>

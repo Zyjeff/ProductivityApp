@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo } from "react";
 import { DIFFICULTY, PRIORITIES } from "./domain.js";
+import { DitherSparkline, DitherBars } from "./dither.jsx";
 
 export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
 export const MOD = IS_MAC ? "⌘" : "Ctrl";
@@ -90,7 +91,7 @@ export function CompleteButton({ done, onComplete, onReopen, tone }) {
 export function ProgressBar({ pct, tone = "var(--amber)", height = 4 }) {
   return (
     <div style={{ height, background: "var(--bg-muted)", borderRadius: 999, overflow: "hidden", width: "100%" }}>
-      <div style={{
+      <div className="w-bar-fill" style={{
         height: "100%", width: Math.max(0, Math.min(100, pct)) + "%",
         background: tone, borderRadius: 999,
         transition: "width 320ms cubic-bezier(.2,.8,.2,1)",
@@ -181,46 +182,17 @@ export function Confetti({ onDone }) {
   );
 }
 
+// Charts render through the ordered-dither engine (src/dither.jsx) —
+// same props as the old SVG/div versions, so call sites are unchanged.
 export function Sparkline({ data, tone = "var(--amber)" }) {
-  const sparkId = useMemo(() => "spark-" + Math.random().toString(36).slice(2, 8), []);
   if (!data || data.length === 0) return null;
-  const width = 200, height = 48;
-  const max = Math.max(1, ...data);
-  const stepX = width / Math.max(1, data.length - 1);
-  const points = data.map((v, i) => `${(i * stepX).toFixed(1)},${(height - (v / max) * (height - 6) - 2).toFixed(1)}`);
-  const linePath = "M" + points.join("L");
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} style={{ display: "block", width: "100%", height: "100%" }} preserveAspectRatio="none" aria-hidden>
-      <defs>
-        <linearGradient id={sparkId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={tone} stopOpacity="0.35" />
-          <stop offset="100%" stopColor={tone} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={linePath + `L${width},${height}L0,${height}Z`} fill={`url(#${sparkId})`} />
-      <path d={linePath} fill="none" stroke={tone} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
+  return <DitherSparkline data={data} tone={tone} />;
 }
 
 export function BarStrip({ data, activeIndex = -1, height = 36 }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
   return (
-    <div style={{ display: "flex", gap: 5, alignItems: "flex-end", height }}>
-      {data.map((d, i) => {
-        const h = d.value > 0 ? Math.max(4, Math.round((d.value / max) * (height - 8))) : 2;
-        return (
-          <div key={i} title={d.title} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 0 }}>
-            <div style={{ width: "100%", height: height - 14, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-              <div style={{
-                width: "100%", height: h, borderRadius: "2px 2px 0 0",
-                background: i === activeIndex ? "var(--amber)" : d.value > 0 ? "var(--border-strong)" : "var(--border)",
-              }} />
-            </div>
-            <span style={{ fontSize: 9, fontFamily: "var(--font-mono)", color: i === activeIndex ? "var(--amber-strong)" : "var(--text-faint)" }}>{d.label}</span>
-          </div>
-        );
-      })}
+    <div style={{ width: "100%", height }}>
+      <DitherBars data={data} activeIndex={activeIndex} />
     </div>
   );
 }

@@ -80,6 +80,14 @@ counter — the history is the truth.
 Legacy keys are left untouched, so the old app still works if you ever
 open it. To re-run the migration, clear only the `werf_*` keys.
 
+## Night-owl day rollover
+
+Logbook (`4`) → **Day rollover**: presets Standard (midnight) / Late
+(10pm) / Overnight (4am), or any hour. With Overnight set, 1am work
+still counts as *today* — streak, Today's lineup, screen log, briefs,
+and reviews all respect it. Migrated automatically from Quest's
+`quest_day_start_hour`. Also reachable via `Ctrl/⌘+K` → "day rollover".
+
 ## Data & durability
 
 - Everything lives in localStorage under `werf_*` (local-first, no

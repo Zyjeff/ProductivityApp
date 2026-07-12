@@ -49,6 +49,7 @@ export function buildCommands() {
     { id: "stats", label: s.ui.statsOpen ? "Close stats panel" : "Open stats panel", keys: "4", run: () => setUI({ statsOpen: !s.ui.statsOpen }) },
     { id: "undo", label: "Undo last action", keys: "U", run: () => undoLast() },
     { id: "review", label: "Weekly review (last week)", keys: "W", run: () => { import("./store.js").then((m) => m.openReview()); } },
+    { id: "rollover", label: "Day rollover hour (night-owl setting) — in the Logbook", run: () => setUI({ statsOpen: true }) },
     { id: "brief", label: "Morning brief", keys: "B", run: () => {
       const todayIso = effectiveTodayIso(s.meta.dayStartHour);
       setUI({ view: "today", cursor: null });

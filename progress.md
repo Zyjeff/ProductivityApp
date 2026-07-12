@@ -52,3 +52,9 @@ upgrade tested + verified live to leave existing data intact.
 Deadline radar · plan-tomorrow inside Close Day · inbox/triage · full
 project notes drawer · ask-the-yard Q&A · streak stakes · day journal ·
 year heatmap · store.js slice refactor (platform, not product).
+
+## dither pass (post-product session)
+- Adopted the tripwire.sh dither-kit AESTHETIC via a hand-rolled ordered-dither canvas engine (src/dither.jsx): Bayer-8 fills, colour bloom, entrance sweep. Deliberately did NOT vendor the npm kit: it requires motion + d3-scale + d3-shape + clsx + tailwind-merge + Tailwind-styled DOM and shows no license, for 5 chart types where Werf needs 2. Zero deps added. Revisit the real kit if pie/radar/scrub-tooltips ever earn a place.
+- Charts swapped: Today XP + done sparklines, week bars, Review per-day bars, Logbook screen-log stacked + mobile bars. All solid meter fills carry a dither texture (.w-bar-fill); body + focus tunnel gained a faint dither grain.
+- Engine paints synchronously and only animates via rAF as enhancement (rAF is throttled in occluded tabs — found live when the preview pane rendered blank canvases).
+- Day rollover: was never missing — Logbook > Day rollover (presets + hour, migrated from quest_day_start_hour). Added a palette command and a README section for discoverability.
