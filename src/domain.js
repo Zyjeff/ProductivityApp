@@ -120,6 +120,16 @@ export function effectiveIsoOf(ms, hour = 0) {
 export function fmtDate(ts) {
   return new Date(ts).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
+export function fmtWeekLabel(monday) {
+  const sun = addDays(monday, 6);
+  const sameMonth = monday.getMonth() === sun.getMonth();
+  const m1 = monday.toLocaleDateString("en-US", { month: "short" });
+  const m2 = sun.toLocaleDateString("en-US", { month: "short" });
+  return sameMonth
+    ? `${m1} ${monday.getDate()} – ${sun.getDate()}, ${monday.getFullYear()}`
+    : `${m1} ${monday.getDate()} – ${m2} ${sun.getDate()}, ${monday.getFullYear()}`;
+}
+
 export function fmtIsoShort(iso) {
   const d = parseIsoDate(iso);
   return d ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : iso;
@@ -592,6 +602,90 @@ export function morningBriefData(tasks, plan, caps, sessions, dayStartHour = 0, 
     dayOff: cap === 0,
     deadlinesSoon,
   };
+}
+
+/* ── weekly review (F2) — the app's memory ─────────────────── */
+
+export function weeklyReviewData(tasks, plan, projects, sessions, weekStartIso, dayStartHour = 0) {
+  const start = parseIsoDate(weekStartIso);
+  const days = [];
+  for (let i = 0; i < 7; i++) days.push(isoDate(addDays(start, i)));
+  const daySet = new Set(days);
+  const byId = new Map((tasks || []).map((t) => [t.id, t]));
+
+  const activity = activityByDay(tasks, plan, dayStartHour);
+  const xpMap = xpByDay(tasks, plan, dayStartHour);
+  const focusMap = focusMsByDay(sessions || []);
+
+  const perDay = days.map((iso) => ({
+    iso,
+    label: parseIsoDate(iso).toLocaleDateString("en-US", { weekday: "short" }),
+    count: activity.get(iso)?.size || 0,
+    xp: xpMap.get(iso) || 0,
+    focusMs: focusMap.get(iso) || 0,
+  }));
+  const doneIds = new Set();
+  for (const iso of days) for (const id of activity.get(iso) || []) doneIds.add(id);
+  const doneTasks = [...doneIds].map((id) => byId.get(id)).filter(Boolean);
+
+  const launched = (projects || []).filter((p) => {
+    if (!p.shippedAt) return false;
+    return daySet.has(isoDate(new Date(p.shippedAt)));
+  });
+
+  // Estimate accuracy for tasks completed this week with logged focus.
+  const actuals = actualsByTask(sessions || []);
+  let est = 0, act = 0, nCal = 0;
+  for (const t of doneTasks) {
+    if (t.recurring !== "none" || !t.completed) continue;
+    const a = actuals.get(t.id) || 0;
+    if (a < 5 * 60000) continue;
+    est += taskHours(t); act += a / 3600000; nCal += 1;
+  }
+
+  // Effort split by project (estimated hours of the week's done tasks).
+  const projName = new Map((projects || []).map((p) => [p.id, p]));
+  const split = new Map();
+  for (const t of doneTasks) {
+    const key = t.projectId && projName.has(t.projectId) ? t.projectId : "solo";
+    split.set(key, (split.get(key) || 0) + taskHours(t));
+  }
+  const effortSplit = [...split.entries()]
+    .map(([k, hours]) => ({
+      id: k,
+      title: k === "solo" ? "Loose tasks" : projName.get(k).title,
+      color: k === "solo" ? "var(--text-faint)" : projName.get(k).color,
+      hours: Math.round(hours * 10) / 10,
+    }))
+    .sort((a, b) => b.hours - a.hours);
+
+  const best = perDay.reduce((b, d) => (d.count > b.count ? d : b), perDay[0]);
+  return {
+    weekStartIso,
+    label: fmtWeekLabel(start),
+    perDay,
+    total: perDay.reduce((s, d) => s + d.count, 0),
+    xp: perDay.reduce((s, d) => s + d.xp, 0),
+    focusMs: perDay.reduce((s, d) => s + d.focusMs, 0),
+    doneTitles: doneTasks.map((t) => t.title).slice(0, 20),
+    launched: launched.map((p) => ({ title: p.title, type: p.type })),
+    accuracy: est > 0 ? { factor: Math.round((act / est) * 100) / 100, n: nCal } : null,
+    effortSplit,
+    bestDay: best && best.count > 0 ? best : null,
+    adriftNow: getMissedWork(tasks, plan, dayStartHour).length,
+  };
+}
+
+// Weeks (Mondays) that have any activity, newest first — the browsable
+// history for the review overlay.
+export function reviewableWeeks(tasks, plan, dayStartHour = 0, limit = 26) {
+  const activity = activityByDay(tasks, plan, dayStartHour);
+  const weeks = new Set();
+  for (const iso of activity.keys()) {
+    const d = parseIsoDate(iso);
+    if (d) weeks.add(isoDate(mondayOf(d)));
+  }
+  return [...weeks].sort().reverse().slice(0, limit);
 }
 
 /* ── plan helpers (pure transforms of the weekplan array) ──── */

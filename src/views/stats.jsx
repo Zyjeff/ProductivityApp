@@ -4,7 +4,7 @@
 import React, { useMemo, useRef } from "react";
 import { Icon, Eyebrow, ProgressBar, BarStrip, Chip } from "../components.jsx";
 import * as D from "../domain.js";
-import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify } from "../store.js";
+import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify, openReview } from "../store.js";
 import { listBackups } from "../db.js";
 
 export function StatsPanel() {
@@ -232,6 +232,18 @@ function StatsInner() {
             <div style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{x.v}</div>
           </div>
         ))}
+      </div>
+
+      <div>
+        <Eyebrow>Reviews</Eyebrow>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button className="w-btn w-btn--outline w-btn--sm" onClick={() => { setUI({ statsOpen: false }); openReview(); }}>
+            Weekly review <span className="w-kbd" style={{ marginLeft: 3 }}>W</span>
+          </button>
+          <span style={{ fontSize: 11, color: "var(--text-faint)" }}>
+            Browse any past week — stats + the written retro.
+          </span>
+        </div>
       </div>
 
       <CalibrationCard tasks={tasks} sessions={sessions} />

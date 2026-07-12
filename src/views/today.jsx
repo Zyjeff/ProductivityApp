@@ -11,6 +11,7 @@ import {
   useStore, getState, setUI, setCompletion, todayLineup, sel,
   pinTaskToDate, dismissChunk, moveChunkDate, patchScreenToday, reopenDay,
   enterPreview, setLineupOrder, ensureMorningBrief, patchBrief, applyBriefOrder,
+  reviewPromptDue, openReview, patchReview,
 } from "../store.js";
 import { generateBriefProse } from "../enrich.js";
 import { registerActiveList } from "../keys.js";
@@ -195,6 +196,22 @@ export function TodayView() {
 
       <div className="w-today-grid" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 22, alignItems: "start" }}>
         <div>
+          {/* Weekly review nudge (F2) — Mon/Tue until last week is reviewed */}
+          {(() => {
+            const dueWeek = reviewPromptDue(getState());
+            if (!dueWeek) return null;
+            return (
+              <div className="w-fade-in" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "9px 14px", background: "var(--channel-soft)", border: "1px solid var(--channel)", borderRadius: "var(--r-md)", fontSize: 12.5, color: "var(--channel)" }}>
+                <Icon name="stats" size={13} />
+                <span style={{ flex: 1 }}>Last week is in the books — worth two minutes of hindsight.</span>
+                <button className="w-btn w-btn--outline w-btn--sm" onClick={() => openReview(dueWeek)}>Review week <span className="w-kbd" style={{ marginLeft: 3 }}>W</span></button>
+                <button className="w-icon-btn" aria-label="Dismiss review prompt" onClick={() => patchReview(dueWeek, { promptDismissed: true })}>
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+            );
+          })()}
+
           {/* Morning brief (F1) */}
           {brief && (brief.dismissed ? (
             <button className="w-fade-in" onClick={() => patchBrief(todayIso, { dismissed: false })}

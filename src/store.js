@@ -48,6 +48,7 @@ export function initStore(storage = window.localStorage) {
       editingTaskId: null,
       formOpen: false,
       focusTaskId: null,
+      reviewWeek: null,
       energy: "normal",
       toast: null,                   // { msg, xp?, undoId? }
       confetti: 0,
@@ -668,6 +669,33 @@ export function applyBriefOrder(titles) {
   for (const r of rows) if (!orderedIds.includes(r.task.id)) orderedIds.push(r.task.id);
   setLineupOrder(orderedIds);
   notify("Run order applied");
+}
+
+/* ── weekly review (F2) ────────────────────────────────────── */
+
+export function openReview(weekStartIso = null) {
+  const hour = state.meta.dayStartHour || 0;
+  const target = weekStartIso
+    || D.isoDate(D.addDays(D.mondayOf(D.effectiveToday(hour)), -7)); // default: last week
+  setUI({ reviewWeek: target });
+}
+export function closeReview() { setUI({ reviewWeek: null }); }
+
+export function patchReview(weekStartIso, patch) {
+  set({ reviews: { ...(state.reviews || {}), [weekStartIso]: { ...(state.reviews?.[weekStartIso] || {}), ...patch } } });
+}
+
+// Should Today nudge for an unreviewed last week? (Mon/Tue, activity
+// existed, no review entry yet.)
+export function reviewPromptDue(s) {
+  const hour = s.meta.dayStartHour || 0;
+  const dow = D.effectiveToday(hour).getDay();
+  if (dow !== 1 && dow !== 2) return null;
+  const lastMonday = D.isoDate(D.addDays(D.mondayOf(D.effectiveToday(hour)), -7));
+  const entry = s.reviews?.[lastMonday];
+  if (entry && (entry.text || entry.promptDismissed)) return null;
+  const stats = D.weeklyReviewData(s.tasks, s.plan, s.projects, s.sessions, lastMonday, hour);
+  return stats.total > 0 ? lastMonday : null;
 }
 
 /* ── misc slices ───────────────────────────────────────────── */

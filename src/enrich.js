@@ -3,8 +3,8 @@
 // if the AI is reachable. On failure the task simply keeps its honest
 // deterministic values — and the first failure per session says so once.
 
-import { aiScore, aiParseCapture, aiMorningBrief, aiFailureMessage, AiError } from "./ai.js";
-import { applyEnrichment, getState, notify, addTask, createProject, patchBrief } from "./store.js";
+import { aiScore, aiParseCapture, aiMorningBrief, aiWeeklyReview, aiFailureMessage, AiError } from "./ai.js";
+import { applyEnrichment, getState, notify, addTask, createProject, patchBrief, patchReview } from "./store.js";
 import { deterministicScore, calibration, calibrationPromptLine } from "./domain.js";
 
 let warnedThisSession = false;
@@ -80,6 +80,18 @@ export async function generateBriefProse(dateIso, data) {
   try {
     const res = await aiMorningBrief(data);
     patchBrief(dateIso, { text: res.text, order: res.order, ai: true, generatedAt: Date.now() });
+  } catch (e) {
+    warnOnce(e.kind);
+  }
+}
+
+// Weekly retro prose (F2): generated once per week, cached forever —
+// it's the app's memory. Failure leaves stats-only with a retry.
+export async function generateReviewRetro(weekStartIso, stats) {
+  patchReview(weekStartIso, { attempted: true });
+  try {
+    const text = await aiWeeklyReview(stats);
+    patchReview(weekStartIso, { text, ai: true, createdAt: Date.now() });
   } catch (e) {
     warnOnce(e.kind);
   }

@@ -366,6 +366,43 @@ export async function aiMorningBrief(data) {
   };
 }
 
+/* ── weekly review retro (F2) ──────────────────────────────── */
+
+const REVIEW_RULES =
+  "OUTPUT FORMAT — STRICT. Single JSON object, no fences.\n" +
+  'Schema: {"text":"<three short paragraphs separated by \\n\\n>"}\n\n' +
+  "You write the weekly retro for a freelance UI/UX developer's personal " +
+  "shipping tool. Voice: their own honest logbook — first person plural is " +
+  "banned, no coaching clichés, no exclamation marks. Three paragraphs:\n" +
+  "1. What the week actually was (ships, volume, where the hours went).\n" +
+  "2. The pattern the numbers show (estimate accuracy, day distribution, " +
+  "project concentration, adrift debt) — name it plainly.\n" +
+  "3. ONE concrete, small suggestion for next week, grounded in the data. " +
+  "Never invent numbers not given.";
+
+export async function aiWeeklyReview(stats) {
+  const dynamic =
+    `Week: ${stats.label}\n` +
+    `Completed: ${stats.total} tasks · ${stats.xp} XP · ${Math.round(stats.focusMs / 360000) / 10}h focused\n` +
+    `Per day: ${stats.perDay.map((d) => `${d.label} ${d.count}`).join(", ")}\n` +
+    (stats.bestDay ? `Best day: ${stats.bestDay.label} (${stats.bestDay.count})\n` : "") +
+    (stats.launched.length ? `Launched: ${stats.launched.map((l) => `"${l.title}"`).join(", ")}\n` : "Launched: none\n") +
+    (stats.accuracy ? `Estimate accuracy: actuals ran ${stats.accuracy.factor}x estimates (n=${stats.accuracy.n})\n` : "") +
+    (stats.effortSplit.length ? `Effort split: ${stats.effortSplit.map((e) => `${e.title} ${e.hours}h`).join(", ")}\n` : "") +
+    `Currently adrift: ${stats.adriftNow}\n` +
+    (stats.doneTitles.length ? `Done includes: ${stats.doneTitles.slice(0, 12).map((t) => `"${t}"`).join(", ")}\n` : "");
+  const text = await call({
+    model: MODELS.smart, max_tokens: 700, timeoutMs: 45000,
+    content: [
+      { type: "text", text: REVIEW_RULES, cache_control: { type: "ephemeral" } },
+      { type: "text", text: dynamic },
+    ],
+  });
+  const j = extractJson(text);
+  if (!j || typeof j.text !== "string") throw parseError();
+  return j.text.trim().slice(0, 2000);
+}
+
 /* ── planning ──────────────────────────────────────────────── */
 
 function buildResolver(tasks) {

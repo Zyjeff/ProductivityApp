@@ -8,6 +8,7 @@ import { TodayView } from "./views/today.jsx";
 import { PlanView } from "./views/plan.jsx";
 import { DockView } from "./views/dock.jsx";
 import { StatsPanel } from "./views/stats.jsx";
+import { ReviewOverlay } from "./views/review.jsx";
 import { FocusTunnel } from "./views/focus.jsx";
 import { Palette } from "./views/palette.jsx";
 import { EndOfDayDialog } from "./views/endofday.jsx";
@@ -165,6 +166,7 @@ export default function App() {
 
       <TaskFormModal />
       <StatsPanel />
+      <ReviewOverlay />
       <Palette />
       <EndOfDayDialog />
       <FocusTunnel />

@@ -48,6 +48,7 @@ export function buildCommands() {
     { id: "new-full", label: "New task (full form)", keys: "Shift+N", run: () => setUI({ formOpen: true, editingTaskId: null }) },
     { id: "stats", label: s.ui.statsOpen ? "Close stats panel" : "Open stats panel", keys: "4", run: () => setUI({ statsOpen: !s.ui.statsOpen }) },
     { id: "undo", label: "Undo last action", keys: "U", run: () => undoLast() },
+    { id: "review", label: "Weekly review (last week)", keys: "W", run: () => { import("./store.js").then((m) => m.openReview()); } },
     { id: "brief", label: "Morning brief", keys: "B", run: () => {
       const todayIso = effectiveTodayIso(s.meta.dayStartHour);
       setUI({ view: "today", cursor: null });
@@ -108,6 +109,7 @@ export function installKeyboard() {
     }
     if (e.key === "Escape") {
       if (s.ui.paletteOpen) { setUI({ paletteOpen: false }); return; }
+      if (s.ui.reviewWeek) { setUI({ reviewWeek: null }); return; }
       if (s.ui.helpOpen) { setUI({ helpOpen: false }); return; }
       if (s.ui.formOpen) { setUI({ formOpen: false, editingTaskId: null }); return; }
       if (s.ui.endOfDayOpen) { setUI({ endOfDayOpen: false }); return; }
@@ -128,6 +130,11 @@ export function installKeyboard() {
     if (k === "n") { e.preventDefault(); focusCapture(); return; }
     if (k === "N") { e.preventDefault(); setUI({ formOpen: true, editingTaskId: null }); return; }
     if (k === "u" || k === "U") { e.preventDefault(); undoLast(); return; }
+    if (k === "w" || k === "W") {
+      e.preventDefault();
+      import("./store.js").then((m) => m.openReview());
+      return;
+    }
     if (k === "b" || k === "B") {
       e.preventDefault();
       // Toggle the morning brief (jumping to Today if elsewhere).
@@ -182,6 +189,7 @@ export const SHORTCUT_ROWS = [
   ["1 / 2 / 3", "Today · Plan · Dock"],
   ["4", "Stats panel"],
   ["B", "Morning brief (toggle)"],
+  ["W", "Weekly review"],
   [`${MOD}+K`, "Command palette"],
   ["J / K", "Move cursor down / up"],
   ["[ / ]", "Reorder lineup row up / down (Today)"],
