@@ -4,8 +4,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Icon, Kbd } from "../components.jsx";
-import * as D from "../domain.js";
-import { useStore, getState, setUI, setCompletion, saveFocusTime, logSession, todayLineup } from "../store.js";
+import * as D from "../../../core/domain.js";
+import { useStore, getState, setUI, setCompletion, saveFocusTime, logSession, todayLineup } from "../../../core/store.js";
 
 function effectiveFocusMs(t, hour) {
   if (!t?.focusMs || !t.focusDate) return 0;

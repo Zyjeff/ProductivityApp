@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as D from "../src/domain.js";
+import * as D from "../src/core/domain.js";
 
 const day = 86400000;
 const todayIso = D.isoDate(new Date());

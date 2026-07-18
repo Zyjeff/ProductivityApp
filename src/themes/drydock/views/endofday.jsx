@@ -2,8 +2,8 @@
 
 import React, { useMemo, useState } from "react";
 import { Icon } from "../components.jsx";
-import * as D from "../domain.js";
-import { useStore, getState, setUI, closeDay, patchScreenToday } from "../store.js";
+import * as D from "../../../core/domain.js";
+import { useStore, getState, setUI, closeDay, patchScreenToday } from "../../../core/store.js";
 
 export function EndOfDayDialog() {
   const open = useStore((s) => s.ui.endOfDayOpen);

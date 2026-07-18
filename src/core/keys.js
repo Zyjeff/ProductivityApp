@@ -6,7 +6,11 @@
 import { getState, setUI, setCompletion, deleteTask, pinTaskToDate, undoLast, notify, promoteToProject, moveLineupRow } from "./store.js";
 import { scoreTask } from "./enrich.js";
 import { effectiveTodayIso, isoDate, addDays } from "./domain.js";
-import { MOD } from "./components.jsx";
+
+// Platform modifier label. Lives in core (the key bindings are core);
+// themes re-export it for their own display needs.
+export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
+export const MOD = IS_MAC ? "⌘" : "Ctrl";
 
 // The active view's list: { rows: [{ taskId, chunkDate?, done }], viewName }
 let activeList = { rows: [], viewName: null };

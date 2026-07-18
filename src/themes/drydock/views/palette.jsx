@@ -2,10 +2,10 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Kbd } from "../components.jsx";
-import { parseQuickAdd } from "../domain.js";
-import { useStore, getState, setUI, captureTask, notify } from "../store.js";
-import { enrichCapturedTask } from "../enrich.js";
-import { buildCommands } from "../keys.js";
+import { parseQuickAdd } from "../../../core/domain.js";
+import { useStore, getState, setUI, captureTask, notify } from "../../../core/store.js";
+import { enrichCapturedTask } from "../../../core/enrich.js";
+import { buildCommands } from "../../../core/keys.js";
 
 export function Palette() {
   const open = useStore((s) => s.ui.paletteOpen);

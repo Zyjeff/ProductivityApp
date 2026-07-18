@@ -6,9 +6,9 @@ import React, { useEffect, useMemo } from "react";
 import { Icon, Eyebrow, Kbd } from "../components.jsx";
 import { DitherBars } from "../dither.jsx";
 import { statementBg } from "../texture.js";
-import * as D from "../domain.js";
-import { useStore, getState, setUI, closeReview, patchReview } from "../store.js";
-import { generateReviewRetro } from "../enrich.js";
+import * as D from "../../../core/domain.js";
+import { useStore, getState, setUI, closeReview, patchReview } from "../../../core/store.js";
+import { generateReviewRetro } from "../../../core/enrich.js";
 
 export function ReviewOverlay() {
   const week = useStore((s) => s.ui.reviewWeek);

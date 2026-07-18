@@ -7,9 +7,9 @@ import { Icon, Eyebrow, Kbd, MOD } from "./components.jsx";
 import {
   DIFFICULTY, PRIORITIES, allKnownTags, TAGS_BUILTIN, isoDate, addDays,
   deterministicScore, getTaskChunks, getTaskScheduledDate, uid,
-} from "./domain.js";
-import { useStore, getState, addTask, updateTask, setUI, notify, addCustomTag, promoteToProject } from "./store.js";
-import { enrichManualTask, scoreTask } from "./enrich.js";
+} from "../../core/domain.js";
+import { useStore, getState, addTask, updateTask, setUI, notify, addCustomTag, promoteToProject } from "../../core/store.js";
+import { enrichManualTask, scoreTask } from "../../core/enrich.js";
 
 export function TaskFormModal() {
   const formOpen = useStore((s) => s.ui.formOpen);

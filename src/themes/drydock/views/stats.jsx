@@ -5,9 +5,11 @@ import React, { useMemo, useRef } from "react";
 import { Icon, Eyebrow, ProgressBar, Chip } from "../components.jsx";
 import { DitherBars, DitherStackedBars } from "../dither.jsx";
 import { statementBg } from "../texture.js";
-import * as D from "../domain.js";
-import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify, openReview } from "../store.js";
-import { listBackups } from "../db.js";
+import * as D from "../../../core/domain.js";
+import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify, openReview } from "../../../core/store.js";
+import { listBackups } from "../../../core/db.js";
+import { useThemeId, setThemeId } from "../../../core/theme.js";
+import { THEMES } from "../../registry.js";
 
 export function StatsPanel() {
   const open = useStore((s) => s.ui.statsOpen);
@@ -145,6 +147,7 @@ function StatsInner() {
   const achievements = useStore((s) => s.achievements);
   const meta = useStore((s) => s.meta);
   const previewMode = useStore((s) => s.ui.previewMode);
+  const themeId = useThemeId();
   const fileRef = useRef(null);
   const hour = meta.dayStartHour || 0;
 
@@ -282,6 +285,22 @@ function StatsInner() {
         </div>
         <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 6 }}>
           Work after midnight counts toward the previous day when this is set past 0.
+        </div>
+      </div>
+
+      <div>
+        <Eyebrow>Theme</Eyebrow>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {THEMES.map((t) => (
+            <button key={t.id} title={t.tagline} onClick={() => setThemeId(t.id)}
+              className="w-bezel w-bezel--sm"
+              style={themeId === t.id ? { background: "var(--amber)", color: "var(--ink)", borderColor: "transparent" } : {}}>
+              {t.name}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 6 }}>
+          Switches the whole presentation instantly. Data and features are identical in every theme.
         </div>
       </div>
 

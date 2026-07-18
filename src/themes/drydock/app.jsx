@@ -1,6 +1,6 @@
 // app.jsx — the shell: rail, three surfaces, overlays, keyboard.
 
-import React, { useEffect } from "react";
+import React from "react";
 import { Icon, Kbd, ProgressBar, Confetti, MOD, AiDot } from "./components.jsx";
 import { tex } from "./texture.js";
 
@@ -18,8 +18,8 @@ function BrandMark() {
     }} />
   );
 }
-import { useStore, setUI, runUndo, sel, exitPreview } from "./store.js";
-import { installKeyboard, SHORTCUT_ROWS } from "./keys.js";
+import { useStore, setUI, runUndo, sel, exitPreview } from "../../core/store.js";
+import { SHORTCUT_ROWS } from "../../core/keys.js";
 import { TodayView } from "./views/today.jsx";
 import { PlanView } from "./views/plan.jsx";
 import { DockView } from "./views/dock.jsx";
@@ -50,8 +50,6 @@ export default function App() {
   const aiStatus = useStore((s) => s.ui.aiStatus);
   const aiDetail = useStore((s) => s.ui.aiDetail);
   const [confettiShown, setConfettiShown] = React.useState(0);
-
-  useEffect(() => installKeyboard(), []);
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", color: "var(--fg)" }}>

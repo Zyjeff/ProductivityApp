@@ -10,15 +10,15 @@ import { TaskRow, ChunksEditor } from "../taskrow.jsx";
 import { CaptureBar } from "../capture.jsx";
 import { DitherArc } from "../dither.jsx";
 import { plateTex } from "../texture.js";
-import * as D from "../domain.js";
+import * as D from "../../../core/domain.js";
 import {
   useStore, getState, setUI, setCompletion, addTask, notify,
   createProject, updateProject, deleteProject, shipProject, unshipProject,
   addChildToProject, detachFromProject, saveLaunchNote,
-} from "../store.js";
-import { registerActiveList } from "../keys.js";
-import { aiExtendProject, aiImportFromScreenshot, aiLaunchNote, aiFailureMessage } from "../ai.js";
-import { scoreTask } from "../enrich.js";
+} from "../../../core/store.js";
+import { registerActiveList } from "../../../core/keys.js";
+import { aiExtendProject, aiImportFromScreenshot, aiLaunchNote, aiFailureMessage } from "../../../core/ai.js";
+import { scoreTask } from "../../../core/enrich.js";
 
 export function DockView() {
   const filter = useStore((s) => s.ui.dockFilter);

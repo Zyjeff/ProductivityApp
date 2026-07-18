@@ -1,12 +1,11 @@
 // components.jsx — shared primitives. Dumb, presentational, no store.
 
 import React, { useEffect, useMemo } from "react";
-import { DIFFICULTY, PRIORITIES } from "./domain.js";
+import { DIFFICULTY, PRIORITIES } from "../../core/domain.js";
 import { DitherSparkline, DitherBars } from "./dither.jsx";
 import { tex } from "./texture.js";
 
-export const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
-export const MOD = IS_MAC ? "⌘" : "Ctrl";
+export { IS_MAC, MOD } from "../../core/keys.js";
 
 export function Icon({ name, size = 14 }) {
   const common = { width: size, height: size, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" };

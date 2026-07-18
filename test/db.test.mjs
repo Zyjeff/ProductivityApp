@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { migrate, loadState, parseImport, mergeStates, KEYS } from "../src/db.js";
-import * as D from "../src/domain.js";
+import { migrate, loadState, parseImport, mergeStates, KEYS } from "../src/core/db.js";
+import * as D from "../src/core/domain.js";
 
 function fakeStorage(seed = {}) {
   const map = new Map(Object.entries(seed).map(([k, v]) => [k, typeof v === "string" ? v : JSON.stringify(v)]));

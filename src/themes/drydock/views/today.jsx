@@ -10,16 +10,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Icon, Eyebrow, EmptyState, GhostHorizon, Sparkline, BarStrip, Kbd } from "../components.jsx";
 import { CaptureBar } from "../capture.jsx";
 import { TaskRow, ChunksEditor } from "../taskrow.jsx";
-import * as D from "../domain.js";
+import * as D from "../../../core/domain.js";
 import { statementBg, tex } from "../texture.js";
 import {
   useStore, getState, setUI, setCompletion, todayLineup, sel,
   pinTaskToDate, dismissChunk, moveChunkDate, patchScreenToday, reopenDay,
   enterPreview, setLineupOrder, ensureMorningBrief, patchBrief, applyBriefOrder,
   reviewPromptDue, openReview, patchReview,
-} from "../store.js";
-import { generateBriefProse } from "../enrich.js";
-import { registerActiveList } from "../keys.js";
+} from "../../../core/store.js";
+import { generateBriefProse } from "../../../core/enrich.js";
+import { registerActiveList } from "../../../core/keys.js";
 
 export function TodayView() {
   const tasks = useStore((s) => s.tasks);

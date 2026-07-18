@@ -5,12 +5,12 @@
 
 import React, { useMemo, useState } from "react";
 import { Icon, EmptyState, PageHeader, ProgressBar, AiDot, Kbd, MOD } from "../components.jsx";
-import * as D from "../domain.js";
+import * as D from "../../../core/domain.js";
 import {
   useStore, setUI, setCompletion, setCaps, toggleDayLock,
   applyPlan, moveChunkDate, notify, dismissChunk,
-} from "../store.js";
-import { aiPlan, aiReplan, aiFailureMessage } from "../ai.js";
+} from "../../../core/store.js";
+import { aiPlan, aiReplan, aiFailureMessage } from "../../../core/ai.js";
 
 export function PlanView() {
   const tasks = useStore((s) => s.tasks);

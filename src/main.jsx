@@ -1,8 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import "./tokens.css";
-import { initStore } from "./store.js";
-import App from "./app.jsx";
+import { initStore } from "./core/store.js";
+import { installKeyboard } from "./core/keys.js";
+import { initTheme, useThemeId } from "./core/theme.js";
+import { THEMES, resolveTheme } from "./themes/registry.js";
 
 // Error boundary: a render crash falls back to a recovery card instead
 // of unmounting (the data is already safe in localStorage).
@@ -32,10 +33,24 @@ class Boundary extends React.Component {
   }
 }
 
-initStore(window.localStorage);
+// Mounts exactly one theme: its stylesheet and its App. Switching the
+// theme id swaps both in a single commit — instant, no reload, and the
+// store (and therefore all data) is untouched.
+function ThemeRoot() {
+  const id = useThemeId();
+  const theme = resolveTheme(id);
+  return (
+    <>
+      <style>{theme.css}</style>
+      <Boundary key={theme.id}>
+        <theme.App />
+      </Boundary>
+    </>
+  );
+}
 
-createRoot(document.getElementById("root")).render(
-  <Boundary>
-    <App />
-  </Boundary>
-);
+initStore(window.localStorage);
+initTheme(window.localStorage, THEMES[0].id);
+installKeyboard();
+
+createRoot(document.getElementById("root")).render(<ThemeRoot />);

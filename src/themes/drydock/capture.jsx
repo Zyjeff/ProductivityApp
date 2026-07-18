@@ -4,10 +4,10 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Kbd, AiDot } from "./components.jsx";
-import { parseQuickAdd } from "./domain.js";
-import { useStore, captureTask, setUI, notify } from "./store.js";
-import { enrichCapturedTask, captureProject } from "./enrich.js";
-import { setCaptureFocus } from "./keys.js";
+import { parseQuickAdd } from "../../core/domain.js";
+import { useStore, captureTask, setUI, notify } from "../../core/store.js";
+import { enrichCapturedTask, captureProject } from "../../core/enrich.js";
+import { setCaptureFocus } from "../../core/keys.js";
 
 const CHIP_TONE = {
   priority: "var(--port)", tag: "var(--fg-dim)", project: "var(--channel)",

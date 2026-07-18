@@ -6,8 +6,8 @@
 
 import React, { useState } from "react";
 import { Icon, Chip, CompleteButton, Checkbox, PriorityDot, DifficultyPip } from "./components.jsx";
-import { DIFFICULTY, taskHours, effectiveTodayIso, todayFocusMs, fmtMs } from "./domain.js";
-import { useStore, setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "./store.js";
+import { DIFFICULTY, taskHours, effectiveTodayIso, todayFocusMs, fmtMs } from "../../core/domain.js";
+import { useStore, setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "../../core/store.js";
 
 export function DeadlineChip({ task }) {
   if (!task.deadlineAt || task.completed) return null;
