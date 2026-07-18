@@ -5,8 +5,9 @@
 
 import drydock from "./drydock/index.js";
 import nightwatch from "./nightwatch/index.js";
+import loft from "./loft/index.js";
 
-export const THEMES = [drydock, nightwatch];
+export const THEMES = [drydock, nightwatch, loft];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];

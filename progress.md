@@ -132,3 +132,19 @@ contract (100+ items); THEMING.md documents the anatomy + skeleton.
   pane was broken this session (pane-side; page fully responsive) —
   visual checks done via computed styles + the byte-identical CSS
   proof for Drydock.
+
+## Mould Loft (theme 3) — built with the werf-theme skill
+"loft": the drawing office — Werf's first LIGHT theme (vellum, india
+ink, blueprint statements, red pencil). Built from the plan the skill
+smoke-test produced. Signatures: the SHEER DRAUGHT on Today (stations
+= lineup rows, pencil→ink on completion, waterline = today's XP vs
+14-day high), title blocks per view, body-plan SectionGauges on the
+drawing register, the ISSUED—DO-NOT-REVISE stamp AS the day-lock
+control and the FAIRED stamp AS the launch button (printed elements
+are the controls — parity risk #3 guarded). Zero animated canvases;
+all texture cached. Verified: full parity drive green (incl. lock
+stamp toggle, launch-via-stamp, File under…, honest AI-off toast),
+contrast floors on the light ground (fg 14.6:1, dim 7.34:1, statement
+7.38:1, faint labels 3.62:1), 6-switch three-theme soak with
+byte-identical data, tests 25/25, build clean. Zero core edits, zero
+new deps.
