@@ -406,4 +406,42 @@ list below records the ones that needed original design work.
 
 ## Appendix B — theme-2 items designed without a reference design ★
 
-*(completed during the theme-2 build)*
+The reference had no UI for any of the following; each was designed
+from scratch in Nightwatch's visual language (nothing functional was
+dropped):
+
+- **Task form (F1–F7)** — the "Refit task" console: clipped-corner
+  chassis, stamp-pick choosers for priority/repeats/difficulty/tags,
+  well fields, "Give it a berth" promote action.
+- **Focus tunnel (X1–X6)** — the night tunnel: watch header
+  ("On watch/Paused"), lamplight timer, up-next plate, and a calm
+  horizon strip at the foot of the screen.
+- **End of day (E1–E5)** — the "End of watch" console with
+  "tow to next working day" and "EIGHT BELLS." sign-off.
+- **Weekly review (R1–R4)** — console with the amber week banner,
+  well tiles, dithered week bars, effort-split meters, cached retro.
+- **Command palette (L1–L5)** — the reference chassis made real:
+  command search, task search, `>` quick add with grammar chips,
+  cursor-row commands, arrow navigation.
+- **Undo surface (G4–G5)** — ticker gains the Undo bezel + `U` key hint.
+- **Keyboard help (G10)** — the "Standing orders" console.
+- **Preview / cross-tab banners, level-up statement, confetti
+  (G6–G9)** — restyled under the harbor strip.
+- **Adrift triage actions (T7)** — Today/Done/Dismiss bezels on
+  hazard-striped rows.
+- **Lineup interactions (T8–T10, K7–K10)** — drag reorder, expandable
+  rows with steps/notes/chunk editor, cursor brackets, energy toggle.
+- **Plan operations (P2, P4–P8)** — inline capacity editing, day
+  locks, chunk complete/move/unschedule in BOTH Rail and Cards modes,
+  AI instruction panel, replan console with examples, +4 weeks.
+- **Dock operations (D2–D10, D13)** — type filters, create/board/
+  rename/recolor/scuttle, add-task + AI-add, launch-note dialog,
+  unlaunch, screenshot import with preview.
+- **Logbook capabilities (S3–S8)** — real calibration by difficulty,
+  full trophies with derived progress, reviews list wired to the real
+  review overlay, rollover presets + full 0–23 input (the reference
+  stepper clamped to 0–8), export/import/preview data tools,
+  migration + backup provenance lines, theme picker.
+
+UI-only additions adopted FROM the reference are listed in Appendix A;
+both sets live entirely inside `src/themes/nightwatch/`.
