@@ -10,7 +10,10 @@ description: >-
   why a theme is missing a feature, or mentions FEATURE_PARITY.md /
   THEMING.md / the theme registry — even if they never say the word "theme".
   Also use it when adding a signature visual (like Nightwatch's horizon or
-  bridge gauges) to an existing theme.
+  bridge gauges) to an existing theme. The skill covers the FULL job:
+  planning a theme AND building it to completion — including ground-up
+  reinventions where the entire layout, navigation, menus, and surface
+  shapes are redesigned from scratch.
 ---
 
 # Building Werf themes
@@ -80,6 +83,16 @@ classes freely and never collide.
 Work through these steps in order; each has a reference file with the
 depth.
 
+**Plan, then BUILD — always both.** Steps 1–3 produce a written build
+plan (scaffold, wiring list, signature visuals with their data
+derivations, fiction/copy table, parity risks, departures list). That
+plan is never the deliverable: when someone asks for a theme, the
+deliverable is a running, registered, parity-verified theme, and the
+job isn't done until the verification drives in
+`references/parity-walkthrough.md` are green and `npm test` +
+`npm run build` pass. Stop at the plan only if the request explicitly
+asked for a plan alone.
+
 **1. Absorb the contract.** Read `FEATURE_PARITY.md` end to end, then
 `references/core-contract.md` — the exact API surface a theme consumes
 (state shape, every action, the keyboard wiring, AI functions, derived
@@ -93,30 +106,59 @@ palette, your copy ("Scuttle" vs "Delete", "Stow" vs "Add"), your
 signature visuals, and your empty-state lines. Renaming button labels and
 flavor copy is fair game; renaming capabilities is not.
 
-**3. Compose from scratch — the anti-template rule.** Before writing
-any JSX, sketch each view's composition in words FROM THE FICTION, as
-if no other theme existed: where does the eye land first, what is the
-page literally pretending to be, what shape does that force? Only then
-open the existing themes — to steal *logic*, never *layout*. The
-distinction that keeps themes honest:
+**3. Compose from scratch — departure, not decoration.** Before
+writing any JSX, sketch each view's composition in words FROM THE
+FICTION, as if no other theme existed: where does the eye land first,
+what is the page literally pretending to be, what shape does that
+force? Only then open the existing themes — to steal *logic*, never
+*layout*.
 
 - **Logic copies freely.** The focus-timer effects, form state rules,
   filter memos, drag handlers, brief-generation guards — these encode
   hard-won correctness. Lift them verbatim.
 - **Composition never copies.** If your view's DOM outline (header →
-  gauges strip → work column + right rail → same overlay shapes) matches
-  another theme's, you've built a reskin wearing a costume, and users
-  will see the template through it. The contract constrains what a view
-  can DO, not what shape it takes: the lineup could be a spiral, a
-  spreadsheet, a subway map, a single giant task with everything else
-  in a drawer — as long as every capability has a home. Werf's shipped
-  themes share more skeleton than they should; treat that as the floor
-  you're improving on, not the pattern to follow.
+  gauges strip → work column + right rail → same overlay shapes)
+  matches another theme's, you've built a reskin wearing a costume,
+  and users will see the template through it.
 
-A useful forcing move: pick ONE view and give it a layout that would be
-impossible in the other themes (Nightwatch's full-page Logbook is the
-existing example). If nothing in your theme surprises the shell — nav
-placement, column count, where settings live — go back to the sketch.
+**Everything structural is replaceable — including the shell.** The
+contract constrains what the app can DO, not what shape anything
+takes. All of this is yours to reinvent, not just restyle:
+
+- *Navigation:* the left rail is a habit, not a rule. A top command
+  bar, a bottom dock, tabs, a radial menu, or navigation folded into
+  the palette are all legal — `1/2/3/4` and the palette must work; how
+  nav LOOKS is unconstrained.
+- *Surface shapes:* any overlay may become a full page and any page a
+  drawer/overlay (Nightwatch turned the Logbook slide-over into a full
+  page — that's the move, applied anywhere: the form, the review, even
+  Plan or Dock could be radically re-shaped).
+- *Stats and their placement:* which derived numbers appear on which
+  view, in what instrument, at what size — all theme decisions. Invent
+  new derived stats; drop another theme's gauges entirely (the
+  capabilities checklist, not the other theme's stat list, is the
+  contract).
+- *Menus, settings home, empty states, section order, column counts,
+  what's collapsed vs prominent* — all of it.
+
+The bar to clear is what the second theme's reference did to the
+first: it didn't reposition Drydock's parts, it introduced things that
+didn't exist (a status strip, an animated horizon, a level gauge in a
+new instrument language, the settings surface rebuilt as a different
+kind of place). Match that scale of invention. Mould Loft is the
+cautionary example: excellent fiction, but it inherited Nightwatch's
+positioning, layout, element shapes, and stat locations — a
+recomposition when it could have been a reinvention.
+
+**Make the plan prove it: the departures list.** The build plan must
+include an explicit list of structural departures — for each view and
+for the shell, what this theme does that NO existing theme does
+(different nav, different surface shapes, different stat placements,
+new invented elements). If the list is thin or reads like "same but
+prettier," redesign before building. Full ground-up reinvention isn't
+mandatory on every request — but when the request asks for it (or
+says "from scratch," "nothing like the others"), treat every
+structural echo of an existing theme as a defect.
 
 **3b. Scaffold.** Create `src/themes/<id>/` with `index.js`,
 `tokens.css`, `app.jsx`, `views/`. Copy the texture engine from an
