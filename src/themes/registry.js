@@ -4,8 +4,9 @@
 // entry is the default. See THEMING.md.
 
 import drydock from "./drydock/index.js";
+import nightwatch from "./nightwatch/index.js";
 
-export const THEMES = [drydock];
+export const THEMES = [drydock, nightwatch];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
