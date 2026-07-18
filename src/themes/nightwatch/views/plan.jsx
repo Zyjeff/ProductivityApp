@@ -353,17 +353,18 @@ export function PlanView() {
                         setDragged(null); setDragOver(null);
                       }}
                       style={dragOver === day.iso ? { background: "var(--amber-ground)" } : undefined}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 12px 8px" }}>
-                        <span className={"tide-load w-num " + (day.cap === 0 ? "tide-load--off" : over ? "tide-load--over" : "tide-load--ok")} style={{ flexShrink: 0, width: 118 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px 8px" }}>
+                        <span className={"tide-load w-num " + (day.cap === 0 ? "tide-load--off" : over ? "tide-load--over" : "tide-load--ok")} style={{ flexShrink: 0 }}>
                           {day.cap === 0 ? "DAY OFF" : `${dayH.toFixed(1)}H OF ${day.cap}H${over ? " — OVER" : ""}`}
                         </span>
-                        <div className="meter" style={{ flex: 1 }}>
-                          <div className="meter-fill" style={{ width: (day.cap === 0 ? 0 : Math.min(100, (dayH / day.cap) * 100)) + "%", backgroundColor: loadColor }} />
-                        </div>
-                        <span className="w-num" style={{ flexShrink: 0, fontSize: 9, color: "var(--fg-faint)", width: 34, textAlign: "right" }}>
-                          {day.cap === 0 ? "—" : Math.round((dayH / day.cap) * 100) + "%"}
-                        </span>
                         {over && <span className="w-tape w-tape--port" style={{ fontSize: 8 }}>Overloaded</span>}
+                        <div style={{ flex: 1, maxWidth: 220 }}>
+                          {day.cap > 0 && dayH > 0 && (
+                            <div className="meter" style={{ height: 3 }}>
+                              <div className="meter-fill" style={{ width: loadPct + "%", backgroundColor: loadColor }} />
+                            </div>
+                          )}
+                        </div>
                         <button className="icon-btn" onClick={() => toggleDayLock(day.iso)}
                           title={day.locked ? "Locked — planner skips it. Click to unlock." : "Lock day (planner will skip it)"}
                           aria-pressed={day.locked} style={{ color: day.locked ? "var(--amber-hot)" : undefined, padding: 2 }}>
