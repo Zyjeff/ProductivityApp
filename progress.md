@@ -96,3 +96,39 @@ Total visual-language replacement; zero functional change. Backup at
   16.18:1, fg-dim 7.3–7.5:1, semantic colors 7.15–10.53:1; body text
   never sits on raw dither (statement textures confined to edge bands).
 - Screenshots of every view taken in final state via the preview pane.
+
+## theme system (session: complete UI shifts)
+Two-theme system per the theming mandate. FEATURE_PARITY.md is the
+contract (100+ items); THEMING.md documents the anatomy + skeleton.
+
+- Architecture: src/core/ (store/domain/db/ai/enrich/keys/theme — never
+  imports presentation; MOD moved into keys.js) vs src/themes/<id>/
+  (self-contained; css shipped as ?inline string; exactly ONE theme's
+  <style>+App mounted by ThemeRoot). Registry = one import + one array
+  entry. werf_theme persists the choice; switching is one React commit.
+- Theme 1 "Drydock" = the current UI extracted verbatim: tokens.css/
+  texture.js/dither.jsx byte-identical (git R100), views changed only
+  in import paths; the single sanctioned addition is the Theme section
+  in the Logbook panel. Keyboard install moved to main.jsx.
+- Theme 2 "Nightwatch" = the reference ZIP rebuilt properly: harbor
+  strip (real clock/watch/ship's bells), draught level gauge, ghost
+  numerals, animated horizon (~9fps, reduced-motion + hidden-tab
+  aware) with HUD derived from real state, bridge gauges incl. focus
+  hours, indexed lineup ledger with +XP, tide rail with Rail/Cards
+  toggle, rotary berth gauges, manifest rail, one-click Berth assign,
+  full-page Logbook (NEXT RANK, 30-day averages, screen weather).
+  Every functional gap in the reference designed in-theme (form,
+  tunnel, end-of-watch, review, palette, undo, drag, locks, import…) —
+  FEATURE_PARITY.md Appendix B lists them.
+- Flagged, not adopted (would change core behavior): reference's `C`
+  capture key (stays `N`), its "Sub → attaches to ON DECK" capture
+  semantics (Steps keeps real semantics), its 0–8 rollover clamp.
+- Zero new dependencies. Zero core behavior changes (git: core files
+  untouched since the split except keys.js MOD move).
+- Verified: FEATURE_PARITY walked item-by-item in BOTH themes via live
+  DOM drives (results in the session log); 6 rapid theme switches with
+  byte-identical data; AI degraded path shows the honest no-key toast
+  in both; tests 25/25; build clean. Screenshot capture in the preview
+  pane was broken this session (pane-side; page fully responsive) —
+  visual checks done via computed styles + the byte-identical CSS
+  proof for Drydock.
