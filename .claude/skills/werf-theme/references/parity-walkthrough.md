@@ -131,8 +131,9 @@ true})` with a picker, no new core behavior.
 
 ## F — Task form
 
-Copy either theme's `taskform.jsx` logic wholesale and reskin — it
-encodes several non-obvious rules: deterministic score follows
+Copy either theme's `taskform.jsx` LOGIC wholesale (state rules, not
+the modal's shape — the form could be a full page, a side drawer, a
+multi-step wizard) — it encodes several non-obvious rules: deterministic score follows
 difficulty/hours until XP is touched (then AI refinement is skipped on
 create); uncommitted subtask/tag input text is committed on submit;
 schedule/project changes on edit set the `*Changed` flags; split tasks

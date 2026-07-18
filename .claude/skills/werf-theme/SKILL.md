@@ -93,11 +93,36 @@ palette, your copy ("Scuttle" vs "Delete", "Stow" vs "Add"), your
 signature visuals, and your empty-state lines. Renaming button labels and
 flavor copy is fair game; renaming capabilities is not.
 
-**3. Scaffold.** Create `src/themes/<id>/` with `index.js`, `tokens.css`,
-`app.jsx`, `views/`. Copy the texture engine from an existing theme and
-tune its recipes to your fiction. Register the theme in `registry.js`
-immediately so you can iterate live via the in-app picker (Logbook →
-Theme).
+**3. Compose from scratch — the anti-template rule.** Before writing
+any JSX, sketch each view's composition in words FROM THE FICTION, as
+if no other theme existed: where does the eye land first, what is the
+page literally pretending to be, what shape does that force? Only then
+open the existing themes — to steal *logic*, never *layout*. The
+distinction that keeps themes honest:
+
+- **Logic copies freely.** The focus-timer effects, form state rules,
+  filter memos, drag handlers, brief-generation guards — these encode
+  hard-won correctness. Lift them verbatim.
+- **Composition never copies.** If your view's DOM outline (header →
+  gauges strip → work column + right rail → same overlay shapes) matches
+  another theme's, you've built a reskin wearing a costume, and users
+  will see the template through it. The contract constrains what a view
+  can DO, not what shape it takes: the lineup could be a spiral, a
+  spreadsheet, a subway map, a single giant task with everything else
+  in a drawer — as long as every capability has a home. Werf's shipped
+  themes share more skeleton than they should; treat that as the floor
+  you're improving on, not the pattern to follow.
+
+A useful forcing move: pick ONE view and give it a layout that would be
+impossible in the other themes (Nightwatch's full-page Logbook is the
+existing example). If nothing in your theme surprises the shell — nav
+placement, column count, where settings live — go back to the sketch.
+
+**3b. Scaffold.** Create `src/themes/<id>/` with `index.js`,
+`tokens.css`, `app.jsx`, `views/`. Copy the texture engine from an
+existing theme and tune its recipes to your fiction. Register the theme
+in `registry.js` immediately so you can iterate live via the in-app
+picker (Logbook → Theme).
 
 **4. Build the shell first** (`app.jsx`): navigation for the three views +
 Logbook, and a rendered surface for EVERY `ui` overlay state — form,
