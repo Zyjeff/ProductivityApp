@@ -7,8 +7,9 @@ import drydock from "./drydock/index.js";
 import nightwatch from "./nightwatch/index.js";
 import loft from "./loft/index.js";
 import sluis from "./sluis/index.js";
+import kuromi from "./kuromi/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
