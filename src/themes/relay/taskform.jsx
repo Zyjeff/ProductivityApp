@@ -4,7 +4,7 @@
 // until touched, promote-to-project ships the same flow.
 
 import React, { useEffect, useRef, useState } from "react";
-import { Icon, Kbd, MOD, StampPick, HLight } from "./components.jsx";
+import { Icon, Kbd, MOD, StampPick, ResolveBtn } from "./components.jsx";
 import {
   DIFFICULTY, PRIORITIES, allKnownTags, TAGS_BUILTIN, isoDate, addDays,
   deterministicScore, getTaskChunks, getTaskScheduledDate, uid,
@@ -19,9 +19,8 @@ export function TaskFormModal() {
   const task = editingTaskId ? getState().tasks.find((t) => t.id === editingTaskId) : null;
   return (
     <div onClick={() => setUI({ formOpen: false, editingTaskId: null })}
-      className="backdrop"
-      style={{ zIndex: 10001, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "7vh 16px 16px", overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560 }}>
+      className="r-backdrop" style={{ zIndex: 90 }}>
+      <div onClick={(e) => e.stopPropagation()} className="r-sheet-left">
         <TaskForm key={editingTaskId || "new"} initial={task} isEdit={!!task} onClose={() => setUI({ formOpen: false, editingTaskId: null })} />
       </div>
     </div>
@@ -122,22 +121,22 @@ function TaskForm({ initial, isEdit, onClose }) {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submit(); }
   };
 
-  const Label = ({ children }) => <div className="w-stencil" style={{ marginBottom: 6 }}>{children}</div>;
+  const Label = ({ children }) => <div className="r-lab" style={{ marginBottom: 6 }}>{children}</div>;
 
   return (
-    <div className="console fade-in" onKeyDown={onFormKeys}>
-      <div className="console-head">
-        <span className="w-tape">{isEdit ? "Refit task" : "New task"}</span>
+    <div className="fade-in" onKeyDown={onFormKeys}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span className="r-lab r-lab--lit">{isEdit ? "Edit packet" : "New packet"}</span>
         <div style={{ flex: 1 }} />
-        <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={13} /></button>
+        <button className="r-icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" size={13} /></button>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 18 }}>
-        <input ref={titleRef} className="field" placeholder="What needs doing?"
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <input ref={titleRef} className="r-field" placeholder="What needs doing?"
           value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) submit(); }}
           style={{ fontSize: 15, padding: "10px 12px" }} />
-        <textarea className="field" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} style={{ height: 52 }} />
-        <textarea className="field" placeholder="Notes — context, blockers, references" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ height: 40 }} />
+        <textarea className="r-field" placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} style={{ height: 52 }} />
+        <textarea className="r-field" placeholder="Notes — context, blockers, references" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ height: 40 }} />
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
           <div>
@@ -174,16 +173,16 @@ function TaskForm({ initial, isEdit, onClose }) {
             <Label>Estimate</Label>
             <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: isSplit ? 0.5 : 1 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--fg-dim)" }}>
-                <span className="w-num" style={{ fontSize: 11 }}>h</span>
+                <span className="r-num" style={{ fontSize: 11 }}>h</span>
                 <input type="number" min="0.25" max="24" step="0.25" value={hours} disabled={isSplit}
                   onChange={(e) => { applyHours(e.target.value); }}
-                  className="field field--mono" style={{ width: 68, textAlign: "center" }} />
+                  className="r-field field--mono" style={{ width: 68, textAlign: "center" }} />
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--fg-dim)" }}>
-                <span className="w-num" style={{ fontSize: 11 }}>XP</span>
+                <span className="r-num" style={{ fontSize: 11 }}>XP</span>
                 <input type="number" min="5" max="200" step="5" value={xp} disabled={isSplit}
                   onChange={(e) => { setXp(Math.max(5, Math.min(200, parseInt(e.target.value, 10) || 0))); setScoreTouched(true); }}
-                  className="field field--mono" style={{ width: 68, textAlign: "center" }} />
+                  className="r-field field--mono" style={{ width: 68, textAlign: "center" }} />
               </label>
               {isSplit && <span style={{ fontSize: 10, color: "var(--fg-faint)" }}>per-chunk — edit in the chunk list</span>}
             </div>
@@ -196,18 +195,18 @@ function TaskForm({ initial, isEdit, onClose }) {
               <Label>Moored {scheduleDate ? "" : "(planner decides)"}</Label>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)}
-                  className="field field--mono" style={{ padding: "5px 7px", width: 140 }} />
-                <button type="button" className="bezel bezel--sm" onClick={() => setScheduleDate(isoDate(new Date()))}>Today</button>
-                <button type="button" className="bezel bezel--sm" onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}>Tomorrow</button>
-                {scheduleDate && <button type="button" className="bezel bezel--sm" onClick={() => setScheduleDate("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
+                  className="r-field field--mono" style={{ padding: "5px 7px", width: 140 }} />
+                <button type="button" className="r-btn r-btn--sm bezel--sm" onClick={() => setScheduleDate(isoDate(new Date()))}>Today</button>
+                <button type="button" className="r-btn r-btn--sm bezel--sm" onClick={() => setScheduleDate(isoDate(addDays(new Date(), 1)))}>Tomorrow</button>
+                {scheduleDate && <button type="button" className="r-btn r-btn--sm bezel--sm" onClick={() => setScheduleDate("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
               </div>
             </div>
             <div>
               <Label>Deadline {deadline ? "(hard date)" : "(optional)"}</Label>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
-                  className="field field--mono" style={{ padding: "5px 7px", width: 140 }} />
-                {deadline && <button type="button" className="bezel bezel--sm" onClick={() => setDeadline("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
+                  className="r-field field--mono" style={{ padding: "5px 7px", width: 140 }} />
+                {deadline && <button type="button" className="r-btn r-btn--sm bezel--sm" onClick={() => setDeadline("")} style={{ color: "var(--fg-faint)" }}>Clear</button>}
               </div>
             </div>
           </div>
@@ -215,9 +214,9 @@ function TaskForm({ initial, isEdit, onClose }) {
 
         {projects.length > 0 && (
           <div>
-            <Label>Berth (project)</Label>
+            <Label>System (project)</Label>
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)}
-              className="field" style={{ fontSize: 13, maxWidth: 280 }}>
+              className="r-field" style={{ fontSize: 13, maxWidth: 280 }}>
               <option value="">No project</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.title}{p.completedAt ? " (launched)" : ""}</option>
@@ -235,7 +234,7 @@ function TaskForm({ initial, isEdit, onClose }) {
             {tags.filter((t) => !allKnownTags(customTags).includes(t)).map((t) => (
               <StampPick key={t} active onClick={() => setTags((p) => p.filter((x) => x !== t))}>{t}</StampPick>
             ))}
-            <input className="field field--mono" placeholder="+ new tag" style={{ width: 110, fontSize: 11, padding: "4px 8px" }}
+            <input className="r-field field--mono" placeholder="+ new tag" style={{ width: 110, fontSize: 11, padding: "4px 8px" }}
               value={tagIn} onChange={(e) => setTagIn(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -249,7 +248,7 @@ function TaskForm({ initial, isEdit, onClose }) {
 
         <div>
           <Label>Steps</Label>
-          <input className="field" placeholder="Type a step + Enter" style={{ fontSize: 12 }}
+          <input className="r-field" placeholder="Type a step + Enter" style={{ fontSize: 12 }}
             value={stIn} onChange={(e) => setStIn(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setSubs(commitSubInput(subs)); setStIn(""); } }} />
           {subs.length > 0 && (
@@ -258,7 +257,7 @@ function TaskForm({ initial, isEdit, onClose }) {
                 <div key={x.k} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 4px" }}>
                   <span style={{ width: 12, height: 12, border: "1.5px solid var(--line)", flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: "var(--fg-dim)", flex: 1 }}>{x.title}</span>
-                  <button className="icon-btn" onClick={() => setSubs((p) => p.filter((y) => y.k !== x.k))} aria-label="Remove step"><Icon name="close" size={11} /></button>
+                  <button className="r-icon-btn" onClick={() => setSubs((p) => p.filter((y) => y.k !== x.k))} aria-label="Remove step"><Icon name="close" size={11} /></button>
                 </div>
               ))}
             </div>
@@ -266,12 +265,12 @@ function TaskForm({ initial, isEdit, onClose }) {
         </div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 4, alignItems: "center" }}>
-          <button className="switch" onClick={submit} disabled={!canSubmit} style={{ flex: 1 }}>
-            {isEdit ? "Save changes" : "Stow task"}
+          <button className="r-btn" onClick={submit} disabled={!canSubmit} style={{ flex: 1 }}>
+            {isEdit ? "Save changes" : "Route packet"}
           </button>
           {isEdit && !initial?.projectId && (
             <button
-              className="bezel"
+              className="r-btn r-btn--sm"
               disabled={subs.length === 0 && !stIn.trim()}
               title={subs.length === 0 && !stIn.trim()
                 ? "Add at least one step first — they become the project's tasks"
@@ -287,10 +286,10 @@ function TaskForm({ initial, isEdit, onClose }) {
                 }
               }}
             >
-              <Icon name="ship" size={12} /> Give it a berth
+              <Icon name="ship" size={12} /> Promote to system
             </button>
           )}
-          <button className="bezel" onClick={onClose}>Cancel</button>
+          <button className="r-btn r-btn--sm" onClick={onClose}>Cancel</button>
         </div>
         <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: -4 }}>
           <Kbd>{MOD}</Kbd> <Kbd>↵</Kbd> submit · <Kbd>Esc</Kbd> cancel. Unfinished step/tag text is included automatically.

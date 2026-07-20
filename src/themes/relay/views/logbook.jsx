@@ -1,14 +1,13 @@
-// logbook.jsx — "what the observatory remembers". Nightwatch renders the
-// Journal as a full-page overlay (same statsOpen state, same `4` and
+// Ledger.jsx — "what the yard remembers". Nightwatch renders the
+// Ledger as a full-page overlay (same statsOpen state, same `4` and
 // Esc): level stack with NEXT RANK, 30-day averages, estimate
 // calibration, screen weather, trophies, reviews, rollover, data
-// tools, theme picker. Every capability of the Drydock panel ships
+// tools, Switch deck picker. Every capability of the Drydock panel ships
 // here, recomposed.
 
 import React, { useMemo, useRef, useState } from "react";
 import { Icon, Eyebrow, Stamp, Meter, Kbd } from "../components.jsx";
-import { WeatherBars, CalRow } from "../charts.jsx";
-import { GhostNumeral } from "../chrome.jsx";
+import { CalRow, WeekBars } from "../charts.jsx";
 import { statementBg } from "../texture.js";
 import * as D from "../../../core/domain.js";
 import { useStore, getState, setUI, setDayStartHour, exportData, importDataFromFile, enterPreview, exitPreview, notify, openReview } from "../../../core/store.js";
@@ -16,7 +15,7 @@ import { listBackups } from "../../../core/db.js";
 import { useThemeId, setThemeId } from "../../../core/theme.js";
 import { THEMES } from "../../registry.js";
 
-export function JournalPage() {
+export function LedgerPage() {
   const open = useStore((s) => s.ui.statsOpen);
   if (!open) return null;
   return <Inner />;
@@ -120,42 +119,49 @@ function Inner() {
     : "TODAY";
 
   return (
-    <div className="logbook-page" role="dialog" aria-label="Journal">
-      <div className="view-pad">
-        <div className="header-band" style={{ marginBottom: 24 }}>
-          <GhostNumeral text={String(derived.level.lvl)} />
-          <div className="w-stencil-row" style={{ marginBottom: 10 }}>
-            <span className="w-stencil w-stencil--lit">Journal · the record</span>
+    <div className="r-ledger" role="dialog" aria-label="Ledger">
+      <aside className="r-ledger-rail">
+        <div className="r-lab r-lab--lit" style={{ padding: "4px 8px 12px" }}>/ledger</div>
+        <button className="r-stage-btn r-stage-btn--on" type="button">Rank</button>
+        <button className="r-stage-btn" type="button">Trophies</button>
+        <button className="r-stage-btn" type="button">Screen</button>
+        <button className="r-stage-btn" type="button">Rollover</button>
+        <button className="r-stage-btn" type="button">Data</button>
+        <button className="r-stage-btn" type="button">Theme</button>
+        <button className="r-btn r-btn--ghost r-btn--sm r-ledger-close" onClick={() => setUI({ statsOpen: false })}>
+          Close <Kbd>Esc</Kbd>
+        </button>
+      </aside>
+      <div className="r-ledger-main">
+        <div style={{ marginBottom: 24 }}>
+          <div className="r-lab" style={{ marginBottom: 10 }}>
+            <span className="r-lab">Ledger · the record</span>
           </div>
-          <div className="greeting-row">
-            <h1 className="w-display greeting">What the observatory remembers.</h1>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div className="yard-count w-num">SINCE {sinceLabel} · {derived.activeDays} ACTIVE DAY{derived.activeDays === 1 ? "" : "S"}</div>
-              <button className="bezel bezel--sm" onClick={() => setUI({ statsOpen: false })} aria-label="Close logbook">
-                <Icon name="close" size={11} /> Close <Kbd>Esc</Kbd>
-              </button>
-            </div>
+          <div className="r-feed-head">
+            <h1 className="r-display" style={{ fontSize: 26 }}>What the grid remembers.</h1>
+            <div className="r-feed-counts">SINCE {sinceLabel} · {derived.activeDays} ACTIVE DAY{derived.activeDays === 1 ? "" : "S"}</div>
           </div>
         </div>
 
-        <div style={{ paddingRight: 34, paddingBottom: 56 }}>
+        <div style={{ paddingBottom: 56 }}>
           <div className="log-grid">
             {/* left column */}
             <div>
-              <div className="statement level-stack" style={{ ...statementBg("level-" + derived.level.lvl) }}>
-                <div className="w-stencil" style={{ marginBottom: 8 }}>Current rank</div>
+              <div className="r-plate" style={{ ...statementBg("level-" + derived.level.lvl) }} id="r-sec-rank">
+                <div className="r-lab" style={{ marginBottom: 8 }}>Current rank</div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                  <span className="w-display w-num ls-n">{derived.level.lvl}</span>
-                  <span className="w-display" style={{ fontSize: 19 }}>{derived.level.title.toUpperCase()}</span>
+                  <span className="r-display r-num" style={{ fontSize: 42, color: "var(--channel)" }}>{derived.level.lvl}</span>
+                  <span className="r-display" style={{ fontSize: 19 }}>{derived.level.title.toUpperCase()}</span>
                 </div>
-                <div className="w-num" style={{ marginTop: 10, fontSize: 10.5, color: "var(--ink)", opacity: 0.78 }}>
+                <div className="r-spectrum"><div className="r-spectrum-fill" style={{ width: Math.min(100, derived.level.pct) + "%" }} /></div>
+                <div className="r-num" style={{ marginTop: 10, fontSize: 10.5, color: "var(--ink)", opacity: 0.78 }}>
                   {derived.total} XP{derived.level.xpToNext > 0 ? ` · ${derived.level.xpToNext} TO LEVEL ${derived.level.lvl + 1}` : " · MAX"}
                 </div>
-                <div className="meter" style={{ marginTop: 10, background: "rgba(20,16,10,0.25)" }}>
-                  <div className="meter-fill" style={{ width: derived.level.pct + "%", backgroundColor: "var(--ink)" }} />
+                <div className="r-meter" style={{ marginTop: 10, background: "rgba(20,16,10,0.25)" }}>
+                  <div className="r-meter-fill" style={{ width: derived.level.pct + "%", backgroundColor: "var(--ink)" }} />
                 </div>
                 {nextLevelName && nextThreshold != null && (
-                  <div className="w-num" style={{ marginTop: 14, fontSize: 9.5, color: "var(--ink)", opacity: 0.65, lineHeight: 1.7 }}>
+                  <div className="r-num" style={{ marginTop: 14, fontSize: 9.5, color: "var(--ink)", opacity: 0.65, lineHeight: 1.7 }}>
                     NEXT RANK — {nextLevelName.toUpperCase()} AT {nextThreshold} XP
                   </div>
                 )}
@@ -165,29 +171,29 @@ function Inner() {
                 {[
                   { l: "Streak", v: `${derived.streakRun}d` },
                   { l: "Completed", v: derived.count },
-                  { l: "Published", v: derived.launched },
+                  { l: "Launched", v: derived.launched },
                 ].map((x) => (
-                  <div key={x.l} className="plate plate--flush" style={{ padding: "10px 12px" }}>
-                    <div className="w-stencil" style={{ fontSize: 8.5, marginBottom: 4 }}>{x.l}</div>
-                    <div className="w-num" style={{ fontSize: 17, fontWeight: 600 }}>{x.v}</div>
+                  <div key={x.l} className="r-plate r-plate--flush" style={{ padding: "10px 12px" }}>
+                    <div className="r-lab" style={{ fontSize: 8.5, marginBottom: 4 }}>{x.l}</div>
+                    <div className="r-num" style={{ fontSize: 17, fontWeight: 600 }}>{x.v}</div>
                   </div>
                 ))}
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Day rollover</span></div>
-                <div className="plate" style={{ padding: "12px 14px" }}>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Day rollover</span></div>
+                <div className="r-plate" style={{ padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-                    <span className="w-num" style={{ fontSize: 11, color: "var(--fg-dim)", flex: 1 }}>DAY STARTS AT</span>
-                    <button className="bezel bezel--sm" onClick={() => setDayStartHour(Math.max(0, hour - 1))}>−</button>
+                    <span className="r-num" style={{ fontSize: 11, color: "var(--fg-dim)", flex: 1 }}>DAY STARTS AT</span>
+                    <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => setDayStartHour(Math.max(0, hour - 1))}>−</button>
                     <input type="number" min="0" max="23" value={hour} onChange={(e) => setDayStartHour(e.target.value)}
-                      className="bare w-num" style={{ width: 52, textAlign: "center", fontSize: 13, color: "var(--amber)" }} aria-label="Day rollover hour" />
-                    <button className="bezel bezel--sm" onClick={() => setDayStartHour(Math.min(23, hour + 1))}>+</button>
+                      className="r-field r-num" style={{ width: 52, textAlign: "center", fontSize: 13, color: "var(--channel)", padding: "4px" }} aria-label="Day rollover hour" />
+                    <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => setDayStartHour(Math.min(23, hour + 1))}>+</button>
                   </div>
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                     {presets.map((p) => (
                       <button key={p.label} title={p.hint} onClick={() => setDayStartHour(p.hourVal)}
-                        className="bezel bezel--sm"
+                        className="r-btn r-btn--sm r-btn--ghost"
                         style={hour === p.hourVal ? { background: "var(--amber)", color: "var(--ink)", borderColor: "transparent" } : {}}>
                         {p.label}
                       </button>
@@ -200,11 +206,11 @@ function Inner() {
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Theme</span></div>
+                <div className="r-lab" style={{ marginBottom: 10 }} id="r-sec-theme"><span className="r-lab">Switch deck</span></div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                   {THEMES.map((t) => (
                     <button key={t.id} title={t.tagline} onClick={() => setThemeId(t.id)}
-                      className="bezel"
+                      className="r-btn r-btn--ghost"
                       style={themeId === t.id ? { background: "var(--amber)", color: "var(--ink)", borderColor: "transparent", justifyContent: "space-between" } : { justifyContent: "space-between" }}>
                       <span>{t.name}</span>
                       <span style={{ fontSize: 9, opacity: 0.7, textTransform: "none", letterSpacing: 0 }}>{t.tagline}</span>
@@ -217,9 +223,9 @@ function Inner() {
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Data</span></div>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Data</span></div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <button className="bezel" onClick={exportData}>Export manifest (JSON)</button>
+                  <button className="r-btn r-btn--ghost" onClick={exportData}>Export manifest (JSON)</button>
                   <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
@@ -230,16 +236,16 @@ function Inner() {
                       if (mode) importDataFromFile(f, mode).catch((err) => notify(String(err.message || err)));
                       e.target.value = "";
                     }} />
-                  <button className="bezel" onClick={() => fileRef.current?.click()}>Import manifest (Werf or Quest)</button>
+                  <button className="r-btn r-btn--ghost" onClick={() => fileRef.current?.click()}>Import manifest (Werf or Quest)</button>
                   {previewMode
-                    ? <button className="bezel" style={{ color: "var(--amber-hot)", borderColor: "var(--amber-deep)" }} onClick={exitPreview}>Exit preview</button>
-                    : <button className="bezel" onClick={enterPreview}><Icon name="bolt" size={11} /> Preview with sample data</button>}
+                    ? <button className="r-btn r-btn--ghost" style={{ color: "var(--amber-hot)", borderColor: "var(--amber-deep)" }} onClick={exitPreview}>Exit preview</button>
+                    : <button className="r-btn r-btn--ghost" onClick={enterPreview}><Icon name="bolt" size={11} /> Preview with sample data</button>}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--fg-faint)", marginTop: 8, lineHeight: 1.5 }}>
                   Auto-backup keeps the last 7 days in local storage{backups.length ? ` (latest: ${backups[0].day})` : ""}. Export weekly for an off-machine copy.
                 </div>
                 {meta.migratedFrom && (
-                  <div className="w-num" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 6 }}>
+                  <div className="r-num" style={{ fontSize: 10, color: "var(--fg-faint)", marginTop: 6 }}>
                     migrated from: {[meta.migratedFrom.quest && "quest", meta.migratedFrom.vsq && "vsq", meta.migratedFrom.shiplist && "shiplist"].filter(Boolean).join(" + ")} · lifetime XP preserved
                   </div>
                 )}
@@ -249,8 +255,8 @@ function Inner() {
             {/* right column */}
             <div>
               <div className="log-section" style={{ marginTop: 0 }}>
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">30-day averages</span></div>
-                <div className="plate" style={{ padding: "14px 16px" }}>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">30-day averages</span></div>
+                <div className="r-plate" style={{ padding: "14px 16px" }}>
                   <CalRow label="XP per day" pct={Math.min(100, (avg30.xpPerDay / 150) * 100)} value={avg30.xpPerDay} />
                   <CalRow label="Focus hours" pct={Math.min(100, (avg30.focusPerDay / 5) * 100)} tone="var(--channel)" value={avg30.focusPerDay >= 0.05 ? avg30.focusPerDay.toFixed(1) + "H" : "—"} />
                   <CalRow label="Active days" pct={avg30.activeRate} tone="var(--starboard)" value={avg30.activeRate + "%"} />
@@ -259,8 +265,8 @@ function Inner() {
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Estimate calibration · last 60 days</span></div>
-                <div className="plate" style={{ padding: "14px 16px" }}>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Estimate calibration · last 60 days</span></div>
+                <div className="r-plate" style={{ padding: "14px 16px" }}>
                   {cal.overall.n < 3 ? (
                     <div style={{ fontSize: 12, color: "var(--fg-faint)", lineHeight: 1.5 }}>
                       Not enough finished, focused work to calibrate yet ({cal.overall.n}/3 tasks).
@@ -270,7 +276,7 @@ function Inner() {
                   ) : (
                     <>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-                        <span className="w-display" style={{ fontSize: 26, fontWeight: 600, color: cal.overall.factor > 1.15 ? "var(--warn)" : cal.overall.factor < 0.9 ? "var(--channel)" : "var(--starboard)" }}>
+                        <span className="r-display" style={{ fontSize: 26, fontWeight: 600, color: cal.overall.factor > 1.15 ? "var(--warn)" : cal.overall.factor < 0.9 ? "var(--channel)" : "var(--starboard)" }}>
                           {cal.overall.factor}×
                         </span>
                         <span style={{ fontSize: 12, color: "var(--fg-dim)" }}>
@@ -291,27 +297,27 @@ function Inner() {
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Screen weather · 14 days</span></div>
-                <div className="plate" style={{ padding: "14px 16px" }}>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Screen weather · 14 days</span></div>
+                <div className="r-plate" style={{ padding: "14px 16px" }}>
                   <div style={{ display: "flex", gap: 14, marginBottom: 10, flexWrap: "wrap" }}>
                     <Stamp>7D: {totX} X · {totYT} YT</Stamp>
                     <Stamp>AVG MOBILE {avgMobile}</Stamp>
                   </div>
-                  <WeatherBars data={screen14.map((d) => ({ value: d.opens, title: `${d.iso}: ${d.x} X · ${d.yt} YT` }))} threshold={10} />
-                  <div className="w-num" style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 9, color: "var(--fg-faint)" }}>
+                  <WeekBars data={screen14.map((d) => ({ value: d.opens, title: `${d.iso}: ${d.x} X · ${d.yt} YT` }))} threshold={10} />
+                  <div className="r-num" style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 9, color: "var(--fg-faint)" }}>
                     <span>X + YT OPENS PER DAY</span><span>PORT MARKS DAYS OVER 10</span>
                   </div>
                   {mVals.length > 0 && (
                     <>
-                      <div className="w-num" style={{ fontSize: 9, color: "var(--fg-faint)", margin: "12px 0 6px" }}>MOBILE HOURS</div>
-                      <WeatherBars height={30} data={screen14.map((d) => ({ value: d.mobile ?? 0, title: `${d.iso}: ${d.mobile ?? "—"}h` }))} />
+                      <div className="r-num" style={{ fontSize: 9, color: "var(--fg-faint)", margin: "12px 0 6px" }}>MOBILE HOURS</div>
+                      <WeekBars height={30} data={screen14.map((d) => ({ value: d.mobile ?? 0, title: `${d.iso}: ${d.mobile ?? "—"}h` }))} />
                     </>
                   )}
                 </div>
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Trophies · {achievements.length}/{D.ACHIEVEMENTS.length}</span></div>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Trophies · {achievements.length}/{D.ACHIEVEMENTS.length}</span></div>
                 <div className="plate plate--flush ledger">
                   {D.ACHIEVEMENTS.map((a) => {
                     const done = achievements.includes(a.id);
@@ -325,13 +331,13 @@ function Inner() {
                           <div className="lrow-meta w-num"><span>{a.desc.toUpperCase()}</span></div>
                         </div>
                         {done
-                          ? <span className="w-tape" style={{ fontSize: 8 }}>Earned</span>
+                          ? <span className="r-lab r-lab--lit" style={{ fontSize: 8 }}>Earned</span>
                           : prog
                             ? <>
                                 <div className="trophy-meter"><Meter pct={pct} height={4} /></div>
-                                <span className="w-num" style={{ fontSize: 9, color: "var(--fg-faint)", width: 42, textAlign: "right" }}>{prog.cur}/{prog.target}</span>
+                                <span className="r-num" style={{ fontSize: 9, color: "var(--fg-faint)", width: 42, textAlign: "right" }}>{prog.cur}/{prog.target}</span>
                               </>
-                            : <span className="w-num" style={{ fontSize: 9, color: "var(--fg-faint)" }}>—</span>}
+                            : <span className="r-num" style={{ fontSize: 9, color: "var(--fg-faint)" }}>—</span>}
                       </div>
                     );
                   })}
@@ -339,7 +345,7 @@ function Inner() {
               </div>
 
               <div className="log-section">
-                <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Reviews</span></div>
+                <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Reviews</span></div>
                 {weeks.length === 0 ? (
                   <div style={{ fontSize: 12, color: "var(--fg-faint)" }}>No weeks with activity yet — the record starts when the work does.</div>
                 ) : (
@@ -351,16 +357,16 @@ function Inner() {
                         : "stats ready · no retro written yet";
                       return (
                         <div key={w} className="manifest-row">
-                          <span className="w-tape w-tape--channel">W{weekNo(w)}</span>
+                          <span className="r-lab r-lab--lit">W{weekNo(w)}</span>
                           <span style={{ flex: 1, fontSize: 12.5, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-                          <button className="link" onClick={() => { setUI({ statsOpen: false }); openReview(w); }}>Open →</button>
+                          <button className="r-link" onClick={() => { setUI({ statsOpen: false }); openReview(w); }}>Open →</button>
                         </div>
                       );
                     })}
                   </div>
                 )}
                 <div style={{ marginTop: 10 }}>
-                  <button className="bezel bezel--sm" onClick={() => { setUI({ statsOpen: false }); openReview(); }}>
+                  <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setUI({ statsOpen: false }); openReview(); }}>
                     Weekly review <Kbd>W</Kbd>
                   </button>
                 </div>

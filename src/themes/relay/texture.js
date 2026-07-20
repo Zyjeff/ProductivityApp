@@ -1,9 +1,5 @@
-// texture.js — Nightwatch's seeded dither engine. Same lineage as
-// Drydock's: rendered ONCE per parameter set, cached as a data URL,
-// never touched per frame. Nightwatch tunes the recipes darker — the
-// yard at night, lit by the moon and the sodium lamps.
-
-/* ── seeded randomness ─────────────────────────────────────── */
+// texture.js — Relay's seeded dither engine (copied lineage, own recipes).
+// Cached data-URLs only — never per frame.
 
 function xmur3(str) {
   let h = 1779033703 ^ str.length;
@@ -27,7 +23,6 @@ function mulberry32(a) {
 }
 export function hashSeed(str) { return xmur3(String(str))(); }
 
-// Tileable per-cell hash noise (blue-noise-ish threshold field).
 export function cellNoise(gx, gy, cols, rows, seed) {
   let h = seed ^ Math.imul(((gx % cols) + cols) % cols, 374761393) ^ Math.imul(((gy % rows) + rows) % rows, 668265263);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -42,17 +37,13 @@ const BAYER8 = [
 ];
 export const bayerAt = (gx, gy) => (BAYER8[(gy & 7) * 8 + (gx & 7)] + 0.5) / 64;
 
-/* ── color plumbing ────────────────────────────────────────── */
-
-export function cssColor(c, fallback = "#f5a524") {
+export function cssColor(c, fallback = "#5b6cff") {
   if (!c) return fallback;
   const m = /^var\((--[a-z0-9-]+)\)$/i.exec(String(c).trim());
   if (!m) return c;
   if (typeof document === "undefined") return fallback;
   return getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim() || fallback;
 }
-
-/* ── the renderer ──────────────────────────────────────────── */
 
 const cache = new Map();
 export function textureCacheSize() { return cache.size; }
@@ -79,7 +70,7 @@ export function tex(opts) {
   const hit = cache.get(key);
   if (hit) return hit;
 
-  const { seed = "werf", algo = "bayer", w = 96, h = 96, cell = 2, fg = "#f5a524", bg = null, alpha = 1 } = opts;
+  const { seed = "relay", algo = "bayer", w = 96, h = 96, cell = 2, fg = "#5b6cff", bg = null, alpha = 1 } = opts;
   const cols = Math.max(1, Math.ceil(w / cell));
   const rows = Math.max(1, Math.ceil(h / cell));
   const canvas = document.createElement("canvas");
@@ -124,8 +115,6 @@ export function tex(opts) {
   return url;
 }
 
-/* ── convenience recipes ───────────────────────────────────── */
-
 export function edgeTex({ seed = "edge", algo, side = "bottom", depth = 28, fg, cell = 2, from = 0.5, alpha = 1 }) {
   const vertical = side === "top" || side === "bottom";
   return tex({
@@ -136,27 +125,23 @@ export function edgeTex({ seed = "edge", algo, side = "bottom", depth = 28, fg, 
   });
 }
 
-// Plate under-fade: the sodium-lamp glow pooling at a plate's foot.
-export function plateFade(seedString, fg = "#1c2434", from = 0.35, depth = 20) {
+export function plateFade(seedString, fg = "#1a2440", from = 0.3, depth = 18) {
   return edgeTex({ seed: "fade-" + seedString, side: "bottom", depth, fg, from });
 }
 
-// Statement plate: ink dither creeping from the top and bottom edges of
-// an amber surface; the center stays clean for text (legibility law).
-export function statementBg(seedString, ink = "#14100a", amber = "#f5a524") {
-  const topUrl = edgeTex({ seed: seedString + ":t", side: "top", depth: 10, fg: ink, from: 0.32, cell: 2 });
-  const botUrl = edgeTex({ seed: seedString + ":b", side: "bottom", depth: 16, fg: ink, from: 0.36, cell: 2 });
+export function statementBg(seedString, ink = "#06080f", accent = "#5b6cff") {
+  const topUrl = edgeTex({ seed: seedString + ":t", side: "top", depth: 10, fg: ink, from: 0.28, cell: 2 });
+  const botUrl = edgeTex({ seed: seedString + ":b", side: "bottom", depth: 14, fg: ink, from: 0.32, cell: 2 });
   return {
-    backgroundColor: amber,
+    backgroundColor: accent,
     backgroundImage: `${topUrl}, ${botUrl}`,
     backgroundRepeat: "repeat-x, repeat-x",
     backgroundPosition: "top left, bottom left",
   };
 }
 
-// Ghost numeral fill: the big background digit's dither field.
-export function ghostFill(seedString, w = 260) {
-  return tex({ seed: "ghost-" + seedString, algo: "bayer", w, h: 168, cell: 3, fg: "#2a3550", grad: { from: 0.55, to: 0.08, dir: "down" } });
+export function glassGrain(seedString) {
+  return tex({ seed: "glass-" + seedString, algo: "noise", w: 120, h: 80, cell: 2, fg: "#5b6cff", density: 0.08, alpha: 0.35 });
 }
 
 export const REDUCED_MOTION = typeof window !== "undefined"

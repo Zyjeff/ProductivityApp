@@ -1,7 +1,4 @@
-// capture.jsx — the command slab, Nightwatch cut: block caret, inline
-// type toggles, "N FOCUS · ↵ STOW" hints. Enter saves locally in the
-// same tick; AI enriches after. Logic identical to the core contract —
-// only the chassis differs from Drydock.
+// capture.jsx — path-mode capture bar. Logic matches core contract.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Kbd, Lamp } from "./components.jsx";
@@ -17,9 +14,9 @@ const CHIP_TONE = {
 };
 
 const MODES = [
-  { id: "task", label: "Task", placeholder: "Capture — saved instantly · !prio #tag @project 2h fri…" },
-  { id: "subtasks", label: "Steps", placeholder: "Describe a multi-step task — AI adds the steps" },
-  { id: "project", label: "Project", placeholder: "Found a project — AI drafts its tasks, it gets a berth" },
+  { id: "task", label: "/packet", placeholder: "Route a packet… (!urgent #tag @system 2h fri)" },
+  { id: "subtasks", label: "/steps", placeholder: "Multi-step packet — AI adds the steps" },
+  { id: "project", label: "/system", placeholder: "Spin up a system — AI drafts child packets" },
 ];
 
 export function CaptureSlab({ scheduleToday = false, autoRegister = true }) {
@@ -61,19 +58,9 @@ export function CaptureSlab({ scheduleToday = false, autoRegister = true }) {
   };
 
   return (
-    <div style={{ position: "relative", width: "100%" }}>
-      <div className="slab">
-        <span className="slab-caret" aria-hidden />
-        <input ref={inputRef} value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
-            else if (e.key === "Escape") { setText(""); inputRef.current?.blur(); }
-          }}
-          placeholder={current.placeholder}
-          aria-label="Capture a task"
-          autoComplete="off" />
-        <div className="slab-types" role="group" aria-label="Capture type">
+    <div style={{ width: "100%" }}>
+      <div className="r-cap">
+        <div className="r-cap-modes" role="group" aria-label="Capture type">
           {MODES.map((m) => (
             <button key={m.id} type="button" className={mode === m.id ? "on" : ""}
               aria-pressed={mode === m.id}
@@ -82,24 +69,30 @@ export function CaptureSlab({ scheduleToday = false, autoRegister = true }) {
             </button>
           ))}
         </div>
-        <div className="slab-hint w-num" style={{ fontSize: 9, color: "var(--fg-faint)", flexShrink: 0 }}>
-          <Kbd>N</Kbd><span style={{ marginLeft: 2 }}>FOCUS</span>
-          <Kbd>↵</Kbd><span style={{ marginLeft: 2 }}>STOW</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-          <Lamp status={aiStatus} detail={aiDetail} />
-          <button type="button" className="icon-btn" onClick={() => setUI({ formOpen: true, editingTaskId: null })}
-            title="Full form (Shift+N)" aria-label="Open full task form" style={{ padding: 2 }}><Icon name="edit" size={12} /></button>
-        </div>
+        <input ref={inputRef} value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+            else if (e.key === "Escape") { setText(""); inputRef.current?.blur(); }
+          }}
+          placeholder={current.placeholder}
+          aria-label="Route a packet"
+          autoComplete="off" />
+        <span className="r-num" style={{ fontSize: 9, color: "var(--fg-faint)", flexShrink: 0, display: "flex", gap: 6, alignItems: "center" }}>
+          <Kbd>N</Kbd><Kbd>↵</Kbd>
+        </span>
+        <Lamp status={aiStatus} detail={aiDetail} />
+        <button type="button" className="r-icon-btn" onClick={() => setUI({ formOpen: true, editingTaskId: null })}
+          title="Full form (Shift+N)" aria-label="Open full task form"><Icon name="edit" size={12} /></button>
       </div>
 
       {grammarActive && (
-        <div className="slab-chips fade-in">
+        <div className="r-cap-chips fade-in">
           <span style={{ fontSize: 11, color: "var(--fg)", fontWeight: 500, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {parsed.title || "(untitled)"}
           </span>
           {parsed.chips.map((c, i) => (
-            <span key={i} className="stamp" style={{ color: CHIP_TONE[c.type] || "var(--fg-dim)", borderColor: CHIP_TONE[c.type] || "var(--line)" }}>{c.label}</span>
+            <span key={i} className="r-stamp" style={{ color: CHIP_TONE[c.type] || "var(--fg-dim)", borderColor: CHIP_TONE[c.type] || "var(--line)" }}>{c.label}</span>
           ))}
         </div>
       )}

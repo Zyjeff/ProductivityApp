@@ -1,4 +1,4 @@
-// review.jsx — the weekly review in the Nightwatch console. Stats
+// review.jsx — the Week retro in the Nightwatch console. Stats
 // always render; the AI retro is written once per week and cached.
 // Identical behavior to the core contract.
 
@@ -46,25 +46,25 @@ function Inner({ week }) {
   const maxSplit = Math.max(1, ...stats.effortSplit.map((e) => e.hours));
 
   return (
-    <div onClick={closeReview} className="backdrop" style={{ zIndex: 10002, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px 16px", overflowY: "auto" }}>
-      <div onClick={(e) => e.stopPropagation()} className="console fade-in" style={{ width: "100%", maxWidth: 640 }}>
-        <div className="console-head">
-          <span className="w-stencil w-stencil--lit">Weekly review</span>
+    <div className="r-retro" role="dialog" aria-label="Week retro">
+      <div className="r-retro-inner fade-in">
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+          <span className="r-lab r-lab--lit">Week retro</span>
           <div style={{ flex: 1 }} />
-          <button className="icon-btn" disabled={idx >= weeks.length - 1} style={{ opacity: idx >= weeks.length - 1 ? 0.3 : 1 }}
+          <button className="r-icon-btn" disabled={idx >= weeks.length - 1} style={{ opacity: idx >= weeks.length - 1 ? 0.3 : 1 }}
             onClick={() => setUI({ reviewWeek: weeks[idx + 1] })} title="Older week" aria-label="Older week">
             <Icon name="chevron" size={13} />
           </button>
-          <button className="icon-btn" disabled={idx <= 0} style={{ opacity: idx <= 0 ? 0.3 : 1 }}
+          <button className="r-icon-btn" disabled={idx <= 0} style={{ opacity: idx <= 0 ? 0.3 : 1 }}
             onClick={() => setUI({ reviewWeek: weeks[idx - 1] })} title="Newer week" aria-label="Newer week">
             <Icon name="chevronR" size={13} />
           </button>
-          <button className="icon-btn" onClick={closeReview} aria-label="Close"><Icon name="close" size={13} /></button>
+          <button className="r-btn r-btn--ghost r-btn--sm" onClick={closeReview} aria-label="Close"><Icon name="close" size={13} /> Close</button>
         </div>
-        <div style={{ padding: "18px 22px 22px" }}>
-          <div className="statement" style={{ ...statementBg("nw-week-" + week), padding: "10px 16px 12px", marginBottom: 18 }}>
-            <div className="w-stencil">The week</div>
-            <div className="w-display" style={{ fontSize: 23 }}>{stats.label}</div>
+        <div>
+          <div className="r-plate" style={{ ...statementBg("relay-week-" + week), padding: "12px 16px", marginBottom: 18 }}>
+            <div className="r-lab">The week</div>
+            <div className="r-display" style={{ fontSize: 23 }}>{stats.label}</div>
           </div>
 
           {stats.total === 0 ? (
@@ -72,7 +72,7 @@ function Inner({ week }) {
               Nothing logged this week — no completions, no focus sessions.
               {weeks.length > 1 && idx < weeks.length - 1 && (
                 <div style={{ marginTop: 10 }}>
-                  <button className="bezel bezel--sm" onClick={() => setUI({ reviewWeek: weeks[idx + 1] })}>← Older week</button>
+                  <button className="r-btn r-btn--ghost bezel--sm" onClick={() => setUI({ reviewWeek: weeks[idx + 1] })}>← Older week</button>
                 </div>
               )}
             </div>
@@ -83,11 +83,11 @@ function Inner({ week }) {
                   { l: "Done", v: stats.total },
                   { l: "XP", v: stats.xp },
                   { l: "Focused", v: stats.focusMs ? D.fmtMs(stats.focusMs) : "—" },
-                  { l: "Published", v: stats.launched.length || "—" },
+                  { l: "Launched", v: stats.launched.length || "—" },
                 ].map((x) => (
                   <div key={x.l} style={{ background: "var(--well)", boxShadow: "inset 0 1px 0 rgba(0,0,0,0.5)", padding: "10px 12px" }}>
-                    <div className="w-stencil" style={{ fontSize: 8.5, marginBottom: 4 }}>{x.l}</div>
-                    <div className="w-display w-num" style={{ fontSize: 18, fontWeight: 600 }}>{x.v}</div>
+                    <div className="r-lab" style={{ fontSize: 8.5, marginBottom: 4 }}>{x.l}</div>
+                    <div className="r-display r-num" style={{ fontSize: 18, fontWeight: 600 }}>{x.v}</div>
                   </div>
                 ))}
               </div>
@@ -100,7 +100,7 @@ function Inner({ week }) {
                   isToday: stats.bestDay ? d.iso === stats.bestDay.iso : false,
                 }))} />
               </div>
-              <div className="w-num" style={{ display: "flex", gap: 14, fontSize: 10.5, color: "var(--fg-faint)", margin: "8px 0 16px", flexWrap: "wrap" }}>
+              <div className="r-num" style={{ display: "flex", gap: 14, fontSize: 10.5, color: "var(--fg-faint)", margin: "8px 0 16px", flexWrap: "wrap" }}>
                 {stats.bestDay && <span>best: {stats.bestDay.label} ({stats.bestDay.count})</span>}
                 {stats.accuracy && <span style={{ color: stats.accuracy.factor > 1.15 ? "var(--warn)" : "var(--starboard)" }}>estimates ran {stats.accuracy.factor}× (n={stats.accuracy.n})</span>}
                 {stats.adriftNow > 0 && <span style={{ color: "var(--warn)" }}>{stats.adriftNow} adrift now</span>}
@@ -108,7 +108,7 @@ function Inner({ week }) {
 
               {stats.launched.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <Eyebrow>Published</Eyebrow>
+                  <Eyebrow>Launched</Eyebrow>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {stats.launched.map((l) => (
                       <div key={l.title} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--starboard-ground)", boxShadow: "inset 3px 0 0 var(--starboard)", fontSize: 12.5, color: "var(--starboard)" }}>
@@ -129,7 +129,7 @@ function Inner({ week }) {
                         <div className="meter" style={{ flex: 1, height: 5 }}>
                           <div className="meter-fill" style={{ width: (e2.hours / maxSplit) * 100 + "%", backgroundColor: e2.color }} />
                         </div>
-                        <span className="w-num" style={{ color: "var(--fg-faint)", width: 42, textAlign: "right" }}>{e2.hours}h</span>
+                        <span className="r-num" style={{ color: "var(--fg-faint)", width: 42, textAlign: "right" }}>{e2.hours}h</span>
                       </div>
                     ))}
                   </div>
@@ -138,7 +138,7 @@ function Inner({ week }) {
 
               <div style={{ borderTop: "1px solid var(--line-dim)", paddingTop: 14 }}>
                 <Eyebrow right={entry?.text ? (
-                  <button className="icon-btn" title="Rewrite the retro"
+                  <button className="r-icon-btn" title="Rewrite the retro"
                     onClick={() => { patchReview(week, { text: null, attempted: false }); generateReviewRetro(week, stats); }}>
                     <Icon name="reset" size={11} />
                   </button>
@@ -148,10 +148,10 @@ function Inner({ week }) {
                 ) : entry?.attempted && aiStatus !== "busy" ? (
                   <div style={{ fontSize: 12, color: "var(--fg-faint)" }}>
                     AI is off — the numbers above stand on their own.{" "}
-                    <button className="link" style={{ fontSize: 12 }} onClick={() => generateReviewRetro(week, stats)}>Retry</button>
+                    <button className="r-link" style={{ fontSize: 12 }} onClick={() => generateReviewRetro(week, stats)}>Retry</button>
                   </div>
                 ) : (
-                  <div className="w-num" style={{ fontSize: 12, color: "var(--fg-faint)" }}>writing the retro…</div>
+                  <div className="r-num" style={{ fontSize: 12, color: "var(--fg-faint)" }}>writing the retro…</div>
                 )}
               </div>
             </>

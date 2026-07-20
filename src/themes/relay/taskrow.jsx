@@ -1,9 +1,7 @@
-// taskrow.jsx — the Nightwatch ledger row: index numeral, harbor
-// light, lamp channel, dithered baseline, per-row +XP. All handlers
-// and data flow identical to the core contract.
+// taskrow.jsx — Relay packet row. Handlers identical to core contract.
 
 import React, { useState } from "react";
-import { Icon, Stamp, HLight, PriorityDot } from "./components.jsx";
+import { Icon, Stamp, ResolveBtn, PriorityDot } from "./components.jsx";
 import { DIFFICULTY, taskHours, effectiveTodayIso, todayFocusMs, fmtMs } from "../../core/domain.js";
 import { useStore, setUI, setCompletion, deleteTask, toggleSubtask, updateChunk, moveChunkDate } from "../../core/store.js";
 
@@ -20,7 +18,7 @@ export function DeadlineStamp({ task }) {
     : `DUE ${dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
   const title = `Deadline: ${dueDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}`;
   if (overdue || daysLeft <= 3) {
-    return <span className={"w-tape " + (overdue ? "w-tape--port" : "w-tape--warn")} title={title} style={{ fontSize: 8.5, padding: "1px 5px", flexShrink: 0 }}>{label}</span>;
+    return <Stamp tone={overdue ? "var(--port)" : "var(--warn)"} style={{ flexShrink: 0 }} title={title}>{label}</Stamp>;
   }
   return <Stamp style={{ flexShrink: 0 }} title={title}>{label}</Stamp>;
 }
@@ -36,7 +34,7 @@ function ActualsReadout({ task, done, dayStartHour }) {
     const est = taskHours(task);
     const over = actualMs / 3600000 > est;
     return (
-      <span className="w-num" title={`Actual focus ${fmtMs(actualMs)} vs ~${est}h estimated`}
+      <span className="r-num" title={`Actual focus ${fmtMs(actualMs)} vs ~${est}h estimated`}
         style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, color: over ? "var(--warn)" : "var(--fg-faint)" }}>
         <Icon name="focus" size={9} />{fmtMs(actualMs)}/{est}h
       </span>
@@ -45,10 +43,17 @@ function ActualsReadout({ task, done, dayStartHour }) {
   const fm = todayFocusMs(task, dayStartHour);
   if (!fm || done) return null;
   return (
-    <span className="w-num" title="Time focused today" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, color: "var(--amber-hot)" }}>
+    <span className="r-num" title="Time focused today" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, color: "var(--channel)" }}>
       <Icon name="focus" size={9} />{fmtMs(fm)}
     </span>
   );
+}
+
+function lifecycleOf(task, done, dayStartHour) {
+  if (done) return { id: "resolved", label: "Resolved" };
+  const fm = todayFocusMs(task, dayStartHour);
+  if (fm > 0) return { id: "cycle", label: "In-cycle" };
+  return { id: "discovery", label: "Discovery" };
 }
 
 export function TaskRow({
@@ -58,78 +63,71 @@ export function TaskRow({
   isCursor, onHoverCursor,
   expanded, onToggleExpand, extraExpanded,
   compact = false, showAge = true, dayStartHour = 0,
+  orphan = false,
 }) {
   const done = doneHere ?? task.completed;
   const ageDays = task.createdAt ? Math.floor((Date.now() - task.createdAt) / 86400000) : 0;
   const sub = task.subtasks || [];
   const doneSub = sub.filter((s) => s.done).length;
   const diff = DIFFICULTY[task.difficulty] || DIFFICULTY.medium;
-  const settling = task.justEnriched && Date.now() - task.justEnriched < 2000;
-  const lamp = project?.color || diff.tone;
+  const life = lifecycleOf(task, done, dayStartHour);
 
   return (
     <div
-      className={"lrow" + (done ? " lrow--done" : "") + (isCursor ? " lrow--cursor" : "") + (settling ? " settling" : "")}
-      style={{ flexDirection: "column", alignItems: "stretch", "--row-lamp": done ? "var(--line-dim)" : lamp }}
+      className={"r-pkt" + (done ? " r-pkt--done" : "") + (isCursor ? " r-pkt--cursor" : "") + (orphan ? " r-pkt--orphan" : "")}
       onMouseEnter={onHoverCursor}
     >
-      <span className="lrow-bracket" aria-hidden />
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {index != null && <span className="lrow-idx w-num">{String(index + 1).padStart(2, "0")}</span>}
-        <HLight done={done} onComplete={() => onToggleDone(true)} onReopen={() => onToggleDone(false)} />
-        <div style={{ flex: 1, minWidth: 0, cursor: onToggleExpand ? "pointer" : "default" }}
-          onClick={onToggleExpand || undefined}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <PriorityDot p={task.priority || "medium"} />
-            <span className="lrow-title" style={{ minWidth: 0 }}>{task.title}</span>
-            {task.aiPending && (
-              <span className="w-num" title="AI is scoring this task — the numbers may refine in a moment"
-                style={{ fontSize: 9, color: "var(--amber-hot)", flexShrink: 0 }}>AI…</span>
-            )}
-            {task.recurring && task.recurring !== "none" && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--fg-faint)", fontSize: 10, flexShrink: 0 }}>
-                <Icon name="recur" size={10} /> {task.recurring}
-              </span>
-            )}
-            {splitBadge && <Stamp style={{ flexShrink: 0 }}>{splitBadge}</Stamp>}
-            <DeadlineStamp task={{ ...task, completed: done }} />
-            {showAge && !done && task.recurring === "none" && ageDays > 7 && (
-              <Stamp title={`Pending ${ageDays} days`} tone={ageDays > 14 ? "var(--warn)" : undefined} style={{ flexShrink: 0 }}>{ageDays}d</Stamp>
-            )}
-          </div>
-          <div className="lrow-meta w-num">
-            {project && <span style={{ color: done ? "var(--fg-faint)" : project.color }}>{project.title.toUpperCase()}</span>}
-            <span>{taskHours(task)}H</span>
-            {chunkLabel && <Stamp style={{ fontStyle: "normal" }}>{chunkLabel}</Stamp>}
-            {chunkNote && <span style={{ fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 260 }} title={chunkNote}>{chunkNote}</span>}
-            <span style={{ color: diff.tone }}>{(task.difficulty || "medium").toUpperCase()}</span>
-            {(task.tags || []).map((t) => <span key={t}>#{t}</span>)}
-            {sub.length > 0 && <span>{doneSub}/{sub.length} STEPS</span>}
-            <ActualsReadout task={task} done={done} dayStartHour={dayStartHour} />
-          </div>
+      <ResolveBtn done={done} onComplete={() => onToggleDone(true)} onReopen={() => onToggleDone(false)} />
+      <div style={{ minWidth: 0, cursor: onToggleExpand ? "pointer" : "default" }} onClick={onToggleExpand || undefined}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {index != null && <span className="r-num" style={{ fontSize: 10, color: "var(--fg-faint)" }}>{String(index + 1).padStart(2, "0")}</span>}
+          <PriorityDot p={task.priority || "medium"} />
+          <span className="r-pkt-title">{task.title}</span>
+          <span className={"r-life r-life--" + life.id}>{life.label}</span>
+          {task.aiPending && <span className="r-num" style={{ fontSize: 9, color: "var(--amber-hot)" }}>AI…</span>}
+          {task.recurring && task.recurring !== "none" && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--fg-faint)", fontSize: 10 }}>
+              <Icon name="recur" size={10} /> {task.recurring}
+            </span>
+          )}
+          {splitBadge && <Stamp style={{ flexShrink: 0 }}>{splitBadge}</Stamp>}
+          <DeadlineStamp task={{ ...task, completed: done }} />
+          {showAge && !done && task.recurring === "none" && ageDays > 7 && (
+            <Stamp title={`Pending ${ageDays} days`} tone={ageDays > 14 ? "var(--warn)" : undefined}>{ageDays}d</Stamp>
+          )}
         </div>
-        <span className="lrow-xp w-num" title={`${diff.label} · ~${taskHours(task)}h · ${task.xp} XP`}>+{task.xp} XP</span>
-        {!compact && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-            {!done && (
-              <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setUI({ focusTaskId: task.id }); }} aria-label="Enter focus mode" title="Focus (F)"><Icon name="focus" size={13} /></button>
-            )}
-            <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setUI({ editingTaskId: task.id, formOpen: true }); }} aria-label="Edit" title="Edit (E)"><Icon name="edit" size={13} /></button>
-            <button className="icon-btn" onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} aria-label="Delete" title="Delete (undoable)"><Icon name="close" size={13} /></button>
-          </div>
-        )}
+        <div className="r-pkt-meta">
+          {project && <span style={{ color: done ? "var(--fg-faint)" : project.color }}>{project.title.toUpperCase()}</span>}
+          <span>{taskHours(task)}H</span>
+          {chunkLabel && <Stamp>{chunkLabel}</Stamp>}
+          {chunkNote && <span style={{ fontStyle: "italic", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }} title={chunkNote}>{chunkNote}</span>}
+          <span style={{ color: diff.tone }}>{(task.difficulty || "medium").toUpperCase()}</span>
+          {(task.tags || []).map((t) => <span key={t}>#{t}</span>)}
+          {sub.length > 0 && <span>{doneSub}/{sub.length} STEPS</span>}
+          <ActualsReadout task={task} done={done} dayStartHour={dayStartHour} />
+          <span style={{ color: "var(--channel)" }}>+{task.xp} XP</span>
+        </div>
       </div>
+      {!compact && (
+        <div className="r-pkt-actions">
+          {!done && (
+            <button className="r-icon-btn" onClick={(e) => { e.stopPropagation(); setUI({ focusTaskId: task.id }); }} aria-label="Deep cycle" title="Focus (F)"><Icon name="focus" size={13} /></button>
+          )}
+          <button className="r-icon-btn" onClick={(e) => { e.stopPropagation(); setUI({ editingTaskId: task.id, formOpen: true }); }} aria-label="Edit" title="Edit (E)"><Icon name="edit" size={13} /></button>
+          <button className="r-icon-btn" onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} aria-label="Drop" title="Delete (undoable)"><Icon name="close" size={13} /></button>
+        </div>
+      )}
 
       {!compact && expanded && (
-        <div className="lrow-expand fade-in">
+        <div className="r-pkt-expand fade-in">
           {task.desc && <div style={{ fontSize: 12.5, color: "var(--fg-dim)", lineHeight: 1.55, marginBottom: 8 }}>{task.desc}</div>}
           {task.notes && <div style={{ fontSize: 12, color: "var(--fg-dim)", fontStyle: "italic", marginBottom: 8 }}>{task.notes}</div>}
           {sub.length > 0 && (
             <div>
-              <div className="w-stencil" style={{ marginBottom: 6 }}>Steps</div>
+              <div className="r-lab" style={{ marginBottom: 6 }}>Steps</div>
               {sub.map((s) => (
                 <div key={s.id} onClick={() => toggleSubtask(task.id, s.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer" }}>
-                  <HLight square size={14} done={s.done} onComplete={() => toggleSubtask(task.id, s.id)} onReopen={() => toggleSubtask(task.id, s.id)} label="toggle step" />
+                  <ResolveBtn size={14} done={s.done} onComplete={() => toggleSubtask(task.id, s.id)} onReopen={() => toggleSubtask(task.id, s.id)} label="toggle step" />
                   <span style={{ fontSize: 12.5, color: s.done ? "var(--fg-faint)" : "var(--fg)", textDecoration: s.done ? "line-through" : "none" }}>{s.title}</span>
                 </div>
               ))}
@@ -142,7 +140,6 @@ export function TaskRow({
   );
 }
 
-// Inline editor for a split task's chunks (date / hours / note / done).
 export function ChunksEditor({ task, chunks, dayStartHour = 0 }) {
   const [edits, setEdits] = useState({});
   const keyOf = (c) => `${c.date}:${task.id}`;
@@ -175,7 +172,7 @@ export function ChunksEditor({ task, chunks, dayStartHour = 0 }) {
   const todayIso = effectiveTodayIso(dayStartHour);
   return (
     <div style={{ marginTop: 8 }}>
-      <div className="w-stencil" style={{ marginBottom: 6 }}>Split across {chunks.length} days</div>
+      <div className="r-lab" style={{ marginBottom: 6 }}>Split across {chunks.length} days</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {chunks.map((c) => {
           const isPast = c.date < todayIso;
@@ -183,33 +180,30 @@ export function ChunksEditor({ task, chunks, dayStartHour = 0 }) {
           return (
             <div key={keyOf(c)} style={{
               display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
-              background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line-dim)",
+              background: "var(--well)", border: "1px solid var(--line)", borderRadius: 6,
               opacity: c.item.done ? 0.6 : 1, flexWrap: "wrap",
             }}>
-              <HLight done={!!c.item.done}
+              <ResolveBtn done={!!c.item.done}
                 onComplete={() => setCompletion(task.id, { done: true, chunkDate: c.date })}
                 onReopen={() => setCompletion(task.id, { done: false, chunkDate: c.date })} />
               <input type="date" value={c.date} disabled={c.item.done}
                 onChange={(e) => { const v = e.target.value; if (v && v !== c.date) moveChunkDate(task.id, c.date, v); }}
-                className="bare"
-                style={{ fontSize: 11, width: 135, color: c.item.done ? "var(--starboard)" : isToday ? "var(--amber)" : isPast ? "var(--warn)" : "var(--fg)" }} />
+                className="r-field" style={{ fontSize: 11, width: 135, padding: "4px 6px" }} />
               {(isToday || (isPast && !c.item.done)) && (
-                <span className={"w-tape " + (isToday ? "" : "w-tape--warn")} style={{ fontSize: 8, padding: "1px 4px" }}>
-                  {isToday ? "TODAY" : "LATE"}
-                </span>
+                <Stamp tone={isToday ? "var(--channel)" : "var(--warn)"}>{isToday ? "TODAY" : "LATE"}</Stamp>
               )}
               <input type="number" min="0.25" max="24" step="0.25" placeholder="hrs" disabled={c.item.done}
                 value={valOr(c, "hours")}
                 onChange={(e) => setVal(c, "hours", e.target.value)}
                 onBlur={() => commit(c, "hours")}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
-                className="bare" style={{ width: 58, textAlign: "center" }} />
+                className="r-field" style={{ width: 58, textAlign: "center", padding: "4px" }} />
               <input type="text" placeholder="What happens this day" disabled={c.item.done}
                 value={valOr(c, "note")}
                 onChange={(e) => setVal(c, "note", e.target.value)}
                 onBlur={() => commit(c, "note")}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.blur(); } }}
-                className="bare" style={{ flex: 1, minWidth: 140, fontSize: 12, fontFamily: "var(--t-body)" }} />
+                className="r-field" style={{ flex: 1, minWidth: 140, fontSize: 12 }} />
             </div>
           );
         })}

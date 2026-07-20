@@ -1,10 +1,7 @@
-// focus.jsx — the night tunnel: one task, the clock, the sea at the
-// bottom of the screen. Timer chaining and the session ledger behave
-// identically to the core contract.
+// focus.jsx — Deep Cycle tunnel. Timer logic identical to core contract.
 
 import React, { useEffect, useRef, useState } from "react";
 import { Icon, Kbd } from "../components.jsx";
-import { Horizon } from "../chrome.jsx";
 import * as D from "../../../core/domain.js";
 import { useStore, getState, setUI, setCompletion, saveFocusTime, logSession, todayLineup } from "../../../core/store.js";
 
@@ -83,49 +80,71 @@ function Tunnel({ taskId }) {
   const hh = Math.floor(sec / 3600), mm = Math.floor((sec % 3600) / 60), ss = sec % 60;
   const timeStr = hh > 0 ? `${hh}:${p2(mm)}:${p2(ss)}` : `${p2(mm)}:${p2(ss)}`;
 
+  const estMs = (D.taskHours(task) || 1) * 3600000;
+  const pct = Math.min(100, (elapsed / estMs) * 100);
+  const C = 2 * Math.PI * 96;
+  const dash = (pct / 100) * C;
+
   return (
-    <div className="tunnel" role="dialog" aria-label="Focus mode">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 28px" }}>
-        <button className="bezel" onClick={() => setUI({ focusTaskId: null })}>
+    <div className="r-tunnel" role="dialog" aria-label="Deep cycle">
+      <div style={{ position: "absolute", top: 18, left: 28, right: 28, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <button className="r-btn r-btn--ghost" onClick={() => setUI({ focusTaskId: null })}>
           <Icon name="close" size={14} /> Exit <Kbd>Esc</Kbd>
         </button>
-        <span className="w-stencil">{running ? "On watch" : "Paused"}</span>
+        <span className="r-lab">{running ? "In cycle" : "Paused"}</span>
         {nextTask ? (
-          <button className="bezel bezel--sm" onClick={() => setUI({ focusTaskId: nextId })}>
+          <button className="r-btn r-btn--ghost r-btn--sm" onClick={() => setUI({ focusTaskId: nextId })}>
             Skip <Icon name="chevronR" size={12} />
           </button>
         ) : <span />}
       </div>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--fg-dim)", fontSize: 13 }}>
-          <span style={{ width: 12, height: 12, borderRadius: "50%", background: "var(--amber)", boxShadow: "0 0 16px 2px rgba(245,165,36,0.35)" }} />
-          {project && <><span style={{ color: project.color }}>{project.title}</span><span style={{ color: "var(--fg-faint)" }}>·</span></>}
-          <span className="w-stencil">{task.difficulty} · ~{D.taskHours(task)}h</span>
-        </div>
-        <h1 className="w-display tunnel-title">{task.title}</h1>
-        <div className="tunnel-timer">{timeStr}</div>
-        <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
-          <button className="bezel" onClick={() => setRunning((r) => !r)} style={{ minWidth: 130 }}>
-            {running ? "Pause" : "Resume"} <Kbd>Space</Kbd>
-          </button>
-          <button className="bezel" disabled={elapsed === 0}
-            onClick={() => { baseRef.current = 0; startRef.current = Date.now(); setElapsed(0); saveFocusTime(taskId, 0); }}>
-            <Icon name="reset" size={13} /> Reset
-          </button>
-          <button className="switch switch--launch" onClick={complete}>
-            <Icon name="check" size={13} /> Mark complete
-          </button>
-        </div>
-        {nextTask && (
-          <div className="fade-in" style={{ background: "var(--plate)", boxShadow: "inset 0 1px 0 var(--line)", padding: "12px 18px", minWidth: 280, textAlign: "left" }}>
-            <div className="w-stencil" style={{ marginBottom: 4 }}>Up next</div>
-            <div style={{ fontSize: 13, color: "var(--fg)" }}>{nextTask.title}</div>
-          </div>
-        )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 14, color: "var(--fg-dim)", fontSize: 13 }}>
+        <span style={{ width: 10, height: 10, borderRadius: "50%", background: running ? "var(--lime)" : "var(--fg-faint)", boxShadow: running ? "0 0 12px var(--lime)" : "none" }} />
+        {project && <><span style={{ color: project.color }}>{project.title}</span><span style={{ color: "var(--fg-faint)" }}>·</span></>}
+        <span className="r-lab">{task.difficulty} · ~{D.taskHours(task)}h</span>
       </div>
-      <div style={{ opacity: 0.55 }}>
-        <Horizon height={90} />
+
+      <h1 className="r-display" style={{ fontSize: 28, textAlign: "center", maxWidth: 520, margin: 0 }}>{task.title}</h1>
+
+      <div className="r-cycle-rings">
+        <svg viewBox="0 0 220 220" aria-hidden>
+          <circle cx="110" cy="110" r="96" fill="none" stroke="var(--line-strong)" strokeWidth="6" />
+          <circle cx="110" cy="110" r="96" fill="none" stroke="url(#r-spec)" strokeWidth="6"
+            strokeDasharray={`${dash} ${C}`} strokeLinecap="round" transform="rotate(-90 110 110)" />
+          <defs>
+            <linearGradient id="r-spec" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#ff4d3a" />
+              <stop offset="50%" stopColor="#5b6cff" />
+              <stop offset="100%" stopColor="#b6ff3c" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <div className="r-cycle-time">
+          <div className="r-display r-num" style={{ fontSize: 42 }}>{timeStr}</div>
+          <div className="r-lab">of ~{D.taskHours(task)}h target</div>
+        </div>
       </div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+        <button className="r-btn r-btn--ghost" onClick={() => setRunning((r) => !r)} style={{ minWidth: 130 }}>
+          {running ? "Pause" : "Resume"} <Kbd>Space</Kbd>
+        </button>
+        <button className="r-btn r-btn--ghost" disabled={elapsed === 0}
+          onClick={() => { baseRef.current = 0; startRef.current = Date.now(); setElapsed(0); saveFocusTime(taskId, 0); }}>
+          <Icon name="reset" size={13} /> Reset
+        </button>
+        <button className="r-btn r-btn--lime" onClick={complete}>
+          <Icon name="check" size={13} /> Resolve
+        </button>
+      </div>
+
+      {nextTask && (
+        <div className="r-glass fade-in" style={{ minWidth: 280 }}>
+          <div className="r-lab" style={{ marginBottom: 4 }}>Next packet</div>
+          <div style={{ fontSize: 13 }}>{nextTask.title}</div>
+        </div>
+      )}
     </div>
   );
 }

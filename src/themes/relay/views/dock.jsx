@@ -1,12 +1,10 @@
-// dock.jsx — berths & launches, Nightwatch cut: rotary gauges, HULL
+// dock.jsx — Systems & Deployes, Nightwatch cut: rotary gauges, HULL
 // COMPLETE stamps, Board to go below decks, the ship-log manifest in
-// the rail, and the observatory library with a one-click "Berth" assign.
+// the rail, and the grid library with a one-click "System" assign.
 // All state, handlers, and data flow identical to the core contract.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Icon, Stamp, StampPick, Eyebrow, EmptyState, GhostFoot, HLight, DifficultyPip, Lamp } from "../components.jsx";
-import { RotaryGauge } from "../charts.jsx";
-import { GhostNumeral } from "../chrome.jsx";
+import { Icon, Stamp, StampPick, Eyebrow, EmptyState, ResolveBtn, DifficultyPip, Lamp } from "../components.jsx";
 import { CaptureSlab } from "../capture.jsx";
 import { TaskRow, ChunksEditor } from "../taskrow.jsx";
 import { plateFade } from "../texture.js";
@@ -28,19 +26,18 @@ export function DockView() {
   const tab = filter.tab;
   const active = projects.filter((p) => !p.completedAt);
   const ready = active.filter((p) => (p.childTaskIds || []).length > 0 && D.progressOfProject(p, tasksById) === 100);
-  const launched = projects.filter((p) => p.completedAt).sort((a, b) => (b.shippedAt || 0) - (a.shippedAt || 0));
+  const Deployed = projects.filter((p) => p.completedAt).sort((a, b) => (b.shippedAt || 0) - (a.shippedAt || 0));
 
   return (
-    <div className="view-pad">
-      <div className="header-band" style={{ marginBottom: 20 }}>
-        <GhostNumeral text={String(active.length).padStart(2, "0")} />
-        <div className="w-stencil-row" style={{ marginBottom: 10 }}>
-          <span className="w-stencil w-stencil--lit">The dock · projects afloat</span>
+    <div className="">
+      <div className="" style={{ marginBottom: 20 }}>
+        <div className="r-lab" style={{ marginBottom: 10 }}>
+          <span className="r-lab">The dock · projects afloat</span>
         </div>
-        <div className="greeting-row">
-          <h1 className="w-display greeting">Berths &amp; launches.</h1>
-          <div className="yard-count w-num">
-            {active.length} AFLOAT{ready.length ? <span style={{ color: "var(--starboard)" }}> · {ready.length} READY TO LAUNCH</span> : null} · {launched.length} LAUNCHED
+        <div className="r-feed-head">
+          <h1 className="r-display" style={{ fontSize: 26 }}>Systems &amp; archive.</h1>
+          <div className="r-feed-counts">
+            {active.length} LIVE{ready.length ? <span style={{ color: "var(--lime)" }}> · {ready.length} READY</span> : null} · {Deployed.length} DEPLOYED
           </div>
         </div>
         <div style={{ marginBottom: 4 }}>
@@ -48,31 +45,33 @@ export function DockView() {
         </div>
       </div>
 
-      <div className="deck-grid">
-        <div className="work-col">
+      <div className="">
+        <div className="">
           <div className="section-head">
-            <div className="w-stencil-row" style={{ flex: 1 }}>
-              <span className="w-stencil">{tab === "projects" ? "Berths" : "Yard library"}</span>
+            <div className="r-lab" style={{ flex: 1 }}>
+              <span className="r-lab">{tab === "projects" ? "Systems" : "Yard library"}</span>
             </div>
             <div className="slab-types" role="group" aria-label="Dock section">
-              <button className={tab === "projects" ? "on" : ""} onClick={() => setUI({ dockFilter: { ...filter, tab: "projects" }, cursor: null })}>Berths</button>
+              <button className={tab === "projects" ? "on" : ""} onClick={() => setUI({ dockFilter: { ...filter, tab: "projects" }, cursor: null })}>Systems</button>
               <button className={tab === "library" ? "on" : ""} onClick={() => setUI({ dockFilter: { ...filter, tab: "library" }, cursor: null })}>Library</button>
             </div>
           </div>
-          {tab === "projects" ? <BerthsTab /> : <LibraryTab />}
+          {tab === "projects" ? <SystemsTab /> : <LibraryTab />}
         </div>
 
-        <aside className="rail-col">
+        <aside className="" style={{ marginTop: 20 }}>
           <div className="rail-section">
-            <div className="w-stencil-row" style={{ marginBottom: 10 }}><span className="w-stencil">Ship log · launched</span></div>
-            {launched.length === 0 ? (
+            <div className="r-lab" style={{ marginBottom: 10 }}><span className="r-lab">Deploy log · Deployed</span></div>
+            {Deployed.length === 0 ? (
               <div style={{ fontSize: 12, color: "var(--fg-faint)" }}>No ships out yet.</div>
             ) : (
-              <ManifestRail launched={launched} />
+              <ManifestRail Deployed={Deployed} />
             )}
           </div>
           <div className="rail-section">
-            <GhostFoot caption={launched.length ? `${launched.length === 1 ? "one ship" : launched.length + " ships"} gone out` : "the sea awaits"} />
+            <EmptyState caption={Deployed.length ? `${Deployed.length === 1 ? "one system" : Deployed.length + " systems"} deployed` : "no deploys yet"}>
+              <span style={{ color: "var(--fg-faint)" }}>{Deployed.length ? "Expand an entry below." : "Finish a system to deploy it."}</span>
+            </EmptyState>
           </div>
         </aside>
       </div>
@@ -83,13 +82,13 @@ export function DockView() {
 
 /* ── ship-log manifest (rail) ──────────────────────────────── */
 
-function ManifestRail({ launched }) {
+function ManifestRail({ Deployed }) {
   const [openId, setOpenId] = useState(null);
   return (
     <div className="ledger">
-      {launched.map((p) => {
+      {Deployed.map((p) => {
         const open = openId === p.id;
-        const stats = p.launchStats;
+        const stats = p.DeployStats;
         return (
           <div key={p.id} className="manifest-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
             <div onClick={() => setOpenId(open ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
@@ -97,7 +96,7 @@ function ManifestRail({ launched }) {
               <span style={{ flex: 1, fontSize: 12.5, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</span>
               {p.launchNote && <span title="Has a log entry" style={{ fontSize: 8, color: "var(--starboard)" }}>●</span>}
               <Stamp>{D.fmtDate(p.shippedAt || p.completedAt).toUpperCase()}</Stamp>
-              {stats && <span className="w-num" style={{ fontSize: 9.5, color: "var(--amber)" }}>+{stats.xp}</span>}
+              {stats && <span className="r-num" style={{ fontSize: 9.5, color: "var(--amber)" }}>+{stats.xp}</span>}
             </div>
             {open && (
               <div className="fade-in" style={{ marginTop: 8, padding: "10px 10px 10px 12px", background: "var(--well)", boxShadow: "inset 0 1px 0 var(--line-dim)" }}>
@@ -112,13 +111,13 @@ function ManifestRail({ launched }) {
                 {p.launchNote ? (
                   <div style={{ fontSize: 12, color: "var(--fg-dim)", lineHeight: 1.6, whiteSpace: "pre-wrap", marginBottom: 8 }}>{p.launchNote}</div>
                 ) : (
-                  <div style={{ fontSize: 11, color: "var(--fg-faint)", fontStyle: "italic", marginBottom: 8 }}>No log entry for this launch yet.</div>
+                  <div style={{ fontSize: 11, color: "var(--fg-faint)", fontStyle: "italic", marginBottom: 8 }}>No log entry for this Deploy yet.</div>
                 )}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button className="bezel bezel--sm" onClick={() => setUI({ launchNoteFor: p.id })}>
+                  <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => setUI({ launchNoteFor: p.id })}>
                     <Icon name="edit" size={10} /> {p.launchNote ? "Edit entry" : "Write entry"}
                   </button>
-                  <button className="bezel bezel--sm" onClick={() => unshipProject(p.id)} title="Back to the observatory">Unlaunch</button>
+                  <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => unshipProject(p.id)} title="Back to the grid">UnDeploy</button>
                 </div>
               </div>
             )}
@@ -129,13 +128,13 @@ function ManifestRail({ launched }) {
   );
 }
 
-/* ── launch-note console ───────────────────────────────────── */
+/* ── Deploy-note console ───────────────────────────────────── */
 
-function deterministicPublishDraft(stats) {
+function deterministicDeployDraft(stats) {
   if (!stats) return "";
-  return `Published with ${stats.doneTasks}/${stats.tasks} tasks done and ${stats.xp} XP earned. ` +
+  return `Deployed with ${stats.doneTasks}/${stats.tasks} tasks done and ${stats.xp} XP earned. ` +
     `Estimated ${stats.estHours}h${stats.actualMs ? `, actually focused ${D.fmtMs(stats.actualMs)}` : ""}. ` +
-    `First task to launch: ${stats.spanDays} day${stats.spanDays === 1 ? "" : "s"}.`;
+    `First task to Deploy: ${stats.spanDays} day${stats.spanDays === 1 ? "" : "s"}.`;
 }
 
 function LaunchNoteDialog() {
@@ -149,14 +148,14 @@ function LaunchNoteInner({ projectId }) {
   const aiStatus = useStore((s) => s.ui.aiStatus);
   const [note, setNote] = useState(project?.launchNote || "");
   const [drafting, setDrafting] = useState(false);
-  const stats = project?.launchStats;
+  const stats = project?.DeployStats;
 
   useEffect(() => {
     if (!project) return;
     if (project.launchNote) return;
     let alive = true;
     setDrafting(true);
-    setNote(deterministicPublishDraft(stats));
+    setNote(deterministicDeployDraft(stats));
     aiLaunchNote(project, stats || {}).then((text) => {
       if (alive && text) setNote(text);
     }).catch(() => {}).finally(() => alive && setDrafting(false));
@@ -166,16 +165,16 @@ function LaunchNoteInner({ projectId }) {
   if (!project) { setUI({ launchNoteFor: null }); return null; }
 
   return (
-    <div className="backdrop" onClick={() => setUI({ launchNoteFor: null })}
+    <div className="r-backdrop" onClick={() => setUI({ launchNoteFor: null })}
       style={{ zIndex: 10004, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} className="console fade-in" style={{ width: "100%", maxWidth: 470 }}>
-        <div className="console-head">
-          <span className="w-tape w-tape--starboard"><Icon name="ship" size={10} /> Ship log entry</span>
+      <div onClick={(e) => e.stopPropagation()} className="r-glass fade-in" style={{ width: "100%", maxWidth: 470 }}>
+        <div className="r-glass-head">
+          <span className="r-lab r-lab--lit"><Icon name="ship" size={10} /> Deploy log entry</span>
           <div style={{ flex: 1 }} />
-          <button className="icon-btn" onClick={() => setUI({ launchNoteFor: null })} aria-label="Close"><Icon name="close" size={12} /></button>
+          <button className="r-icon-btn" onClick={() => setUI({ launchNoteFor: null })} aria-label="Close"><Icon name="close" size={12} /></button>
         </div>
         <div style={{ padding: "16px 18px 18px" }}>
-          <div className="w-display" style={{ fontSize: 21, marginBottom: 12 }}>{project.title}</div>
+          <div className="r-display" style={{ fontSize: 21, marginBottom: 12 }}>{project.title}</div>
           {stats && (
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
               <Stamp kind="green">{stats.doneTasks}/{stats.tasks} tasks</Stamp>
@@ -184,19 +183,19 @@ function LaunchNoteInner({ projectId }) {
               <Stamp>{stats.spanDays}d build</Stamp>
             </div>
           )}
-          <textarea className="field" value={note} onChange={(e) => setNote(e.target.value)}
+          <textarea className="r-field" value={note} onChange={(e) => setNote(e.target.value)}
             placeholder="What shipped, and what did it take?"
             style={{ height: 96, marginBottom: 6 }} />
-          <div className="w-num" style={{ fontSize: 9.5, color: "var(--fg-faint)", marginBottom: 12 }}>
+          <div className="r-num" style={{ fontSize: 9.5, color: "var(--fg-faint)", marginBottom: 12 }}>
             {drafting ? "AI IS DRAFTING — EDIT FREELY, YOUR TEXT WINS…"
               : aiStatus === "off" ? "AI OFF — DETERMINISTIC DRAFT PREFILLED; MAKE IT YOURS."
               : "DRAFTED FOR YOU. EDIT, THEN LOG IT."}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="switch switch--launch" style={{ flex: 1 }} onClick={() => saveLaunchNote(projectId, note)}>
+            <button className="r-btn r-btn--lime" style={{ flex: 1 }} onClick={() => saveLaunchNote(projectId, note)}>
               <Icon name="check" size={12} /> Log it
             </button>
-            <button className="bezel" onClick={() => setUI({ launchNoteFor: null })}>Skip</button>
+            <button className="r-btn r-btn--ghost" onClick={() => setUI({ launchNoteFor: null })}>Skip</button>
           </div>
         </div>
       </div>
@@ -204,9 +203,9 @@ function LaunchNoteInner({ projectId }) {
   );
 }
 
-/* ── berths ────────────────────────────────────────────────── */
+/* ── Systems ────────────────────────────────────────────────── */
 
-function BerthsTab() {
+function SystemsTab() {
   const projects = useStore((s) => s.projects);
   const tasks = useStore((s) => s.tasks);
   const [expandedId, setExpandedId] = useState(null);
@@ -271,14 +270,14 @@ function BerthsTab() {
           </div>
         )}
         <div style={{ flex: 1 }} />
-        <button className="switch switch--sm" onClick={() => setAdding(true)}>
-          <Icon name="plus" size={11} /> New berth
+        <button className="r-btn r-btn--sm" onClick={() => setAdding(true)}>
+          <Icon name="plus" size={11} /> New System
         </button>
       </div>
 
       {adding && (
         <div className="plate fade-in" style={{ padding: 14, marginBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-          <input ref={nameRef} className="field" placeholder="Project name" value={newName}
+          <input ref={nameRef} className="r-field" placeholder="Project name" value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submitNew(); if (e.key === "Escape") { setAdding(false); setNewName(""); } }} />
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -287,21 +286,21 @@ function BerthsTab() {
             ))}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="switch switch--sm" onClick={submitNew} disabled={!newName.trim()}>Create</button>
-            <button className="bezel bezel--sm" onClick={() => { setAdding(false); setNewName(""); }}>Cancel</button>
+            <button className="r-btn r-btn--sm" onClick={submitNew} disabled={!newName.trim()}>Create</button>
+            <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setAdding(false); setNewName(""); }}>Cancel</button>
           </div>
         </div>
       )}
 
       {active.length === 0 && !adding && (
-        <EmptyState caption="empty berths">
+        <EmptyState caption="no systems">
           {activeAnyType && typeFilter !== "All"
-            ? <>No {D.PROJECT_TYPES.find((t) => t.id === typeFilter)?.label.toLowerCase()} projects in the observatory.</>
-            : <>No berths occupied. Create a project, or capture with the Project mode.</>}
+            ? <>No {D.PROJECT_TYPES.find((t) => t.id === typeFilter)?.label.toLowerCase()} projects in the grid.</>
+            : <>No Systems occupied. Create a project, or capture with the Project mode.</>}
         </EmptyState>
       )}
 
-      <div style={{ marginBottom: 28 }}>
+      <div className="r-node-mosaic" style={{ marginBottom: 28 }}>
         {active.map((p) => {
           const pct = D.progressOfProject(p, tasksById);
           const children = (p.childTaskIds || []).map((id) => tasksById.get(id)).filter(Boolean);
@@ -310,27 +309,29 @@ function BerthsTab() {
           const isOpen = expandedId === p.id;
           const typeLbl = D.PROJECT_TYPES.find((t) => t.id === p.type)?.label || "Other";
           return (
-            <div key={p.id} className="berth fade-in" style={{ "--u-fade": plateFade("berth-" + p.id, "#1c2434", 0.35) }}>
-              {isReady && <span className="berth-ready w-tape w-tape--starboard">Ready to launch</span>}
-              <div className="berth-head" onClick={() => setExpandedId(isOpen ? null : p.id)}>
-                <RotaryGauge pct={pct} color={isReady ? "var(--starboard)" : p.color} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="w-display berth-title">{p.title}</div>
-                  <div className="berth-meta">
-                    <Stamp>{children.length === 0 ? "NO TASKS" : `${doneCount}/${children.length} TASKS`}</Stamp>
-                    <Stamp tone={p.color}>{typeLbl.toUpperCase()}</Stamp>
-                    {p.desc && <Stamp>{p.desc.slice(0, 44).toUpperCase()}</Stamp>}
-                    {pct === 100 && children.length > 0 && <Stamp tone="var(--starboard)">HULL COMPLETE</Stamp>}
-                  </div>
+            <div key={p.id}
+              className={"r-node fade-in" + (isOpen ? " r-node--sel" : "") + (isReady ? " r-node--ready" : "")}
+              style={{ gridColumn: isOpen ? "1 / -1" : undefined, "--glow": String(0.15 + (pct / 100) * 0.45) }}>
+              <div className={"r-node-glow" + (isReady ? " r-node-glow--ready" : "")} aria-hidden />
+              {isReady && <span className="r-lab" style={{ color: "var(--lime)", position: "relative" }}>READY TO DEPLOY</span>}
+              <div onClick={() => setExpandedId(isOpen ? null : p.id)} style={{ position: "relative", cursor: "pointer" }}>
+                <div className="r-node-pct">{pct}%</div>
+                <div className="r-node-title">{p.title}</div>
+                <div className="r-pkt-meta" style={{ marginTop: 6 }}>
+                  <Stamp>{children.length === 0 ? "NO TASKS" : `${doneCount}/${children.length} TASKS`}</Stamp>
+                  <Stamp tone={p.color}>{typeLbl.toUpperCase()}</Stamp>
+                  {pct === 100 && children.length > 0 && <Stamp tone="var(--lime)">COMPLETE</Stamp>}
                 </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                 {isReady && (
-                  <button className="switch switch--launch" onClick={(e) => { e.stopPropagation(); shipProject(p.id); }}>
-                    <Icon name="ship" size={12} /> Publish
+                  <button className="r-btn r-btn--lime r-btn--sm" onClick={(e) => { e.stopPropagation(); shipProject(p.id); }}>
+                    <Icon name="ship" size={12} /> Deploy
                   </button>
                 )}
-                <button className="bezel" onClick={(e) => { e.stopPropagation(); setExpandedId(isOpen ? null : p.id); }}>
-                  {isOpen ? "Ashore" : "Board"}
+                <button className="r-btn r-btn--ghost r-btn--sm" onClick={(e) => { e.stopPropagation(); setExpandedId(isOpen ? null : p.id); }}>
+                  {isOpen ? "Collapse" : "Open"}
                 </button>
+                </div>
               </div>
 
               {isOpen && (
@@ -338,29 +339,29 @@ function BerthsTab() {
                   <ProjectDesc project={p} />
                   <div className="ledger" style={{ marginTop: 12, background: "var(--well)" }}>
                     {children.map((t) => (
-                      <div key={t.id} className="lrow" style={{ minHeight: 36, "--row-lamp": t.completed ? "var(--line-dim)" : p.color }}>
-                        <HLight square done={t.completed}
+                      <div key={t.id} className="r-pkt" style={{ minHeight: 36, "--row-lamp": t.completed ? "var(--line-dim)" : p.color }}>
+                        <ResolveBtn done={t.completed}
                           onComplete={() => setCompletion(t.id, { done: true })}
                           onReopen={() => setCompletion(t.id, { done: false })} />
                         <span style={{ flex: 1, fontSize: 12.5, color: t.completed ? "var(--fg-faint)" : "var(--fg)", textDecoration: t.completed ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
                           onClick={() => setUI({ editingTaskId: t.id, formOpen: true })}>{t.title}</span>
-                        <span className="w-num" style={{ fontSize: 10, color: "var(--fg-faint)" }}>{t.xp} XP</span>
-                        <button className="icon-btn" onClick={() => detachFromProject(t.id)} title="Detach from berth" aria-label="Detach"><Icon name="close" size={11} /></button>
+                        <span className="r-num" style={{ fontSize: 10, color: "var(--fg-faint)" }}>{t.xp} XP</span>
+                        <button className="r-icon-btn" onClick={() => detachFromProject(t.id)} title="Detach from System" aria-label="Detach"><Icon name="close" size={11} /></button>
                       </div>
                     ))}
                   </div>
 
                   {addingTaskTo === p.id ? (
                     <div style={{ display: "flex", gap: 6, marginTop: 10, alignItems: "center" }}>
-                      <input ref={taskRef} className="field" placeholder="Task name" value={newTaskName} style={{ flex: 1 }}
+                      <input ref={taskRef} className="r-field" placeholder="Task name" value={newTaskName} style={{ flex: 1 }}
                         onChange={(e) => setNewTaskName(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") submitTask(p.id); if (e.key === "Escape") { setAddingTaskTo(null); setNewTaskName(""); } }} />
-                      <button className="switch switch--sm" onClick={() => submitTask(p.id)} disabled={!newTaskName.trim()}>Add</button>
-                      <button className="bezel bezel--sm" onClick={() => { setAddingTaskTo(null); setNewTaskName(""); }}>Done</button>
+                      <button className="r-btn r-btn--sm" onClick={() => submitTask(p.id)} disabled={!newTaskName.trim()}>Add</button>
+                      <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setAddingTaskTo(null); setNewTaskName(""); }}>Done</button>
                     </div>
                   ) : aiAddingTo === p.id ? (
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <textarea autoFocus value={aiQuery} disabled={aiBusy} className="field"
+                      <textarea autoFocus value={aiQuery} disabled={aiBusy} className="r-field"
                         onChange={(e) => setAiQuery(e.target.value)}
                         onKeyDown={(e) => {
                           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); submitAiExtend(p); }
@@ -369,25 +370,25 @@ function BerthsTab() {
                         placeholder="Describe the tasks to add — e.g. 'API hookup and login screen, plus a polish pass'"
                         style={{ height: 52 }} />
                       <div style={{ display: "flex", gap: 6 }}>
-                        <button className="switch switch--sm" disabled={!aiQuery.trim() || aiBusy} onClick={() => submitAiExtend(p)}>
+                        <button className="r-btn r-btn--sm" disabled={!aiQuery.trim() || aiBusy} onClick={() => submitAiExtend(p)}>
                           {aiBusy ? "Generating…" : "Generate tasks"}
                         </button>
-                        <button className="bezel bezel--sm" disabled={aiBusy} onClick={() => { setAiAddingTo(null); setAiQuery(""); }}>Cancel</button>
+                        <button className="r-btn r-btn--sm r-btn--ghost" disabled={aiBusy} onClick={() => { setAiAddingTo(null); setAiQuery(""); }}>Cancel</button>
                       </div>
                     </div>
                   ) : (
                     <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                      <button className="bezel bezel--sm" onClick={() => { setAddingTaskTo(p.id); setNewTaskName(""); }}>
+                      <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setAddingTaskTo(p.id); setNewTaskName(""); }}>
                         <Icon name="plus" size={10} /> Add task
                       </button>
-                      <button className="bezel bezel--sm" onClick={() => { setAiAddingTo(p.id); setAiQuery(""); }}>
+                      <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setAiAddingTo(p.id); setAiQuery(""); }}>
                         <Icon name="bolt" size={10} /> AI add tasks
                       </button>
                     </div>
                   )}
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 12, boxShadow: "inset 0 1px 0 var(--line-dim)", flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }} title="Berth color">
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }} title="System color">
                       {D.PROJECT_PALETTE.map((c) => (
                         <button key={c} onClick={() => updateProject(p.id, { color: c })} aria-label={"Set color " + c}
                           style={{
@@ -398,10 +399,10 @@ function BerthsTab() {
                     </div>
                     <div style={{ flex: 1 }} />
                     <RenameButton project={p} />
-                    <button className="bezel bezel--sm bezel--port" onClick={() => deleteProject(p.id)}>Scuttle</button>
+                    <button className="r-btn r-btn--sm r-btn--danger" onClick={() => deleteProject(p.id)}>Drop</button>
                     {isReady && (
-                      <button className="switch switch--launch" onClick={() => shipProject(p.id)}>
-                        <Icon name="ship" size={12} /> Publish
+                      <button className="r-btn r-btn--lime" onClick={() => shipProject(p.id)}>
+                        <Icon name="ship" size={12} /> Deploy
                       </button>
                     )}
                   </div>
@@ -418,10 +419,10 @@ function BerthsTab() {
 function RenameButton({ project }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(project.title);
-  if (!editing) return <button className="bezel bezel--sm" onClick={() => { setName(project.title); setEditing(true); }}>Rename</button>;
+  if (!editing) return <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => { setName(project.title); setEditing(true); }}>Rename</button>;
   const commit = () => { if (name.trim()) updateProject(project.id, { title: name.trim() }); setEditing(false); };
   return (
-    <input autoFocus className="bare" value={name} style={{ width: 180 }}
+    <input autoFocus className="r-field" value={name} style={{ width: 180 }}
       onChange={(e) => setName(e.target.value)} onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }} />
   );
@@ -438,7 +439,7 @@ function ProjectDesc({ project }) {
   };
   if (!editing) {
     if (!project.desc) {
-      return <button className="link" style={{ color: "var(--fg-faint)", textTransform: "none", letterSpacing: 0 }} onClick={() => setEditing(true)}>+ add description</button>;
+      return <button className="r-link" style={{ color: "var(--fg-faint)", textTransform: "none", letterSpacing: 0 }} onClick={() => setEditing(true)}>+ add description</button>;
     }
     return (
       <div onClick={() => setEditing(true)} title="Click to edit"
@@ -448,7 +449,7 @@ function ProjectDesc({ project }) {
     );
   }
   return (
-    <textarea autoFocus className="field" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+    <textarea autoFocus className="r-field" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Escape") { e.preventDefault(); setDraft(project.desc || ""); setEditing(false); }
         else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
@@ -458,7 +459,7 @@ function ProjectDesc({ project }) {
   );
 }
 
-/* ── the observatory library ──────────────────────────────────────── */
+/* ── the grid library ──────────────────────────────────────── */
 
 function LibraryTab() {
   const tasks = useStore((s) => s.tasks);
@@ -474,7 +475,7 @@ function LibraryTab() {
   const [importSel, setImportSel] = useState(new Set());
   const [importProjectName, setImportProjectName] = useState("");
   const [importMakeProject, setImportMakeProject] = useState(false);
-  const [berthingId, setBerthingId] = useState(null);
+  const [SystemingId, setSystemingId] = useState(null);
   const fileRef = useRef(null);
 
   const hour = meta.dayStartHour || 0;
@@ -556,12 +557,12 @@ function LibraryTab() {
     setParsed(null); setImportSel(new Set()); setImportMakeProject(false); setImportProjectName("");
   };
 
-  // One-click "Berth": assign an unassigned task to an active project.
-  const berthTask = (taskId, projectId) => {
+  // One-click "System": assign an unassigned task to an active project.
+  const SystemTask = (taskId, projectId) => {
     updateTask(taskId, { projectId, projectIdChanged: true });
     const proj = projectsById.get(projectId);
-    notify(`Towed to ${proj ? `"${proj.title}"` : "the berth"}`);
-    setBerthingId(null);
+    notify(`Towed to ${proj ? `"${proj.title}"` : "the System"}`);
+    setSystemingId(null);
   };
 
   let cursorIdx = cursor ? cursor.index : -1;
@@ -587,17 +588,17 @@ function LibraryTab() {
         <div style={{ flex: 1 }} />
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ""; }} />
-        <button className="bezel bezel--sm" onClick={() => fileRef.current?.click()} disabled={importing}
+        <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => fileRef.current?.click()} disabled={importing}
           title="Import tasks from a screenshot of another tool">
           {importing ? "Reading…" : <><Icon name="camera" size={11} /> Screenshot import</>}
         </button>
       </div>
 
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
-        <input className="field field--mono" placeholder="Search…" value={filter.q} onChange={(e) => setF({ q: e.target.value })} style={{ width: 200, padding: "6px 9px" }} />
+        <input className="r-field field--mono" placeholder="Search…" value={filter.q} onChange={(e) => setF({ q: e.target.value })} style={{ width: 200, padding: "6px 9px" }} />
         {projects.length > 0 && (
-          <select className="field" value={filter.project || ""} onChange={(e) => setF({ project: e.target.value || null })} style={{ width: 170, padding: "6px 9px" }}>
-            <option value="">All berths</option>
+          <select className="r-field" value={filter.project || ""} onChange={(e) => setF({ project: e.target.value || null })} style={{ width: 170, padding: "6px 9px" }}>
+            <option value="">All Systems</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
           </select>
         )}
@@ -608,7 +609,7 @@ function LibraryTab() {
 
       {parsed && (
         <div className="plate fade-in" style={{ padding: 14, marginBottom: 14 }}>
-          <Eyebrow right={<button className="icon-btn" onClick={() => setParsed(null)} aria-label="Discard"><Icon name="close" size={12} /></button>} lit>
+          <Eyebrow right={<button className="r-icon-btn" onClick={() => setParsed(null)} aria-label="Discard"><Icon name="close" size={12} /></button>} lit>
             Import preview · {parsed.length} found
           </Eyebrow>
           <div className="scrolly" style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 320, overflowY: "auto", marginBottom: 10 }}>
@@ -617,12 +618,12 @@ function LibraryTab() {
               return (
                 <div key={i} onClick={() => setImportSel((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: on ? "var(--well)" : "transparent", opacity: on ? 1 : 0.5, cursor: "pointer", boxShadow: on ? "inset 3px 0 0 " + (D.DIFFICULTY[p.difficulty]?.tone || "var(--channel)") : "inset 3px 0 0 var(--line-dim)" }}>
-                  <HLight square done={on} onComplete={() => {}} onReopen={() => {}} label="Include" />
+                  <ResolveBtn square done={on} onComplete={() => {}} onReopen={() => {}} label="Include" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
                     {p.description && <div style={{ fontSize: 11, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.description}</div>}
                   </div>
-                  <div className="w-num" style={{ display: "flex", gap: 6, fontSize: 9.5, color: "var(--fg-faint)", flexShrink: 0, alignItems: "center" }}>
+                  <div className="r-num" style={{ display: "flex", gap: 6, fontSize: 9.5, color: "var(--fg-faint)", flexShrink: 0, alignItems: "center" }}>
                     <DifficultyPip d={p.difficulty} />
                     <span>{p.hours}H · {p.xp}XP</span>
                     {p.completed && <span style={{ color: "var(--starboard)" }}>DONE</span>}
@@ -636,11 +637,11 @@ function LibraryTab() {
               <input type="checkbox" checked={importMakeProject} onChange={() => setImportMakeProject((v) => !v)} />
               Group as project:
             </label>
-            <input className="field" value={importProjectName} onChange={(e) => setImportProjectName(e.target.value)}
+            <input className="r-field" value={importProjectName} onChange={(e) => setImportProjectName(e.target.value)}
               placeholder="Project name" disabled={!importMakeProject} style={{ maxWidth: 220, opacity: importMakeProject ? 1 : 0.5, padding: "6px 9px" }} />
             <div style={{ flex: 1 }} />
-            <button className="bezel bezel--sm" onClick={() => setParsed(null)}>Cancel</button>
-            <button className="switch switch--sm" disabled={importSel.size === 0} onClick={commitImport}>
+            <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => setParsed(null)}>Cancel</button>
+            <button className="r-btn r-btn--sm" disabled={importSel.size === 0} onClick={commitImport}>
               Import {importSel.size}
             </button>
           </div>
@@ -648,14 +649,14 @@ function LibraryTab() {
       )}
 
       {list.length === 0 ? (
-        <EmptyState caption="nothing in the observatory">Nothing matches.</EmptyState>
+        <EmptyState caption="nothing in the grid">Nothing matches.</EmptyState>
       ) : (
         <div className="plate plate--flush ledger" style={{ marginBottom: 28 }}>
           {list.map((t, i) => {
             const chunks = D.getTaskChunks(t.id, plan);
             const isSplit = chunks.length > 1;
             const scheduled = D.getTaskScheduledDate(t.id, plan);
-            const canBerth = !t.projectId && !t.completed && t.recurring === "none" && activeProjects.length > 0;
+            const canSystem = !t.projectId && !t.completed && t.recurring === "none" && activeProjects.length > 0;
             return (
               <div key={t.id} style={{ position: "relative" }}>
                 <TaskRow task={t}
@@ -669,19 +670,19 @@ function LibraryTab() {
                   onToggleExpand={() => setExp(exp === t.id ? null : t.id)}
                   extraExpanded={
                     <>
-                      {canBerth && (
+                      {canSystem && (
                         <div style={{ marginBottom: isSplit ? 8 : 0 }}>
-                          {berthingId === t.id ? (
+                          {SystemingId === t.id ? (
                             <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                              <span className="w-stencil" style={{ fontSize: 8.5 }}>Tow to</span>
+                              <span className="r-lab" style={{ fontSize: 8.5 }}>Tow to</span>
                               {activeProjects.map((p) => (
-                                <StampPick key={p.id} color={p.color} onClick={() => berthTask(t.id, p.id)}>{p.title}</StampPick>
+                                <StampPick key={p.id} color={p.color} onClick={() => SystemTask(t.id, p.id)}>{p.title}</StampPick>
                               ))}
-                              <button className="icon-btn" onClick={() => setBerthingId(null)} aria-label="Cancel berth"><Icon name="close" size={10} /></button>
+                              <button className="r-icon-btn" onClick={() => setSystemingId(null)} aria-label="Cancel System"><Icon name="close" size={10} /></button>
                             </div>
                           ) : (
-                            <button className="bezel bezel--sm" onClick={() => setBerthingId(t.id)} title="Assign to a project">
-                              <Icon name="anchor" size={10} /> Berth
+                            <button className="r-btn r-btn--sm r-btn--ghost" onClick={() => setSystemingId(t.id)} title="Assign to a project">
+                              <Icon name="anchor" size={10} /> System
                             </button>
                           )}
                         </div>
