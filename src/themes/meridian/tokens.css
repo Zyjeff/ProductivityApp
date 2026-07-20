@@ -1,0 +1,191 @@
+/* Meridian — The high observatory: glass, brass, and the turning sky. */
+
+:root {
+  --ground: #070b14;
+  --rail: #0c1220;
+  --plate: #121a2b;
+  --plate-hi: #1a2438;
+  --well: #0a101c;
+  --ink: #05080f;
+
+  --fg: #e8eaf2;
+  --fg-dim: #9aa3b8;
+  --fg-faint: #5c657a;
+  --fg-invert: #0a0e18;
+
+  --line: #243049;
+  --line-dim: #1a2235;
+  --line-bright: #3a4a68;
+
+  --brass: #c9a227;
+  --brass-dim: #8a7018;
+  --brass-hot: #e8c04a;
+  --amber: #f0b429;
+  --amber-hot: #ffd060;
+  --amber-deep: #7a5310;
+  --amber-ground: #2b2008;
+
+  --cyan: #67e8f9;
+  --cyan-dim: #22d3ee;
+  --star: #f8fafc;
+  --violet: #a78bfa;
+
+  --port: #f87171;
+  --port-ground: #2b1518;
+  --starboard: #34d399;
+  --starboard-ground: #0e2a1c;
+  --channel: #60a5fa;
+  --warn: #fbbf24;
+
+  --glass: rgba(18, 26, 43, 0.72);
+  --glass-hi: rgba(26, 36, 56, 0.85);
+  --frost: rgba(232, 234, 242, 0.06);
+
+  --t-display: "Playfair Display", "Georgia", "Times New Roman", serif;
+  --t-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --t-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+  --r-sm: 2px; --r-md: 6px; --r-lg: 12px; --r-pill: 999px;
+
+  --fast: 140ms cubic-bezier(0.3, 0.9, 0.3, 1);
+  --med: 240ms cubic-bezier(0.3, 0.9, 0.3, 1);
+  --slow: 400ms cubic-bezier(0.3, 0.9, 0.3, 1);
+
+  --shadow-plate: 0 1px 0 rgba(255,255,255,0.04) inset, 0 -1px 0 rgba(0,0,0,0.4) inset;
+  --glow-amber: 0 0 20px rgba(240, 180, 41, 0.25);
+  --glow-cyan: 0 0 16px rgba(103, 232, 249, 0.2);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root {
+  height: 100%; margin: 0;
+  background: var(--ground); color: var(--fg);
+  font-family: var(--t-body); font-size: 14px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; padding: 0; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+::selection { background: rgba(201, 162, 39, 0.35); color: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.mer-shell {
+  display: flex; flex-direction: column;
+  height: 100%; min-height: 100vh;
+  background: var(--ground); position: relative; overflow: hidden;
+}
+
+.mer-sky {
+  position: relative; height: 56px; flex-shrink: 0;
+  background: linear-gradient(180deg, #050810 0%, #0a1220 100%);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 var(--s-4); gap: var(--s-4);
+  z-index: 20;
+}
+
+.mer-sky-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; opacity: 0.85;
+}
+
+.mer-pedestal {
+  flex-shrink: 0; height: 52px;
+  background: var(--rail); border-top: 1px solid var(--line);
+  display: flex; align-items: center; padding: 0 var(--s-3); gap: var(--s-2);
+  z-index: 20;
+}
+
+.mer-main {
+  flex: 1; overflow: auto; position: relative;
+  display: flex; flex-direction: column;
+}
+
+.mer-plate {
+  background: var(--plate); border: 1px solid var(--line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-plate);
+}
+.mer-plate-hi { background: var(--plate-hi); border-color: var(--line-bright); }
+
+.mer-brass { color: var(--brass); }
+.mer-amber { color: var(--amber); }
+.mer-cyan { color: var(--cyan); }
+
+.mer-viewfinder {
+  position: relative;
+  border: 2px solid var(--brass-dim); border-radius: 4px;
+  background: var(--well);
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,162,39,0.2);
+}
+.mer-viewfinder::before {
+  content: ""; position: absolute; inset: 8px;
+  border: 1px solid rgba(201,162,39,0.25); border-radius: 2px;
+  pointer-events: none;
+}
+.mer-reticle {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(var(--brass), var(--brass)) center/1px 24% no-repeat,
+    linear-gradient(var(--brass), var(--brass)) center/24% 1px no-repeat;
+  opacity: 0.35;
+}
+
+.mer-nav-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: var(--r-sm);
+  color: var(--fg-dim); border: 1px solid transparent;
+  transition: color var(--fast), background var(--fast), border-color var(--fast);
+  font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase;
+}
+.mer-nav-btn:hover { color: var(--fg); background: var(--frost); }
+.mer-nav-btn.active {
+  color: var(--amber); border-color: var(--brass-dim);
+  background: rgba(201, 162, 39, 0.08); box-shadow: var(--glow-amber);
+}
+
+.mer-gauge { display: flex; flex-direction: column; gap: 2px; min-width: 64px; }
+.mer-gauge-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-faint);
+}
+.mer-gauge-value { font-family: var(--t-mono); font-size: 13px; color: var(--fg); }
+
+.mer-ticker {
+  position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%);
+  z-index: 100; background: var(--plate-hi); border: 1px solid var(--brass-dim);
+  border-radius: var(--r-md); padding: 10px 16px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: var(--glow-amber), 0 8px 32px rgba(0,0,0,0.5); max-width: 90vw;
+}
+
+.mer-statement {
+  position: fixed; top: 20%; left: 50%; transform: translateX(-50%);
+  z-index: 90; background: linear-gradient(135deg, var(--amber-ground), #1a1408);
+  border: 1px solid var(--brass); color: var(--amber-hot);
+  padding: 20px 32px; border-radius: var(--r-md);
+  font-family: var(--t-display); font-size: 22px; text-align: center;
+  box-shadow: var(--glow-amber);
+}
+
+.mer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(5, 8, 15, 0.72); backdrop-filter: blur(6px);
+  z-index: 50; display: flex; align-items: center; justify-content: center;
+}
+
+.mer-ai-lamp {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--fg-faint);
+}
+.mer-ai-lamp.ok { background: var(--starboard); box-shadow: 0 0 8px var(--starboard); }
+.mer-ai-lamp.busy { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.mer-ai-lamp.off { background: var(--fg-faint); }
+.mer-ai-lamp.unknown { background: var(--port); }
