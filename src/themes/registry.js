@@ -9,8 +9,9 @@ import loft from "./loft/index.js";
 import sluis from "./sluis/index.js";
 import kuromi from "./kuromi/index.js";
 import relay from "./relay/index.js";
+import apogee from "./apogee/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
