@@ -1,0 +1,916 @@
+@import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Kode+Mono:wght@400;500;600;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Kaze (風) — the wind guides you.
+   A traveler's road at golden hour. Washi ground, sumi line work,
+   lantern amber light, sakura pink reserved for living things.
+
+   DEPARTURE: the palette tracks the real clock. `data-kz-phase` is
+   stamped on <html> by app.jsx from texture.js phaseAt(); the
+   ground/light tokens are redefined per phase. No other Werf theme
+   changes its palette with time.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --t-display: 'Shippori Mincho', Georgia, serif;
+  --t-body:    'Zen Kaku Gothic New', system-ui, sans-serif;
+  --t-mono:    'Kode Mono', ui-monospace, monospace;
+
+  --fast: 140ms cubic-bezier(.22,.9,.3,1);
+  --med:  320ms cubic-bezier(.22,.9,.3,1);
+
+  /* surfaces — default is golden hour */
+  --ground:   #1a1512;
+  --ground-2: #221a15;
+  --rail:     #241c17;
+  --plate:    #2b211a;
+  --plate-hi: #33271e;
+  --well:     #17110d;
+  --ink:      #14100c;
+
+  --line:        #4a3a2c;
+  --line-dim:    #33271e;
+  --line-strong: #6b543f;
+
+  --fg:       #f0e4d2;
+  --fg-dim:   #c5b096;
+  --fg-faint: #8a7358;
+
+  /* Lantern light. These carry --ink text on tapes, buttons and the
+     statement plates, so every phase value is held above the 9:1
+     ink-on-amber floor (measured, not eyeballed). */
+  --amber:        #eeb05a;
+  --amber-hot:    #ffcb85;
+  --amber-deep:   #6a4520;
+  --amber-ground: #3a2712;
+  --leaf:         #ecab73;   /* the statement-plate ground */
+
+  /* sakura — LIVING things only: completions, XP, streak, cursor */
+  --sakura:        #f0a3bd;
+  --sakura-hot:    #ffc3d6;
+  --sakura-ground: #3d2029;
+
+  --starboard:        #f0a3bd;
+  --starboard-ground: #3d2029;
+  --channel:          #8fb8c9;
+  --channel-ground:   #1e2c33;
+  --warn:             #d99a4e;
+  --warn-ground:      #3a2a12;
+  --port:             #d4625c;
+  --port-ground:      #3a1c1a;
+
+  --road:     #6b543f;
+  --road-lit: #a07f5e;
+  --petal:    #f0a3bd;
+  --sky-1:    #e0993f;
+  --sky-2:    #c86a3a;
+  --sky-3:    #3a2418;
+
+  color-scheme: dark;
+}
+
+:root[data-kz-phase="dawn"] {
+  --ground: #141a20; --ground-2: #1a212a; --rail: #1c242d; --plate: #222c36;
+  --plate-hi: #2a3641; --well: #101519; --ink: #0d1216;
+  --line: #33424f; --line-dim: #24303a; --line-strong: #4c6274;
+  --fg: #e6eef5; --fg-dim: #a8bccb; --fg-faint: #728799;
+  --amber: #e8b876; --amber-hot: #ffd7a1; --amber-deep: #5a4526; --amber-ground: #2a2418;
+  --leaf: #e8b070;
+  --sky-1: #e8b876; --sky-2: #7b9bb5; --sky-3: #1a222b;
+  --road: #4c6274; --road-lit: #7e9bb0;
+}
+
+:root[data-kz-phase="day"] {
+  --ground: #191b1a; --ground-2: #212422; --rail: #232725; --plate: #2a2f2c;
+  --plate-hi: #333a35; --well: #141615; --ink: #101211;
+  --line: #414a44; --line-dim: #2d3430; --line-strong: #5f6d64;
+  --fg: #eff2ec; --fg-dim: #b4bdb2; --fg-faint: #7d887c;
+  --amber: #dfb856; --amber-hot: #f3cd76; --amber-deep: #5c4a1c; --amber-ground: #2e2814;
+  --leaf: #e0b46a;
+  --sky-1: #d9c98a; --sky-2: #96ae93; --sky-3: #212523;
+  --road: #5f6d64; --road-lit: #8ea094;
+}
+
+:root[data-kz-phase="golden"] {
+  --ground: #1a1512; --ground-2: #221a15; --rail: #241c17; --plate: #2b211a;
+  --plate-hi: #33271e; --well: #17110d; --ink: #14100c;
+  --line: #4a3a2c; --line-dim: #33271e; --line-strong: #6b543f;
+  --fg: #f0e4d2; --fg-dim: #c5b096; --fg-faint: #8a7358;
+  --amber: #eeb05a; --amber-hot: #ffcb85; --amber-deep: #6a4520; --amber-ground: #3a2712;
+  --leaf: #ecab73;
+  --sky-1: #eeb05a; --sky-2: #c86a3a; --sky-3: #3a2418;
+  --road: #6b543f; --road-lit: #a07f5e;
+}
+
+:root[data-kz-phase="dusk"] {
+  --ground: #17131a; --ground-2: #1e1823; --rail: #201a26; --plate: #261e2d;
+  --plate-hi: #2e2537; --well: #130f17; --ink: #0f0c12;
+  --line: #443655; --line-dim: #2e2539; --line-strong: #61507a;
+  --fg: #ede4f2; --fg-dim: #b8a8c6; --fg-faint: #83738f;
+  --amber: #eda87a; --amber-hot: #ffc59b; --amber-deep: #5e3a2c; --amber-ground: #33211c;
+  --leaf: #eaa478;
+  --sky-1: #eda87a; --sky-2: #7b5a8e; --sky-3: #1f1826;
+  --road: #61507a; --road-lit: #8d78a8;
+}
+
+:root[data-kz-phase="night"] {
+  --ground: #0f1319; --ground-2: #141922; --rail: #161c26; --plate: #1b222d;
+  --plate-hi: #222b38; --well: #0b0e13; --ink: #080b0f;
+  --line: #2f3a4a; --line-dim: #202836; --line-strong: #46586e;
+  --fg: #e4ecf5; --fg-dim: #a1b0c2; --fg-faint: #6c7d91;
+  --amber: #e9b566; --amber-hot: #ffd08a; --amber-deep: #55401e; --amber-ground: #2a2214;
+  --leaf: #e5ac5e;
+  --sky-1: #6b7fa0; --sky-2: #2f3d55; --sky-3: #10141b;
+  --road: #46586e; --road-lit: #6e849c;
+}
+
+/* ── micro-textures (data-URI SVG, cacheable, resolution-free) ── */
+:root {
+  --kz-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Cpath d='M0 3h2M4 1h2' stroke='%23000' stroke-opacity='.10' stroke-width='.7'/%3E%3C/svg%3E");
+  --kz-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3Ccircle cx='1' cy='1' r='.5' fill='%23000' fill-opacity='.18'/%3E%3C/svg%3E");
+  --kz-rule: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='2'%3E%3Cpath d='M0 1h4' stroke='%23a07f5e' stroke-opacity='.5' stroke-width='.8'/%3E%3C/svg%3E");
+  --kz-hazard: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M-2 2L2 -2M0 8L8 0M6 10L10 6' stroke='%23d99a4e' stroke-opacity='.35' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* ═══ base ═══ */
+
+.kz-shell *, .kz-shell *::before, .kz-shell *::after { box-sizing: border-box; }
+
+.kz-shell {
+  min-height: 100vh;
+  background-color: var(--ground);
+  background-image: var(--kz-grain);
+  color: var(--fg);
+  font-family: var(--t-body);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--med), color var(--med);
+}
+
+.kz-shell button {
+  font-family: inherit; color: inherit; background: none;
+  border: none; cursor: pointer; padding: 0;
+}
+.kz-shell input, .kz-shell textarea, .kz-shell select { font-family: inherit; }
+.kz-shell h1, .kz-shell h2, .kz-shell h3 { margin: 0; font-weight: 600; }
+.kz-shell ::placeholder { color: var(--fg-faint); opacity: 1; }
+.kz-shell ::selection { background: var(--sakura-ground); color: var(--sakura-hot); }
+
+.kz-shell :focus-visible,
+.kz-shell button:focus-visible,
+.kz-shell input:focus-visible,
+.kz-shell textarea:focus-visible,
+.kz-shell select:focus-visible {
+  outline: 2px solid var(--sakura);
+  outline-offset: 2px;
+}
+
+.kz-scroll { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.kz-scroll::-webkit-scrollbar { width: 7px; height: 7px; }
+.kz-scroll::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.kz-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* type helpers */
+.kz-brush   { font-family: var(--t-display); font-weight: 600; letter-spacing: .01em; }
+.kz-num     { font-family: var(--t-mono); font-variant-numeric: tabular-nums; }
+.kz-label {
+  font: 500 9.5px var(--t-mono);
+  letter-spacing: .2em; text-transform: uppercase;
+  color: var(--fg-faint);
+}
+.kz-label--lit { color: var(--amber); }
+.kz-label-row { display: flex; align-items: center; gap: 9px; }
+.kz-label-row::after {
+  content: ""; flex: 1; height: 2px;
+  background-image: var(--kz-rule); background-repeat: repeat-x;
+  opacity: .5;
+}
+
+.kz-fade-in { animation: kz-fade var(--med) both; }
+@keyframes kz-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ═══ the Guiding Wind — nav + signature instrument in one
+       (DEPARTURE: no theme fuses navigation with its live data visual) ═══ */
+
+.kz-wind {
+  position: fixed; inset: 0 0 auto 0; height: 66px; z-index: 60;
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 18px;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--ground) 96%, transparent),
+    color-mix(in srgb, var(--ground) 82%, transparent));
+  backdrop-filter: blur(9px);
+  border-bottom: 1px solid var(--line-dim);
+}
+.kz-wind-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; opacity: .95;
+}
+.kz-wind > * { position: relative; z-index: 1; }
+
+.kz-wind-mark { display: flex; align-items: center; gap: 9px; flex-shrink: 0; margin-right: 10px; }
+.kz-wind-kanji {
+  font-family: var(--t-display); font-size: 25px; line-height: 1;
+  color: var(--amber); text-shadow: 0 0 16px var(--amber-deep);
+}
+.kz-wind-name { font: 600 13px var(--t-display); letter-spacing: .08em; display: block; }
+.kz-wind-sub { font: 500 8px var(--t-mono); letter-spacing: .22em; text-transform: uppercase; color: var(--fg-faint); }
+
+/* waypoint markers ride ON the ribbon */
+.kz-waypoint {
+  position: relative;
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 13px 8px;
+  color: var(--fg-dim);
+  font: 500 12.5px var(--t-body);
+  transition: color var(--fast), transform var(--fast);
+}
+.kz-waypoint::before {
+  content: ""; position: absolute; left: 50%; bottom: 2px;
+  width: 5px; height: 5px; margin-left: -2.5px;
+  background: var(--road-lit); transform: rotate(45deg);
+  transition: background var(--fast), box-shadow var(--fast), transform var(--fast);
+}
+.kz-waypoint:hover { color: var(--fg); }
+.kz-waypoint:hover::before { background: var(--amber); }
+.kz-waypoint--here { color: var(--amber-hot); }
+.kz-waypoint--here::before {
+  background: var(--amber-hot);
+  box-shadow: 0 0 10px 1px var(--amber-deep);
+  transform: rotate(45deg) scale(1.5);
+}
+.kz-waypoint-key {
+  font: 500 8.5px var(--t-mono); color: var(--fg-faint);
+  border: 1px solid var(--line); padding: 0 3px; border-radius: 2px;
+}
+
+.kz-wind-tools { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* the Resolve charm — omamori, not a gauge (DEPARTURE: instrument language) */
+.kz-charm {
+  position: relative; width: 26px; height: 34px; flex-shrink: 0;
+  border-radius: 3px 3px 4px 4px;
+  background: var(--well);
+  border: 1px solid var(--line-strong);
+  overflow: hidden;
+}
+.kz-charm-fill {
+  position: absolute; inset: auto 0 0 0;
+  background: linear-gradient(180deg, var(--sakura), var(--sakura-ground));
+  transition: height var(--med);
+}
+.kz-charm-cord {
+  position: absolute; top: -3px; left: 50%; width: 12px; height: 5px;
+  margin-left: -6px; border: 1px solid var(--line-strong);
+  border-bottom: none; border-radius: 6px 6px 0 0;
+}
+.kz-charm-glyph {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--t-display); font-size: 13px; color: var(--fg);
+  text-shadow: 0 1px 3px rgba(0,0,0,.6);
+}
+
+/* ═══ stage + layout ═══ */
+
+.kz-stage { padding-top: 66px; }
+.kz-pad { max-width: 1240px; margin: 0 auto; padding: 26px 26px 70px; }
+
+.kz-head { position: relative; margin-bottom: 24px; }
+.kz-ghost {
+  position: absolute; right: 0; top: -22px; z-index: 0;
+  font-family: var(--t-display); font-size: 132px; line-height: 1;
+  color: transparent; pointer-events: none; user-select: none;
+  -webkit-background-clip: text; background-clip: text;
+  opacity: .5;
+}
+.kz-head > *:not(.kz-ghost) { position: relative; z-index: 1; }
+
+.kz-greet {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap; margin-bottom: 16px;
+}
+.kz-greet h1 { font-family: var(--t-display); font-size: 30px; line-height: 1.25; font-weight: 600; }
+.kz-count { font: 500 10.5px var(--t-mono); letter-spacing: .1em; color: var(--fg-faint); text-transform: uppercase; }
+
+.kz-cols { display: grid; grid-template-columns: minmax(0,1fr) 306px; gap: 30px; align-items: start; }
+.kz-aside { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 84px; }
+.kz-aside-sec { }
+
+/* ═══ surfaces ═══ */
+
+.kz-card {
+  position: relative;
+  background: var(--plate);
+  border: 1px solid var(--line-dim);
+  border-radius: 2px;
+}
+.kz-card::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 22px;
+  background-image: var(--u-fade, none);
+  background-repeat: repeat-x; background-position: bottom left;
+  pointer-events: none; opacity: .8;
+}
+.kz-card--flat { background: var(--plate); border-color: transparent; box-shadow: inset 0 1px 0 var(--line-dim); }
+
+.kz-well { background: var(--well); box-shadow: inset 0 1px 0 rgba(0,0,0,.45); }
+
+/* the lit statement — one per view (loudness budget) */
+.kz-statement {
+  position: relative; border-radius: 2px; color: var(--ink);
+  padding: 16px 20px 18px;
+}
+.kz-statement .kz-label { color: var(--ink); opacity: .72; }
+.kz-statement .kz-brush { color: var(--ink); }
+
+/* seal / stamp — the hanko vocabulary */
+.kz-seal {
+  display: inline-flex; align-items: center; gap: 4px;
+  font: 500 9px var(--t-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--fg-dim); border: 1px solid var(--line);
+  padding: 2px 6px; border-radius: 2px; white-space: nowrap;
+}
+.kz-seal--pick { cursor: pointer; transition: background var(--fast), color var(--fast), border-color var(--fast); }
+.kz-seal--pick:hover { border-color: var(--line-strong); color: var(--fg); }
+.kz-seal--on { background: var(--amber); color: var(--ink); border-color: transparent; }
+
+.kz-tape {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 9px var(--t-mono); letter-spacing: .16em; text-transform: uppercase;
+  background: var(--amber); color: var(--ink); padding: 2px 8px; border-radius: 1px;
+}
+.kz-tape--sakura { background: var(--sakura); }
+.kz-tape--warn { background: var(--warn); }
+.kz-tape--port { background: var(--port); color: #fff; }
+.kz-tape--channel { background: var(--channel); }
+
+.kz-kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  font: 500 9.5px var(--t-mono); color: var(--fg-dim);
+  background: var(--well); border: 1px solid var(--line); border-radius: 2px;
+}
+
+/* ═══ controls ═══ */
+
+.kz-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 13px; border-radius: 2px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--fg-dim); font: 500 12px var(--t-body);
+  transition: border-color var(--fast), color var(--fast), background var(--fast), transform var(--fast);
+}
+.kz-btn:hover:not(:disabled) { border-color: var(--line-strong); color: var(--fg); background: var(--plate-hi); }
+.kz-btn:active:not(:disabled) { transform: translateY(1px); }
+.kz-btn:disabled { opacity: .4; cursor: not-allowed; }
+.kz-btn--sm { padding: 4px 9px; font-size: 11px; gap: 5px; }
+.kz-btn--port { color: var(--port); border-color: color-mix(in srgb, var(--port) 45%, transparent); }
+.kz-btn--sakura { color: var(--sakura); border-color: color-mix(in srgb, var(--sakura) 45%, transparent); }
+
+.kz-go {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 8px 15px; border-radius: 2px;
+  background: var(--amber); color: var(--ink);
+  font: 600 12.5px var(--t-body);
+  transition: filter var(--fast), transform var(--fast);
+}
+.kz-go:hover:not(:disabled) { filter: brightness(1.1); }
+.kz-go:active:not(:disabled) { transform: translateY(1px); }
+.kz-go:disabled { opacity: .45; cursor: not-allowed; }
+.kz-go--sm { padding: 5px 11px; font-size: 11.5px; }
+.kz-go--bloom { background: var(--sakura); }
+
+.kz-icon-btn {
+  display: inline-grid; place-items: center; padding: 4px; border-radius: 2px;
+  color: var(--fg-faint); transition: color var(--fast), background var(--fast);
+}
+.kz-icon-btn:hover { color: var(--fg); background: var(--plate-hi); }
+.kz-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+.kz-link {
+  font: 500 10px var(--t-mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--amber); transition: color var(--fast);
+}
+.kz-link:hover { color: var(--amber-hot); text-decoration: underline; }
+
+.kz-field {
+  width: 100%; padding: 8px 11px; border-radius: 2px;
+  background: var(--well); border: 1px solid var(--line);
+  color: var(--fg); font: 400 13px var(--t-body); resize: vertical;
+  transition: border-color var(--fast);
+}
+.kz-field:focus { border-color: var(--amber-deep); outline: none; }
+.kz-field:focus-visible { outline: 2px solid var(--sakura); outline-offset: 1px; }
+.kz-field--mono { font-family: var(--t-mono); font-size: 12px; }
+.kz-field:disabled { opacity: .5; }
+
+.kz-bare {
+  background: transparent; border: none; border-bottom: 1px solid var(--line);
+  color: var(--fg); font: 400 12px var(--t-mono); padding: 2px 3px;
+}
+.kz-bare:focus { outline: none; border-bottom-color: var(--amber); }
+
+/* the completion control — a blossom that opens */
+.kz-bloom {
+  position: relative; width: 19px; height: 19px; flex-shrink: 0;
+  border: 1.5px solid var(--line-strong); border-radius: 50%;
+  background: transparent; display: grid; place-items: center;
+  transition: border-color var(--fast), background var(--fast), transform var(--fast);
+}
+.kz-bloom:hover { border-color: var(--sakura); transform: scale(1.1); }
+.kz-bloom--on { background: var(--sakura); border-color: var(--sakura); }
+.kz-bloom--sq { border-radius: 3px; width: 15px; height: 15px; }
+
+.kz-meter { position: relative; height: 5px; background: var(--well); border-radius: 3px; overflow: hidden; }
+.kz-meter-fill { height: 100%; background: var(--amber); transition: width var(--med); }
+.kz-meter-fill::after {
+  content: ""; position: absolute; inset: 0;
+  background-image: var(--kz-dot); opacity: .5;
+}
+
+.kz-lamp {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  display: inline-block; background: var(--fg-faint);
+}
+.kz-lamp--ok { background: var(--sakura); box-shadow: 0 0 7px 0 var(--sakura); }
+.kz-lamp--busy { background: var(--amber); box-shadow: 0 0 7px 0 var(--amber); animation: kz-pulse 1.1s ease-in-out infinite; }
+.kz-lamp--off { background: var(--line-strong); }
+.kz-lamp--unknown { background: var(--fg-faint); }
+@keyframes kz-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+.kz-energy, .kz-seg {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 2px; overflow: hidden;
+}
+.kz-energy button, .kz-seg button {
+  padding: 4px 10px; font: 500 10.5px var(--t-body); color: var(--fg-faint);
+  transition: background var(--fast), color var(--fast);
+}
+.kz-energy button + button, .kz-seg button + button { border-left: 1px solid var(--line); }
+.kz-energy button:hover, .kz-seg button:hover { color: var(--fg); }
+.kz-energy button.on, .kz-seg button.on { background: var(--amber-ground); color: var(--amber-hot); }
+
+/* ═══ capture — traveler's notes ═══ */
+
+.kz-note {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 13px; border-radius: 2px;
+  background: var(--plate); border: 1px solid var(--line);
+  transition: border-color var(--fast);
+}
+.kz-note:focus-within { border-color: var(--amber-deep); }
+.kz-note input {
+  flex: 1; min-width: 0; background: transparent; border: none;
+  color: var(--fg); font: 400 13.5px var(--t-body);
+}
+.kz-note input:focus { outline: none; }
+.kz-note-brush {
+  width: 3px; height: 19px; flex-shrink: 0; border-radius: 2px;
+  background: linear-gradient(180deg, var(--amber), transparent);
+}
+.kz-note-modes { display: flex; gap: 3px; flex-shrink: 0; }
+.kz-note-modes button {
+  padding: 3px 9px; border-radius: 2px; font: 500 10.5px var(--t-body);
+  color: var(--fg-faint); transition: background var(--fast), color var(--fast);
+}
+.kz-note-modes button:hover { color: var(--fg); }
+.kz-note-modes button.on { background: var(--amber-ground); color: var(--amber-hot); }
+.kz-note-chips {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  margin-top: 7px; padding: 0 4px;
+}
+
+/* ═══ Today's Path — the road IS the list (DEPARTURE) ═══ */
+
+.kz-road { position: relative; padding-left: 46px; }
+.kz-road::before {
+  content: ""; position: absolute; left: 21px; top: 4px; bottom: 4px; width: 3px;
+  background: linear-gradient(180deg,
+    transparent 0, var(--road) 5%, var(--road-lit) 45%, var(--road) 92%, transparent 100%);
+  border-radius: 3px;
+  opacity: .85;
+}
+.kz-road--weathered::before { background: linear-gradient(180deg, var(--warn) 0%, var(--line) 100%); opacity: .5; }
+
+.kz-station { position: relative; margin-bottom: 9px; }
+.kz-station::before {
+  content: ""; position: absolute; left: -33px; top: 17px;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--ground); border: 2px solid var(--road-lit);
+  transition: background var(--fast), border-color var(--fast), box-shadow var(--fast), transform var(--fast);
+}
+.kz-station--done::before { background: var(--sakura); border-color: var(--sakura); }
+.kz-station--here::before {
+  border-color: var(--amber-hot); background: var(--amber);
+  box-shadow: 0 0 0 4px var(--amber-ground);
+  transform: scale(1.15);
+}
+.kz-station--weathered::before { border-color: var(--warn); border-style: dashed; }
+
+.kz-stone {
+  position: relative;
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px; border-radius: 2px;
+  background: var(--plate);
+  border: 1px solid var(--line-dim);
+  border-left: 3px solid var(--row-lamp, var(--line));
+  transition: background var(--fast), border-color var(--fast), transform var(--fast);
+}
+.kz-stone:hover { background: var(--plate-hi); }
+.kz-stone--cursor { border-color: var(--sakura); background: var(--plate-hi); }
+.kz-stone--cursor::after {
+  content: ""; position: absolute; inset: -1px;
+  border: 1px solid var(--sakura); border-radius: 2px; pointer-events: none;
+  opacity: .55;
+}
+.kz-stone--done { opacity: .58; }
+.kz-stone--settling { animation: kz-settle 1.6s ease-out; }
+@keyframes kz-settle { 0% { background: var(--amber-ground); } 100% { background: var(--plate); } }
+
+.kz-stone-idx { font: 500 10px var(--t-mono); color: var(--fg-faint); width: 17px; flex-shrink: 0; }
+.kz-stone-title { font: 500 13.5px var(--t-body); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kz-stone--done .kz-stone-title { text-decoration: line-through; color: var(--fg-faint); }
+.kz-stone-meta {
+  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  margin-top: 3px; font: 500 9.5px var(--t-mono);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--fg-faint);
+}
+.kz-stone-xp { font: 500 10px var(--t-mono); color: var(--sakura); flex-shrink: 0; }
+.kz-stone-expand { padding: 10px 13px 12px 44px; background: var(--well); border-radius: 0 0 2px 2px; }
+
+/* weathered band — storm-grey sky over the adrift section */
+.kz-weather-band {
+  position: relative; padding: 13px 15px 13px 19px; border-radius: 2px;
+  background: var(--warn-ground);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  margin-bottom: 20px;
+}
+.kz-weather-band::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 4px;
+  background-image: var(--kz-hazard); background-size: 8px 8px;
+  border-radius: 2px 0 0 2px;
+}
+
+/* NOW — the next waypoint */
+.kz-now { border-radius: 2px; }
+.kz-now-top { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+.kz-now-title { font-family: var(--t-display); font-size: 22px; line-height: 1.3; }
+.kz-now-meta {
+  display: flex; gap: 11px; flex-wrap: wrap; margin-top: 7px;
+  font: 500 9.5px var(--t-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink); opacity: .78;
+}
+.kz-now-done {
+  width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--ink); background: transparent;
+  transition: background var(--fast), transform var(--fast);
+}
+.kz-now-done:hover { background: color-mix(in srgb, var(--ink) 22%, transparent); transform: scale(1.06); }
+.kz-next-strip {
+  display: flex; align-items: center; gap: 11px;
+  padding: 8px 14px; margin-top: 2px;
+  background: var(--plate); box-shadow: inset 0 1px 0 var(--line-dim);
+}
+
+/* ═══ The Shrine Map — inked route with gates (DEPARTURE) ═══ */
+
+.kz-route { position: relative; padding-left: 62px; }
+.kz-route::before {
+  content: ""; position: absolute; left: 27px; top: 0; bottom: 0; width: 3px;
+  background: repeating-linear-gradient(180deg,
+    var(--road) 0 14px, transparent 14px 22px);
+  opacity: .7;
+}
+.kz-gate { position: relative; margin-bottom: 15px; }
+.kz-gate-mark {
+  position: absolute; left: -49px; top: 12px; width: 30px; height: 26px;
+  color: var(--road-lit); transition: color var(--fast);
+}
+.kz-gate--today .kz-gate-mark { color: var(--amber-hot); filter: drop-shadow(0 0 6px var(--amber-deep)); }
+.kz-gate--locked .kz-gate-mark { color: var(--channel); }
+.kz-gate--full .kz-gate-mark { color: var(--sakura); }
+.kz-gate-date {
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px;
+}
+.kz-gate-dow { font: 500 9.5px var(--t-mono); letter-spacing: .18em; text-transform: uppercase; color: var(--fg-faint); }
+.kz-gate-num { font-family: var(--t-display); font-size: 19px; color: var(--fg-dim); }
+.kz-gate--today .kz-gate-num { color: var(--amber-hot); }
+.kz-gate-body { border-radius: 2px; background: var(--plate); border: 1px solid var(--line-dim); }
+.kz-gate--today .kz-gate-body { border-color: var(--amber-deep); }
+.kz-gate--over .kz-gate-body { border-color: color-mix(in srgb, var(--port) 45%, transparent); }
+.kz-gate-head { display: flex; align-items: center; gap: 11px; padding: 8px 12px; flex-wrap: wrap; }
+.kz-gate-load { font: 500 9.5px var(--t-mono); letter-spacing: .08em; text-transform: uppercase; }
+.kz-gate-load--ok { color: var(--fg-dim); }
+.kz-gate-load--over { color: var(--port); }
+.kz-gate-load--off { color: var(--fg-faint); }
+
+.kz-shrine {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 12px; border-left: 3px solid var(--row-lamp, var(--line));
+  background: var(--plate); transition: background var(--fast);
+}
+.kz-shrine:hover { background: var(--plate-hi); }
+.kz-shrine + .kz-shrine { box-shadow: inset 0 1px 0 var(--line-dim); }
+.kz-shrine-title { flex: 1; min-width: 0; font: 400 12.5px var(--t-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+
+.kz-caps { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.kz-cap {
+  padding: 9px 8px; border-radius: 2px; text-align: center;
+  background: var(--plate); border: 1px solid var(--line-dim);
+}
+.kz-cap.off { opacity: .5; }
+.kz-cap-dow { font: 500 9px var(--t-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 6px; }
+.kz-cap-dow.today { color: var(--amber-hot); }
+.kz-cap-input {
+  width: 100%; background: var(--well); border: 1px solid var(--amber-deep);
+  color: var(--amber); text-align: center; font: 500 12px var(--t-mono);
+  padding: 3px; border-radius: 2px;
+}
+
+/* ═══ The Satchel — objects on cloth (DEPARTURE) ═══ */
+
+.kz-cloth {
+  position: relative; padding: 20px; border-radius: 3px;
+  background: var(--ground-2);
+  border: 1px solid var(--line-dim);
+  background-image: var(--kz-grain);
+}
+.kz-province { margin-bottom: 24px; }
+.kz-province-name {
+  display: flex; align-items: center; gap: 9px; margin-bottom: 12px;
+}
+.kz-bundles { display: grid; grid-template-columns: repeat(auto-fill, minmax(224px, 1fr)); gap: 14px; }
+
+/* a project = a rolled scroll tied with cord */
+.kz-scroll-obj {
+  position: relative; border-radius: 3px;
+  background: var(--plate); border: 1px solid var(--line);
+  padding: 14px 15px 13px; text-align: left;
+  transition: transform var(--fast), border-color var(--fast), background var(--fast);
+  overflow: hidden;
+}
+.kz-scroll-obj:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+.kz-scroll-obj::before {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: 7px;
+  background: linear-gradient(180deg, var(--proj, var(--amber)), transparent);
+  opacity: .8;
+}
+.kz-scroll-cord {
+  position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: var(--proj, var(--amber)); opacity: .5;
+}
+.kz-scroll-title { font-family: var(--t-display); font-size: 16px; line-height: 1.35; margin-bottom: 7px; }
+.kz-scroll-meta { display: flex; gap: 5px; flex-wrap: wrap; }
+.kz-scroll-obj--ready { border-color: var(--sakura); }
+.kz-scroll-obj--open { grid-column: 1 / -1; }
+
+/* the charm strip a scroll wears instead of a gauge */
+.kz-knots { display: flex; gap: 3px; margin-top: 11px; }
+.kz-knot { flex: 1; height: 4px; border-radius: 2px; background: var(--well); }
+.kz-knot--lit { background: var(--proj, var(--amber)); }
+.kz-knot--full { background: var(--sakura); }
+
+/* ═══ Travel Journal — horizontal hand-scroll (DEPARTURE) ═══ */
+
+.kz-journal {
+  position: fixed; inset: 0; z-index: 10000;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex; flex-direction: column;
+  animation: kz-unroll var(--med) both;
+}
+@keyframes kz-unroll { from { opacity: 0; } to { opacity: 1; } }
+
+.kz-journal-head {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 26px; flex-shrink: 0;
+  border-bottom: 1px solid var(--line-dim);
+  background: var(--ground);
+}
+.kz-journal-rail {
+  flex: 1; min-height: 0;
+  overflow-x: auto; overflow-y: hidden;
+  display: flex; align-items: stretch;
+  scroll-snap-type: x proximity;
+  background: var(--ground-2);
+  background-image: var(--kz-grain);
+}
+/* the rolled ends of the scroll */
+.kz-journal-rod {
+  flex: 0 0 26px; position: sticky; z-index: 2;
+  background: linear-gradient(90deg, var(--line-strong), var(--road), var(--line-strong));
+  box-shadow: 0 0 22px rgba(0,0,0,.55);
+}
+.kz-journal-rod--l { left: 0; }
+.kz-journal-rod--r { right: 0; }
+
+.kz-panel {
+  flex: 0 0 auto; width: 372px; min-width: 372px;
+  padding: 24px 24px 30px;
+  border-right: 1px solid var(--line-dim);
+  overflow-y: auto;
+  scroll-snap-align: start;
+}
+.kz-panel--wide { width: 468px; min-width: 468px; }
+.kz-panel-head { display: flex; align-items: center; gap: 9px; margin-bottom: 15px; }
+.kz-panel-no {
+  font-family: var(--t-display); font-size: 13px; color: var(--amber);
+  border: 1px solid var(--amber-deep); border-radius: 50%;
+  width: 24px; height: 24px; display: grid; place-items: center; flex-shrink: 0;
+}
+.kz-journal-foot {
+  display: flex; align-items: center; gap: 12px; justify-content: center;
+  padding: 9px 26px; flex-shrink: 0;
+  border-top: 1px solid var(--line-dim); background: var(--ground);
+  font: 500 9.5px var(--t-mono); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--fg-faint);
+}
+
+/* ═══ overlays ═══ */
+
+.kz-backdrop {
+  position: fixed; inset: 0; z-index: 10000;
+  background: color-mix(in srgb, var(--ink) 78%, transparent);
+  backdrop-filter: blur(2px);
+}
+.kz-sheet {
+  background: var(--plate); border: 1px solid var(--line);
+  border-radius: 3px; box-shadow: 0 24px 70px -22px rgba(0,0,0,.8);
+}
+.kz-sheet-head {
+  display: flex; align-items: center; gap: 11px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line-dim);
+}
+
+/* palette */
+.kz-palette-backdrop {
+  position: fixed; inset: 0; z-index: 10005;
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh 16px 16px;
+}
+.kz-palette {
+  width: 100%; max-width: 590px;
+  background: var(--plate); border: 1px solid var(--line-strong);
+  border-radius: 3px; box-shadow: 0 26px 80px -24px rgba(0,0,0,.85);
+  overflow: hidden;
+}
+.kz-palette-prompt {
+  display: flex; align-items: center; gap: 11px;
+  padding: 13px 16px; border-bottom: 1px solid var(--line-dim);
+}
+.kz-palette-prompt input {
+  flex: 1; background: transparent; border: none; color: var(--fg);
+  font: 400 14.5px var(--t-body);
+}
+.kz-palette-prompt input:focus { outline: none; }
+.kz-palette-list { max-height: 384px; overflow-y: auto; }
+.kz-palette-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 16px; text-align: left; font: 400 13px var(--t-body);
+  color: var(--fg-dim); transition: background var(--fast), color var(--fast);
+}
+.kz-palette-item.is-active { background: var(--amber-ground); color: var(--fg); }
+.kz-palette-item .sub { margin-left: auto; font: 500 9.5px var(--t-mono); color: var(--fg-faint); text-transform: uppercase; letter-spacing: .1em; }
+.kz-palette-item .kz-kbd { margin-left: auto; }
+.kz-palette-item .sub + .kz-kbd { margin-left: 8px; }
+
+/* Meditation — the focus tunnel */
+.kz-medit {
+  position: fixed; inset: 0; z-index: 10006;
+  background: radial-gradient(ellipse at 50% 42%,
+    var(--ground-2) 0%, var(--ground) 44%, var(--ink) 100%);
+  display: flex; flex-direction: column;
+  animation: kz-close-in var(--med) both;
+}
+@keyframes kz-close-in { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: none; } }
+.kz-medit-title { font-family: var(--t-display); font-size: 30px; text-align: center; max-width: 700px; line-height: 1.35; }
+.kz-medit-timer {
+  font-family: var(--t-mono); font-size: 66px; font-weight: 300;
+  letter-spacing: .04em; color: var(--amber); font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 34px var(--amber-deep);
+}
+
+/* the incense stick — burns down against the REAL session timer */
+.kz-incense { display: flex; align-items: flex-end; gap: 11px; height: 132px; }
+.kz-incense-stick {
+  position: relative; width: 5px; height: 100%; border-radius: 3px;
+  background: linear-gradient(180deg, var(--line-dim) 0%, var(--road) 100%);
+  overflow: visible;
+}
+.kz-incense-ash {
+  position: absolute; inset: 0 0 auto 0; border-radius: 3px 3px 0 0;
+  background: var(--line-dim); transition: height 900ms linear;
+}
+.kz-incense-ember {
+  position: absolute; left: 50%; width: 7px; height: 7px; margin-left: -3.5px;
+  border-radius: 50%; background: var(--amber-hot);
+  box-shadow: 0 0 12px 2px var(--amber);
+  transition: top 900ms linear;
+}
+.kz-incense-smoke {
+  position: absolute; left: 50%; width: 1.5px; height: 34px; margin-left: -.75px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--fg) 22%, transparent));
+  transition: top 900ms linear;
+  animation: kz-smoke 4.5s ease-in-out infinite;
+}
+@keyframes kz-smoke {
+  0%,100% { transform: translateX(0) scaleY(1); opacity: .5; }
+  50% { transform: translateX(4px) scaleY(1.25); opacity: .25; }
+}
+
+/* ═══ toast / banners / petals ═══ */
+
+.kz-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  z-index: 10008; display: flex; align-items: center; gap: 12px;
+  padding: 0 15px; max-width: min(560px, calc(100vw - 32px));
+  background: var(--plate-hi); border: 1px solid var(--line-strong);
+  border-radius: 3px; box-shadow: 0 16px 46px -14px rgba(0,0,0,.75);
+  font-size: 13px;
+  animation: kz-rise var(--med) both;
+}
+@keyframes kz-rise { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.kz-toast-lead { color: var(--sakura); display: inline-flex; }
+.kz-toast-lead--port { color: var(--port); }
+
+.kz-banner {
+  position: sticky; z-index: 40;
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 20px; font-size: 12.5px;
+}
+
+.kz-petal {
+  position: absolute; width: 8px; height: 8px;
+  border-radius: 80% 0 80% 0;
+  pointer-events: none;
+}
+
+/* ═══ misc ═══ */
+
+.kz-empty {
+  padding: 30px 20px 10px; text-align: center;
+  color: var(--fg-faint); font-size: 13px; line-height: 1.7;
+}
+.kz-haiku {
+  font-family: var(--t-display); font-size: 15px; line-height: 2;
+  color: var(--fg-dim); white-space: pre-line;
+}
+
+.kz-tally { display: flex; gap: 11px; flex-wrap: wrap; margin-top: 9px; }
+.kz-tally span { display: inline-flex; align-items: center; gap: 4px; font: 500 9px var(--t-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
+.kz-tally i { width: 6px; height: 6px; border-radius: 1px; display: inline-block; }
+
+.kz-bars { display: flex; align-items: flex-end; gap: 3px; height: 34px; }
+.kz-bars .b { flex: 1; display: flex; align-items: flex-end; background: var(--well); border-radius: 1px; overflow: hidden; }
+.kz-bars .b i { width: 100%; background: var(--amber); opacity: .8; border-radius: 1px; }
+.kz-bars .b.today i { background: var(--sakura); opacity: 1; }
+.kz-bars .b.port i { background: var(--port); }
+.kz-bars-lbl { display: flex; gap: 3px; margin-top: 4px; }
+.kz-bars-lbl span { flex: 1; text-align: center; font: 500 8.5px var(--t-mono); color: var(--fg-faint); }
+.kz-bars-lbl span.today { color: var(--sakura); }
+
+.kz-cal-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+.kz-cal-row .kz-label { width: 104px; flex-shrink: 0; }
+.kz-cal-val { font: 500 11px var(--t-mono); width: 46px; text-align: right; flex-shrink: 0; }
+
+.kz-trophy-meter { width: 62px; flex-shrink: 0; }
+
+/* The core's render-crash recovery card (main.jsx, G11) lives OUTSIDE
+   .kz-shell and uses the shared token names plus `.w-switch`. Kaze
+   defines every token it reads; this gives its button a body too. */
+.w-switch {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 15px; border: none; border-radius: 2px; cursor: pointer;
+  background: var(--amber); color: var(--ink);
+  font: 600 12.5px var(--t-body);
+}
+.w-switch:hover { filter: brightness(1.1); }
+
+/* ═══ responsive ═══ */
+
+@media (max-width: 1080px) {
+  .kz-cols { grid-template-columns: minmax(0,1fr); }
+  .kz-aside { position: static; }
+  .kz-ghost { display: none; }
+}
+@media (max-width: 900px) {
+  .kz-pad { padding: 18px 15px 60px; }
+  .kz-waypoint { padding: 7px 9px; }
+  .kz-waypoint span.kz-wp-label { display: none; }
+  .kz-wind-sub { display: none; }
+  .kz-greet h1 { font-size: 24px; }
+  .kz-panel, .kz-panel--wide { width: 86vw; min-width: 86vw; }
+  .kz-medit-timer { font-size: 46px; }
+}
+
+/* ═══ reduced motion — the kill switch ═══ */
+
+@media (prefers-reduced-motion: reduce) {
+  .kz-shell *, .kz-shell *::before, .kz-shell *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
