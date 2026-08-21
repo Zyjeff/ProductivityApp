@@ -1,0 +1,763 @@
+/* css/today.css — W2-T ONLY
+   Owns `yzt-` rules for: the day sheet, garden extras on Today, the Night
+   garden (focus tunnel), and Close the amado (end of day). */
+
+/* ── day sheet ──────────────────────────────────────────────── */
+
+.yzt-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 760px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.yzt-head { position: relative; }
+.yzt-greet {
+  font-size: clamp(26px, 3.4vw, 36px);
+  color: var(--sumi);
+  margin: 6px 0 12px;
+  font-weight: 600;
+}
+
+/* in-sheet banners live on .yz-banner--closed / --tea in base.css */
+.yzt-close-link {
+  display: inline-block;
+  margin-top: 4px;
+  color: var(--amber-deep);
+}
+
+.yzt-capture { margin-top: 2px; }
+
+/* morning letter — washi note, prose voice */
+
+.yzt-letter {
+  position: relative;
+  padding: 20px 22px 18px;
+}
+.yzt-letter::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  right: 56px;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--washi-line) 18%, var(--washi-line) 82%, transparent);
+}
+.yzt-letter-seal {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--port);
+  color: var(--port);
+  font: 700 9px var(--t-display);
+  letter-spacing: 0.04em;
+  display: grid;
+  place-items: center;
+  transform: rotate(-14deg);
+  background: rgba(217, 106, 90, .08);
+  pointer-events: none;
+}
+.yzt-hand .yz-kbd,
+.yzt-night-top .yz-kbd,
+.yzt-night-controls .yz-kbd {
+  color: inherit;
+  border-color: currentColor;
+  opacity: 0.7;
+}
+.yzt-letter--folded {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--washi);
+  background-image: var(--washi-grain);
+  color: var(--sumi-dim);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: 400 13.5px var(--t-body);
+  line-height: 1.5;
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 0 var(--washi-line);
+}
+.yzt-letter--folded:hover { color: var(--sumi); }
+.yzt-letter-folded-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzt-letter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding-right: 36px;
+}
+.yzt-letter-prose {
+  font: 400 14.5px var(--t-body);
+  line-height: 1.75;
+  color: var(--sumi);
+}
+.yzt-letter-prose p { margin: 0 0 0.45em; }
+.yzt-letter-prose p:last-child { margin-bottom: 0; }
+.yzt-letter-ink { color: var(--port); font-style: italic; }
+.yzt-letter-body {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--sumi);
+  white-space: pre-wrap;
+  margin-top: 12px;
+}
+.yzt-letter-away {
+  font-size: 13.5px;
+  color: var(--sumi-dim);
+  margin-top: 10px;
+  line-height: 1.55;
+}
+
+/* In hand / tended — washi plate, hanko rule, now-seal */
+
+.yzt-hand-wrap { display: flex; flex-direction: column; gap: 0; }
+.yzt-hand,
+.yzt-tended {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px 18px 22px;
+  border-radius: var(--r-sm);
+  color: var(--sumi);
+  background: var(--washi);
+  background-image: var(--washi-grain);
+  box-shadow: inset 3px 0 0 var(--port), 0 1px 0 var(--washi-line), 0 8px 22px rgba(12, 9, 23, .08);
+  position: relative;
+}
+.yzt-tended {
+  box-shadow: inset 3px 0 0 var(--starboard), 0 1px 0 var(--washi-line), 0 8px 22px rgba(12, 9, 23, .08);
+}
+.yzt-hand-seal {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 1.5px solid var(--port);
+  color: var(--port);
+  font: 700 9px var(--t-display);
+  letter-spacing: 0.06em;
+  display: grid;
+  place-items: center;
+  transform: rotate(-16deg);
+  border-radius: 50%;
+  background: rgba(217, 106, 90, .1);
+  pointer-events: none;
+}
+.yzt-hand-copy { flex: 1; min-width: 0; padding-right: 40px; }
+.yzt-hand-title {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 4px 0 8px;
+  text-align: left;
+  cursor: pointer;
+  font-size: clamp(20px, 2.6vw, 28px);
+  color: var(--sumi);
+  line-height: 1.25;
+}
+.yzt-hand-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.yzt-hand-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12.5px;
+  color: var(--sumi-dim);
+  line-height: 1.4;
+}
+.yzt-hand-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.yzt-then {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--washi-dim);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--sumi-dim);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+.yzt-then:hover { color: var(--sumi); }
+.yzt-then-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* fallen leaves */
+
+.yzt-fallen {
+  padding: 12px 14px 10px;
+  background: var(--washi);
+  background-image: var(--washi-grain);
+  border-radius: var(--r-sm);
+  box-shadow: inset 4px 0 0 var(--amber), 0 1px 0 var(--washi-line);
+}
+.yzt-fallen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.yzt-fallen-list { display: flex; flex-direction: column; }
+.yzt-leaf {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.yzt-leaf:hover { background: var(--washi-dim); }
+.yzt-leaf--cursor {
+  box-shadow: inset 3px 0 0 var(--sumi);
+  background: var(--washi-hi);
+}
+.yzt-leaf-body { flex: 1; min-width: 0; }
+.yzt-leaf-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sumi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzt-leaf-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--sumi-dim);
+}
+.yzt-leaf-actions {
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+/* lineup */
+
+.yzt-lineup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.yzt-pace { align-items: center; gap: 0; }
+.yzt-pace-label { padding: 0 8px 0 4px; }
+.yzt-ledger {
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 0 var(--washi-line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.yzt-slot { cursor: grab; }
+.yzt-slot--over { box-shadow: inset 0 2px 0 var(--amber); }
+.yzt-lineup-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--sumi-faint);
+  flex-wrap: wrap;
+}
+
+/* foot instruments */
+
+.yzt-foot {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 18px;
+  box-shadow: inset 0 1px 0 var(--washi-line);
+}
+.yzt-inst {
+  padding: 10px 12px 12px;
+  background: var(--washi);
+  background-image: var(--washi-grain);
+  border-radius: var(--r-sm);
+  box-shadow: 0 1px 0 var(--washi-line);
+  min-width: 0;
+}
+.yzt-inst-n {
+  font-size: 22px;
+  color: var(--sumi);
+  margin: 4px 0 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.yzt-unit {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--sumi-faint);
+  font-family: var(--t-body);
+}
+.yzt-trend {
+  font-size: 11px;
+  font-family: var(--t-mono);
+  font-weight: 500;
+}
+.yzt-spark { width: 100%; display: block; }
+.yzt-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  height: 14px;
+}
+.yzt-wd {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--sumi-faint);
+  background: transparent;
+}
+.yzt-wd--on { background: var(--sumi); border-color: var(--sumi); }
+.yzt-wd--today { border-color: var(--amber-deep); box-shadow: 0 0 0 2px var(--amber-ground); }
+.yzt-wd--on.yzt-wd--today { background: var(--amber-deep); border-color: var(--amber-deep); }
+.yzt-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+}
+.yzt-bar {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+  background: var(--washi-dim);
+}
+.yzt-bar i {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: var(--sumi);
+  opacity: 0.55;
+}
+.yzt-diff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  font: 500 11.5px var(--t-body);
+  color: var(--sumi-dim);
+}
+.yzt-diff span { display: inline-flex; align-items: center; gap: 4px; }
+.yzt-diff i { width: 6px; height: 6px; border-radius: 1px; display: inline-block; }
+.yzt-slate-xp {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--sumi-faint);
+}
+
+/* ── Night garden ───────────────────────────────────────────── */
+
+.yzt-night {
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 28px 32px 40px;
+  color: var(--fg);
+}
+.yzt-night .yzt-night-moon {
+  position: absolute;
+  top: 7%;
+  right: 10%;
+  width: 92px;
+  height: 92px;
+  pointer-events: none;
+  z-index: 0;
+}
+.yzt-night-moon-halo {
+  position: absolute;
+  inset: -56px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(247, 241, 228, 0.3) 0%, rgba(237, 230, 255, 0.1) 26%, rgba(223, 161, 78, 0.04) 48%, transparent 70%);
+}
+.yzt-night-moon-disc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 32%, #fffdf6 0%, #f3ead4 46%, #d4cbb4 100%);
+  box-shadow:
+    inset -7px -5px 12px rgba(70, 60, 90, 0.18),
+    0 0 18px rgba(247, 241, 228, 0.5),
+    0 0 40px rgba(237, 230, 255, 0.22);
+}
+.yzt-night-moon-cloud {
+  position: absolute;
+  left: -18%;
+  top: 56%;
+  width: 138%;
+  height: 16px;
+  border-radius: 40% 70% 50% 60%;
+  background: linear-gradient(90deg, transparent, rgba(247, 241, 228, 0.32) 20%, rgba(230, 224, 242, 0.48) 50%, rgba(247, 241, 228, 0.28) 80%, transparent);
+  filter: blur(2px);
+  transform: rotate(-8deg);
+  opacity: 0.95;
+}
+.yzt-night-top {
+  width: min(920px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+}
+.yzt-night-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 48px;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 1;
+  width: min(920px, 100%);
+}
+.yzt-night-clock {
+  flex: 1 1 280px;
+  min-width: 0;
+  text-align: left;
+}
+.yzt-night-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: var(--fg-dim);
+  font-size: 13.5px;
+  margin-bottom: 10px;
+}
+.yzt-night-title {
+  font-size: clamp(22px, 3.6vw, 36px);
+  color: var(--fg);
+  margin: 0 0 12px;
+  line-height: 1.2;
+}
+.yzt-night-timer {
+  font-family: var(--t-display);
+  font-weight: 700;
+  font-size: clamp(64px, 12vw, 112px);
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 28px rgba(223, 161, 78, 0.28);
+}
+.yzt-shishi-lg {
+  position: relative;
+  width: 210px;
+  height: 176px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.yzt-tsukubai {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 168px;
+  height: 54px;
+  pointer-events: none;
+  z-index: 0;
+}
+.yzt-tsukubai-stone {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 36px;
+  background:
+    radial-gradient(ellipse at 46% 36%, #5a5568 0%, #3a3648 55%, #2a2636 100%);
+  border-radius: 50% 50% 46% 48% / 70% 68% 32% 34%;
+  box-shadow:
+    0 10px 16px rgba(8, 6, 16, 0.45),
+    inset 0 1px 0 rgba(237, 230, 255, 0.1);
+}
+.yzt-tsukubai-pool {
+  position: absolute;
+  left: 38px;
+  right: 38px;
+  top: 4px;
+  height: 20px;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 64% 28%, rgba(247, 241, 228, 0.42), transparent 42%),
+    radial-gradient(ellipse at 40% 60%, rgba(99, 195, 207, 0.28), rgba(32, 44, 70, 0.92));
+  box-shadow:
+    inset 0 1px 2px rgba(247, 241, 228, 0.28),
+    0 0 14px rgba(237, 230, 255, 0.14);
+}
+.yzt-shishi-lg .yz-shishi { position: relative; z-index: 1; }
+.yzt-shishi { --yz-shishi-scale: 1.66; } /* alias of .yz-shishi--lg */
+.yzt-night-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+.yzt-stone {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 12px 18px;
+  background: var(--plate);
+  color: var(--fg);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 1px 0 var(--line);
+  position: relative;
+  z-index: 1;
+}
+.yzt-stone:hover { background: var(--plate-hi); }
+.yzt-stone-title {
+  font-size: 14px;
+  color: var(--fg);
+}
+
+/* ── Close the amado ────────────────────────────────────────── */
+
+.yzt-amado {
+  position: fixed;
+  inset: 0;
+  z-index: 10007;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-color: var(--ground);
+  background-image:
+    var(--dusk-lantern),
+    var(--seigaiha),
+    var(--dusk-sky);
+  background-repeat: no-repeat, repeat, no-repeat;
+  background-position: center bottom, 0 0, center;
+  background-size: 100% 50%, auto, cover;
+  overflow: hidden;
+}
+.yzt-amado::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 80% 44% at 50% 90%, rgba(223, 161, 78, .16) 0%, transparent 62%);
+  z-index: 1;
+}
+.yzt-amado-shutter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: #2a1e14;
+  background-size: 160px 48px;
+  box-shadow: inset 0 0 40px rgba(12, 9, 23, 0.45);
+  transition: transform 700ms cubic-bezier(0.6, 0.05, 0.3, 1);
+}
+.yzt-amado-shutter::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(58, 42, 28, 0.15) 0 9px,
+    rgba(12, 8, 4, 0.55) 9px 11px,
+    rgba(110, 84, 54, 0.28) 11px 12px
+  );
+  opacity: 1;
+}
+.yzt-amado-shutter--l {
+  left: 0;
+  transform: translateX(-58%);
+  border-right: 3px solid #5a4030;
+  box-shadow: 8px 0 24px rgba(12, 9, 23, 0.35), inset 0 0 40px rgba(12, 9, 23, 0.45);
+}
+.yzt-amado-shutter--r {
+  right: 0;
+  transform: translateX(58%);
+  border-left: 3px solid #5a4030;
+  box-shadow: -8px 0 24px rgba(12, 9, 23, 0.35), inset 0 0 40px rgba(12, 9, 23, 0.45);
+}
+.yzt-amado-shutter--l::after,
+.yzt-amado-shutter--r::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 22px;
+  pointer-events: none;
+  transition: width 700ms cubic-bezier(0.6, 0.05, 0.3, 1), opacity 700ms ease;
+}
+.yzt-amado-shutter--l::after {
+  right: 0;
+  background: linear-gradient(90deg, transparent, rgba(240, 188, 116, 0.82));
+  box-shadow: 8px 0 36px rgba(223, 161, 78, 0.7);
+  mix-blend-mode: screen;
+}
+.yzt-amado-shutter--r::after {
+  left: 0;
+  background: linear-gradient(270deg, transparent, rgba(240, 188, 116, 0.82));
+  box-shadow: -8px 0 36px rgba(223, 161, 78, 0.7);
+  mix-blend-mode: screen;
+}
+.yzt-amado--shut .yzt-amado-shutter--l,
+.yzt-amado--shut .yzt-amado-shutter--r {
+  transform: translateX(0);
+}
+.yzt-amado--shut .yzt-amado-shutter--l::after,
+.yzt-amado--shut .yzt-amado-shutter--r::after {
+  width: 3px;
+  opacity: 0.5;
+}
+.yzt-amado-console {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 440px;
+  transition: opacity 280ms ease;
+}
+.yzt-amado--shut .yzt-amado-console { opacity: 0; pointer-events: none; }
+.yzt-amado-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+.yzt-amado-body { padding: 12px 20px 20px; }
+.yzt-amado-lead { font-size: 23px; margin-bottom: 16px; color: var(--sumi); }
+.yzt-amado-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 16px;
+  border-top: 1px solid var(--washi-line);
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzt-amado-tile {
+  background: none;
+  padding: 10px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzt-amado-tile:last-child { border-bottom: 0; }
+.yzt-amado-n { font-size: 22px; color: var(--sumi); margin: 0; }
+.yzt-amado-block { margin-bottom: 16px; }
+.yzt-amado-unfin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.yzt-amado-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--sumi-dim);
+  cursor: pointer;
+}
+.yzt-amado-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.yzt-amado-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--washi-dim);
+  font-size: 12.5px;
+  color: var(--sumi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzt-amado-row span { overflow: hidden; text-overflow: ellipsis; }
+.yzt-amado-row--dim { color: var(--sumi-dim); }
+.yzt-amado-sleeps {
+  position: absolute;
+  z-index: 4;
+  color: var(--fg);
+  font-size: clamp(22px, 4vw, 36px);
+  letter-spacing: 0.06em;
+  opacity: 0;
+  pointer-events: none;
+  text-align: center;
+  transition: opacity 400ms ease 80ms;
+}
+.yzt-amado--sleeps .yzt-amado-sleeps { opacity: 1; }
+
+@media (max-width: 900px) {
+  .yzt-foot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .yzt-hand, .yzt-tended { flex-direction: column; align-items: stretch; }
+  .yzt-hand-actions { flex-direction: row; }
+  .yzt-leaf { flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  .yzt-night-clock { text-align: center; }
+  .yzt-night-meta { justify-content: center; }
+  .yzt-night-stage { gap: 20px; }
+  .yzt-foot { grid-template-columns: 1fr 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yzt-amado-shutter,
+  .yzt-amado-shutter::after,
+  .yzt-amado-console,
+  .yzt-amado-sleeps { transition: none; }
+}

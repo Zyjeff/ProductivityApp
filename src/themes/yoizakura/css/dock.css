@@ -1,0 +1,753 @@
+/* css/dock.css — W2-D ONLY
+   `yzd-` rules for: the tansu (Lists), House chronicle, Records
+   kakejiku, the Caller (palette), and the writing desk (task form). */
+
+/* ── Lists sheet ───────────────────────────────────────────── */
+
+.yzd-dock { display: flex; flex-direction: column; gap: 16px; }
+.yzd-head { margin-bottom: 2px; }
+.yzd-head h1 {
+  font-family: var(--t-display);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--sumi);
+  margin: 4px 0 6px;
+  letter-spacing: 0.02em;
+}
+.yzd-head-meta {
+  font: 400 13px var(--t-body);
+  color: var(--sumi-faint);
+}
+.yzd-head-meta .yzd-ready-n { color: var(--sakura-deep); }
+
+.yzd-tabs { align-self: flex-start; }
+
+.yzd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.yzd-grow { flex: 1; min-width: 8px; }
+
+/* ── tansu chest ───────────────────────────────────────────── */
+
+.yzd-chest-wrap {
+  padding: 16px 14px 0;
+  background-color: var(--wood);
+  background-size: 160px 48px;
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 2px var(--wood-deep), 0 10px 28px rgba(12, 9, 23, .16);
+}
+.yzd-chest {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 12px;
+  padding-bottom: 14px;
+}
+.yzd-drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 176px;
+  padding: 14px 14px 10px;
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid rgba(61, 46, 36, .35);
+  background-color: var(--washi);
+  color: var(--sumi);
+  border-radius: var(--r-sm);
+  box-shadow:
+    inset 2px 0 0 var(--yzd-ink, transparent),
+    0 1px 0 var(--washi-line),
+    0 6px 14px rgba(12, 9, 23, .12);
+  overflow: hidden;
+  transition: box-shadow var(--fast) ease, transform var(--fast) ease;
+}
+.yzd-drawer:hover {
+  box-shadow:
+    inset 2px 0 0 var(--yzd-ink, transparent),
+    0 1px 0 var(--washi-line),
+    0 12px 26px rgba(12, 9, 23, .2);
+  transform: translateY(-1px);
+}
+.yzd-drawer-pull {
+  width: 22px;
+  height: 11px;
+  margin: 2px auto 0;
+  border: 1.5px solid #8a7660;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(#d4c4ae, #9a8670);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+}
+.yzd-drawer::after { display: none; }
+.yzd-drawer--ready {
+  box-shadow:
+    inset 2px 0 0 var(--yzd-ink, transparent),
+    0 0 0 1px var(--sakura-deep),
+    0 0 22px var(--sakura-ground),
+    0 8px 20px rgba(12, 9, 23, .12);
+}
+.yzd-drawer-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 2px;
+  background-color: #e4d3b4;
+  background-size: 160px 48px;
+  box-shadow: inset 0 0 0 1px rgba(90, 70, 52, .18);
+  min-width: 0;
+}
+.yzd-drawer-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--t-display);
+  font-size: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sumi);
+}
+.yzd-drawer-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+}
+.yzd-drawer-counts {
+  flex: 1;
+  font: 400 12.5px var(--t-body);
+  color: var(--sumi-dim);
+}
+.yzd-ready-glow {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font: 600 11px var(--t-body);
+  color: var(--sakura-deep);
+  background: var(--sakura-ground);
+  padding: 3px 7px;
+  border-radius: 2px;
+}
+.yzd-create {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+/* ── open drawer (fills the sheet) ─────────────────────────── */
+
+.yzd-open {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 22px;
+  min-height: calc(100vh - 220px);
+}
+.yzd-open-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.yzd-open-title {
+  font-family: var(--t-display);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--sumi);
+  min-width: 0;
+  flex: 1;
+}
+.yzd-open-title input {
+  font: 600 24px var(--t-display);
+  width: min(420px, 100%);
+}
+.yzd-swatches { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.yzd-swatch { /* alias of .yz-swatch in base.css */ }
+.yzd-desc {
+  padding: 10px 12px;
+  background: var(--washi-hi);
+  border: 1px solid var(--washi-line);
+  font-size: 13px;
+  color: var(--sumi-dim);
+  line-height: 1.55;
+  cursor: text;
+  white-space: pre-wrap;
+  border-radius: var(--r-sm);
+}
+.yzd-ledger {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--washi-line);
+  background: var(--washi-hi);
+  border-radius: var(--r-sm);
+}
+.yzd-lrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzd-lrow:hover { background: var(--washi); }
+.yzd-lrow:last-child { border-bottom: 0; }
+.yzd-lrow-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: var(--sumi);
+  font-family: var(--t-body);
+}
+.yzd-lrow-title.is-done {
+  color: var(--sumi-faint);
+  text-decoration: line-through;
+}
+.yzd-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.yzd-add-row .yz-field { flex: 1; }
+.yzd-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--washi-line);
+}
+
+/* ── House chronicle ───────────────────────────────────────── */
+
+.yzd-chronicle {
+  margin: 0 -14px 0;
+  padding: 14px 16px 12px;
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  border-top: 3px solid var(--wood-deep);
+  background: var(--washi);
+  background-image: var(--washi-grain);
+}
+.yzd-chronicle.is-jump {
+  box-shadow: 0 0 0 1px var(--amber-deep), 0 8px 24px var(--amber-ground);
+}
+.yzd-chronic-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzd-chronic-row:last-child { border-bottom: 0; }
+.yzd-chronic-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.yzd-chronic-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: var(--sumi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzd-chronic-body {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--washi-hi);
+  border: 1px solid var(--washi-line);
+  border-radius: var(--r-sm);
+}
+.yzd-chronic-note {
+  font-size: 12.5px;
+  color: var(--sumi-dim);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 8px 0;
+}
+
+/* ── All tasks (library) ───────────────────────────────────── */
+
+.yzd-filters, .yzd-filters-2 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.yzd-sep { width: 1px; height: 14px; background: var(--washi-line); }
+.yzd-lib { display: flex; flex-direction: column; }
+.yzd-lib-item { position: relative; }
+.yzd-put {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 4px 12px 10px 44px;
+}
+.yzd-import {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.yzd-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.yzd-import-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--sumi);
+  font: inherit;
+  opacity: .5;
+}
+.yzd-import-row.is-on {
+  opacity: 1;
+  background: var(--washi-hi);
+  box-shadow: inset 3px 0 0 var(--sumi);
+}
+
+/* ── Records — tokonoma + kakejiku ─────────────────────────── */
+
+.yzd-tokonoma {
+  position: relative;
+  min-height: 100%;
+  padding: 28px 16px 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.yzd-tokonoma-close {
+  position: fixed;
+  top: 16px;
+  right: 18px;
+  z-index: 2;
+}
+.yzd-kakejiku {
+  width: min(760px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.yzd-rod {
+  width: calc(100% + 28px);
+  height: 14px;
+  margin: 0 -14px;
+  border-radius: 7px;
+  background-color: #6a5138;
+  background-size: 160px 48px;
+  box-shadow: 0 2px 0 #3d2c1c, 0 8px 16px rgba(12, 9, 23, .35);
+  position: relative;
+  z-index: 1;
+}
+.yzd-rod::before, .yzd-rod::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3d2c1c;
+  transform: translateY(-50%);
+}
+.yzd-rod::before { left: 10px; }
+.yzd-rod::after { right: 10px; }
+
+.yzd-scroll {
+  width: 100%;
+  display: grid;
+  grid-template-rows: 0fr;
+  transform: translateY(-10px);
+  opacity: 0;
+  transition: grid-template-rows var(--med) ease, transform 560ms ease, opacity 400ms ease;
+  margin-top: -4px;
+}
+.yzd-scroll.is-unrolled {
+  grid-template-rows: 1fr;
+  transform: none;
+  opacity: 1;
+}
+.yzd-scroll-clip { overflow: hidden; min-height: 0; }
+.yzd-paper {
+  padding: 28px 32px 40px;
+  color: var(--sumi);
+  box-shadow: 0 18px 40px rgba(12, 9, 23, .28);
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
+}
+.yzd-sec { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--washi-line); }
+.yzd-sec:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+.yzd-callig {
+  text-align: center;
+  padding: 8px 8px 18px;
+}
+.yzd-lvl {
+  font-family: var(--t-display);
+  font-size: 84px;
+  font-weight: 700;
+  line-height: .9;
+  color: var(--sumi);
+  letter-spacing: -0.03em;
+}
+.yzd-lvl-name {
+  font-family: var(--t-display);
+  font-size: 22px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.yzd-lvl-xp {
+  font: 400 13px var(--t-body);
+  color: var(--sumi-dim);
+  margin-top: 10px;
+}
+.yzd-next {
+  font: 400 12.5px var(--t-body);
+  color: var(--sumi-faint);
+  margin-top: 12px;
+  line-height: 1.7;
+}
+
+.yzd-statline {
+  display: flex;
+  gap: 8px 28px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-top: 1px solid var(--washi-line);
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzd-statline-item { display: flex; flex-direction: column; gap: 2px; min-width: 72px; }
+.yzd-tile-v {
+  font: 600 22px var(--t-display);
+  color: var(--sumi);
+}
+
+.yzd-week-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--washi-line);
+  font-size: 13px;
+  color: var(--sumi-dim);
+}
+.yzd-week-row:last-child { border-bottom: 0; }
+.yzd-week-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yzd-week-when {
+  font-family: var(--t-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sumi);
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.yzd-cal-factor {
+  font-family: var(--t-display);
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1;
+}
+.yzd-cal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--sumi-dim);
+}
+.yzd-cal-row .yz-meter { flex: 1; }
+
+/* omamori rack — charms hanging from a wooden rail */
+.yzd-omamori {
+  position: relative;
+  padding-top: 10px;
+}
+.yzd-omamori-rail {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #6a5138;
+  box-shadow: 0 2px 0 #3d2c1c;
+  margin: 0 8px;
+}
+.yzd-rack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 16px;
+  padding: 22px 8px 8px;
+  justify-content: flex-start;
+}
+.yzd-charm {
+  position: relative;
+  width: 92px;
+  min-height: 112px;
+  padding: 18px 8px 10px;
+  background: var(--washi-hi);
+  border: 1px solid var(--washi-line);
+  border-radius: 10px 10px 20px 20px;
+  text-align: center;
+  overflow: hidden;
+}
+.yzd-charm::before {
+  content: "";
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  width: 12px;
+  height: 20px;
+  border: 1.5px solid #6a5138;
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  transform: translateX(-50%);
+  background: transparent;
+}
+.yzd-charm.is-earned {
+  background: #f3e4c8;
+  box-shadow: inset 0 0 0 1px rgba(217, 106, 90, .22);
+}
+.yzd-charm.is-earned::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--port);
+  background: rgba(217, 106, 90, .4);
+  transform: rotate(-12deg);
+}
+.yzd-charm.is-locked {
+  background: transparent;
+  border-style: dashed;
+  opacity: .72;
+}
+.yzd-charm-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: var(--washi-dim);
+  border-radius: 0 0 20px 20px;
+  pointer-events: none;
+}
+.yzd-charm-title {
+  font-family: var(--t-display);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--sumi);
+  line-height: 1.3;
+  position: relative;
+  z-index: 1;
+}
+.yzd-charm-desc {
+  font-size: 10.5px;
+  color: var(--sumi-faint);
+  margin-top: 4px;
+  line-height: 1.35;
+  position: relative;
+  z-index: 1;
+}
+
+.yzd-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font: 400 12px var(--t-body);
+  color: var(--sumi-dim);
+}
+.yzd-swatch-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.yzd-clock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.yzd-clock input {
+  width: 64px;
+  text-align: center;
+}
+.yzd-tools { display: flex; flex-direction: column; gap: 7px; }
+.yzd-themes { display: flex; flex-direction: column; gap: 7px; }
+.yzd-theme {
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+}
+.yzd-theme-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--sumi-faint);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 12px;
+}
+.yzd-hint {
+  font-size: 11.5px;
+  color: var(--sumi-faint);
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+.yzd-weather { width: 100%; height: 56px; display: block; }
+.yzd-weather--sm { height: 36px; }
+
+/* ── Caller (palette) ──────────────────────────────────────── */
+
+.yzd-caller {
+  background-image: var(--seigaiha);
+  background-color: var(--rail);
+}
+.yzd-caller-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.yzd-caller-prompt input {
+  flex: 1;
+  min-width: 0;
+}
+.yzd-caller-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  margin: 0 -8px;
+  padding: 0 8px;
+}
+.yzd-caller-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--r-sm);
+  font: 400 13.5px var(--t-body);
+  transition: background var(--fast) ease;
+}
+.yzd-caller-item:hover { background: var(--plate); }
+.yzd-caller-item.is-on {
+  background: var(--plate-hi);
+  box-shadow: inset 2px 0 0 var(--sakura);
+}
+.yzd-item-lbl {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzd-item-sub {
+  font-size: 11px;
+  color: var(--fg-faint);
+  flex-shrink: 0;
+}
+.yzd-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-left: 4px;
+}
+
+/* ── writing desk ──────────────────────────────────────────── */
+
+.yzd-desk {
+  color: var(--sumi);
+  overflow: auto;
+}
+.yzd-desk-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+.yzd-desk-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.yzd-desk-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.yzd-steps {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.yzd-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+}
+.yzd-step-mark {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--washi-line);
+  flex-shrink: 0;
+  border-radius: 1px;
+}
+
+@media (max-width: 640px) {
+  .yzd-statline { flex-direction: column; gap: 10px; }
+  .yzd-paper { padding: 20px 16px 32px; }
+  .yzd-lvl { font-size: 64px; }
+  .yzd-open { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yzd-scroll {
+    transition: none !important;
+    grid-template-rows: 1fr;
+    transform: none;
+    opacity: 1;
+  }
+  .yzd-drawer, .yzd-kakejiku, .yzd-charm { transition: none; }
+}

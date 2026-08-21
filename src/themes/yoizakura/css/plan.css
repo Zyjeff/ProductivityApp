@@ -1,0 +1,679 @@
+/* css/plan.css — W2-P ONLY
+   `yzp-` rules for: the shoji-wall Week view, the Gardener band,
+   and Sunday tea (tatami review). */
+
+/* ── Week sheet ─────────────────────────────────────────────── */
+
+.yzp-week {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: 12px;
+  color: var(--sumi);
+}
+
+.yzp-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 28px;
+  margin-bottom: 18px;
+}
+.yzp-rail-mark { min-width: 160px; }
+.yzp-rail-title {
+  margin: 2px 0 0;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--sumi);
+}
+.yzp-rail-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+  flex: 1;
+}
+.yzp-stat { display: flex; flex-direction: column; gap: 2px; }
+.yzp-stat-v {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--sumi);
+}
+.yzp-fallen {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--amber);
+  background: var(--amber-ground);
+  color: var(--amber-deep);
+  font-size: 12px;
+  border-radius: var(--r-sm);
+}
+.yzp-fallen svg { flex-shrink: 0; }
+
+/* ── Lattice ────────────────────────────────────────────────── */
+
+.yzp-wall {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  mask-image: linear-gradient(90deg, #000 96%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, #000 96%, transparent);
+}
+.yzp-grid {
+  display: grid;
+  grid-template-columns: 46px repeat(7, minmax(108px, 1fr));
+  gap: 5px;
+  padding: 5px;
+  min-width: 860px;
+  background-color: var(--wood);
+  background-repeat: repeat;
+  border-radius: var(--r-sm);
+  box-shadow: 0 10px 28px rgba(12, 9, 23, .18);
+}
+.yzp-corner {
+  background: var(--wood-deep);
+  min-height: 58px;
+}
+.yzp-gutter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--wood-deep);
+  color: var(--amber-hot);
+  padding: 8px 2px;
+}
+.yzp-gutter-d {
+  font-family: var(--t-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--washi);
+}
+.yzp-gutter-m {
+  font: 500 10px var(--t-body);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--amber);
+}
+
+.yzp-lintel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 58px;
+  padding: 8px 6px 7px;
+  background: #7a5e4c;
+  color: var(--washi);
+}
+.yzp-lintel--today {
+  background: #8a6c52;
+  box-shadow: inset 0 -2px 0 var(--amber);
+}
+.yzp-lintel--off { opacity: .72; }
+.yzp-lintel-dow {
+  font: 600 13px var(--t-display);
+  letter-spacing: 0.03em;
+  text-transform: none;
+  color: var(--washi-hi);
+}
+.yzp-lintel--today .yzp-lintel-dow { color: var(--amber-hot); }
+.yzp-lintel .yz-meter { width: 70%; background: rgba(12, 9, 23, .35); height: 2px; }
+.yzp-lintel .yzp-load {
+  width: 70%;
+  background: rgba(244, 236, 220, .12);
+}
+.yzp-lintel .yzp-load i { background: rgba(244, 236, 220, .5); }
+.yzp-lintel .yzp-load--over i { background: #f0a090; }
+.yzp-cap-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: 600 13px var(--t-display);
+  color: var(--washi);
+  letter-spacing: 0.02em;
+  border-bottom: 1px dashed rgba(244, 236, 220, .35);
+}
+.yzp-cap-btn:hover { color: var(--amber-hot); }
+.yzp-lintel--off .yzp-cap-btn { color: var(--fg-faint); border-bottom-color: transparent; }
+.yzp-cap-input {
+  width: 48px;
+  text-align: center;
+  color: var(--washi) !important;
+  border-bottom-color: var(--amber) !important;
+  font-size: 13px;
+}
+
+/* ── Shoji panes ────────────────────────────────────────────── */
+
+.yzp-shoji {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 132px;
+  background-color: var(--washi);
+  background-image: var(--washi-grain);
+  color: var(--sumi);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--washi-line);
+}
+.yzp-shoji--today {
+  background-color: #faf3e4;
+  box-shadow:
+    inset 0 0 0 1px var(--amber),
+    0 0 0 1px var(--amber),
+    0 0 22px rgba(223, 161, 78, .42);
+  z-index: 1;
+}
+.yzp-shoji--rest { background-color: var(--washi-dim); }
+.yzp-grid .yzp-shoji--past {
+  background-color: #f2eadc;
+  background-image: var(--washi-grain);
+  pointer-events: none;
+  opacity: 1;
+  filter: none;
+  box-shadow: inset 0 0 0 1px rgba(42, 36, 51, .07);
+}
+.yzp-grid .yzp-shoji--past .yzp-shoji-num {
+  color: var(--sumi-faint);
+  font-weight: 500;
+}
+.yzp-grid .yzp-shoji--past .yzp-tanzaku { opacity: .82; }
+.yzp-shoji--drop { background-color: var(--washi-hi); box-shadow: inset 0 0 0 2px var(--amber); }
+.yzp-shoji--blocked { box-shadow: inset 0 0 0 2px var(--port); }
+
+.yzp-crack {
+  position: absolute;
+  left: 0; top: 10%; bottom: 14%;
+  width: 2px;
+  background:
+    linear-gradient(180deg,
+      transparent 0%,
+      var(--port) 12%,
+      transparent 13%,
+      var(--port) 38%,
+      transparent 40%,
+      var(--port) 68%,
+      transparent 70%,
+      var(--port) 92%,
+      transparent);
+  z-index: 3;
+  pointer-events: none;
+}
+.yzp-shoji-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 2px 8px;
+  position: relative;
+  z-index: 5;
+}
+.yzp-shoji-num {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--sumi);
+}
+.yzp-shoji--today .yzp-shoji-num { color: var(--amber-deep); }
+.yzp-lock {
+  margin-left: auto;
+  padding: 2px;
+  opacity: 0;
+  transition: opacity var(--fast) ease;
+}
+.yzp-shoji:hover .yzp-lock,
+.yzp-shoji:focus-within .yzp-lock,
+.yzp-shoji--locked .yzp-lock { opacity: 1; }
+.yzp-shoji--locked .yzp-lock { color: var(--amber-deep); }
+
+.yzp-shoji-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 6px 6px;
+  min-height: 48px;
+  position: relative;
+  z-index: 1;
+}
+.yzp-shoji-empty {
+  margin: auto;
+  font: 400 11px var(--t-body);
+  letter-spacing: 0.02em;
+  color: var(--sumi-faint);
+}
+.yzp-shoji-foot {
+  padding: 0 8px 7px;
+  position: relative;
+  z-index: 1;
+}
+.yzp-load {
+  height: 2px;
+  background: rgba(42, 36, 51, .06);
+  overflow: hidden;
+}
+.yzp-load i {
+  display: block;
+  height: 100%;
+  background: rgba(42, 36, 51, .28);
+}
+.yzp-load--over {
+  background: rgba(217, 106, 90, .12);
+}
+.yzp-load--over i { background: var(--port); }
+
+.yzp-shoji-paper {
+  position: absolute;
+  top: 28px; left: 1px; right: 1px; bottom: 1px;
+  background: rgba(244, 236, 220, .78);
+  background-image: var(--washi-grain);
+  transform: translateY(-105%);
+  transition: transform var(--med) ease;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  z-index: 4;
+  box-shadow: inset 0 0 0 1px rgba(42, 36, 51, .08);
+}
+.yzp-shoji--locked .yzp-shoji-paper { transform: translateY(0); }
+.yzp-rest-stamp {
+  font: 600 16px var(--t-display);
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: rgba(42, 36, 51, .16);
+  border: none;
+  padding: 0;
+  background: none;
+  transform: rotate(-18deg);
+}
+
+/* tanzaku slips */
+.yzp-tanzaku {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 4px 4px 4px 7px;
+  background: var(--washi-hi);
+  box-shadow: inset 3px 0 0 var(--yzp-tick, var(--channel));
+  border: 1px solid var(--washi-line);
+  border-radius: 2px;
+  cursor: grab;
+  min-height: 28px;
+}
+.yzp-tanzaku--done {
+  opacity: .55;
+  cursor: default;
+}
+.yzp-tanzaku--lift {
+  box-shadow: inset 3px 0 0 var(--yzp-tick, var(--channel)), 0 6px 14px rgba(42, 36, 51, .18);
+  transform: translateY(-1px);
+}
+.yzp-tanzaku-body { flex: 1; min-width: 0; }
+.yzp-tanzaku-title {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: 500 11.5px var(--t-body);
+  color: var(--sumi);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzp-tanzaku--done .yzp-tanzaku-title {
+  text-decoration: line-through;
+  color: var(--sumi-faint);
+}
+.yzp-tanzaku-meta {
+  font-size: 9.5px;
+  color: var(--sumi-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.yzp-tanzaku-list { font-weight: 500; }
+.yzp-tanzaku-h {
+  font-size: 9px;
+  color: var(--sumi-faint);
+  flex-shrink: 0;
+  padding-top: 3px;
+}
+.yzp-tanzaku .yz-icon-btn { padding: 1px; margin-top: 1px; }
+.yzp-tanzaku .yz-stamp { flex-shrink: 0; font-size: 8px; padding: 0 4px; margin-top: 2px; }
+
+.yzp-more {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 8px;
+}
+
+/* ── The Gardener (bottom dusk band) ────────────────────────── */
+
+.yzp-gardener {
+  margin: 8px 0 0;
+  padding: 12px 14px 14px;
+  background-color: var(--plate);
+  background-repeat: repeat;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  box-shadow: 0 -8px 22px rgba(12, 9, 23, .2);
+}
+.yzp-gardener-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.yzp-gardener-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.yzp-busy {
+  font: 500 12px var(--t-body);
+  color: var(--amber);
+}
+.yzp-hint {
+  margin-left: auto;
+  font: 400 11.5px var(--t-body);
+  color: var(--fg-faint);
+}
+.yzp-gardener-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.yzp-split { display: inline-flex; }
+.yzp-split .yz-btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.yzp-split-chev {
+  padding-left: 7px;
+  padding-right: 7px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-color: rgba(12, 9, 23, .2);
+}
+.yzp-instruct { margin-top: 10px; }
+.yzp-instruct-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.yzp-replan {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.yzp-replan .yz-field { flex: 1; min-width: 0; }
+.yzp-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* ── Sunday tea ─────────────────────────────────────────────── */
+
+.yzp-tea-page {
+  padding: 4vh 18px 28px;
+  overflow: auto;
+}
+.yzp-tea {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+}
+.yzp-tea-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.yzp-tea-esc { margin-left: auto; color: var(--fg-faint); }
+
+.yzp-tatami {
+  display: grid;
+  grid-template-columns: 1.15fr 1.15fr 0.95fr;
+  grid-template-rows: auto auto auto auto;
+  grid-template-areas:
+    "statement statement tiles"
+    "statement statement days"
+    "accuracy  sealed    retro"
+    "effort    effort    retro";
+  gap: 12px;
+  align-items: stretch;
+}
+.yzp-tatami--quiet {
+  grid-template-columns: 1.4fr 1fr;
+  grid-template-rows: auto auto;
+  grid-template-areas:
+    "statement statement"
+    "quiet     quiet";
+}
+
+.yzp-mat {
+  background: var(--washi);
+  background-image: var(--washi-grain);
+  color: var(--sumi);
+  padding: 14px 16px 16px;
+  border-radius: var(--r-sm);
+  border: 2px dashed rgba(42, 36, 51, 0.16);
+  box-shadow:
+    0 14px 22px rgba(12, 9, 23, 0.28),
+    0 3px 0 rgba(42, 36, 51, 0.06);
+  min-width: 0;
+}
+.yzp-mat--statement {
+  grid-area: statement;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 148px;
+  color: var(--sumi);
+  box-shadow:
+    inset 3px 0 0 var(--port),
+    0 14px 22px rgba(12, 9, 23, 0.28),
+    0 3px 0 rgba(42, 36, 51, 0.06);
+}
+.yzp-mat--statement .yz-icon-btn { color: var(--sumi); }
+.yzp-mat--statement .yz-icon-btn:hover { background: rgba(42, 36, 51, .1); color: var(--sumi); }
+.yzp-mat-banner {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+.yzp-week-label {
+  flex: 1;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--sumi);
+}
+.yzp-week-nav { display: flex; gap: 2px; flex-shrink: 0; }
+
+.yzp-mat--tiles {
+  grid-area: tiles;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 8px 16px;
+}
+.yzp-tile {
+  background: none;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--washi-line);
+}
+.yzp-tile:last-child { border-bottom: 0; }
+.yzp-tile-v { font-size: 20px; font-weight: 600; color: var(--sumi); }
+
+.yzp-mat--days { grid-area: days; }
+.yzp-mat--accuracy { grid-area: accuracy; }
+.yzp-mat--sealed { grid-area: sealed; }
+.yzp-mat--effort { grid-area: effort; }
+.yzp-mat--retro { grid-area: retro; }
+.yzp-mat--quiet {
+  grid-area: quiet;
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--sumi-dim);
+}
+
+.yzp-inkdays {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 72px;
+  margin-top: 8px;
+}
+.yzp-inkday {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 100%;
+}
+.yzp-inkday-well {
+  flex: 1;
+  width: 100%;
+  background: var(--washi-dim);
+  position: relative;
+  overflow: hidden;
+}
+.yzp-inkday-well i {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: var(--sumi);
+  background-image: var(--dither-dot);
+}
+.yzp-inkday--best .yzp-inkday-well i { background: var(--amber-deep); }
+.yzp-inkday span {
+  font: 500 11px var(--t-body);
+  letter-spacing: 0.02em;
+  color: var(--sumi-faint);
+}
+.yzp-inkday--best span { color: var(--amber-deep); }
+.yzp-inkdays-meta {
+  margin-top: 8px;
+  font: 500 12px var(--t-body);
+  color: var(--sumi-dim);
+}
+
+.yzp-acc-n { font-size: 28px; font-weight: 600; margin: 4px 0 2px; }
+.yzp-mat-note {
+  font-size: 12.5px;
+  color: var(--sumi-dim);
+  line-height: 1.5;
+}
+.yzp-fallen-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--sumi-dim);
+}
+.yzp-fallen-now--on { color: var(--amber-deep); }
+
+.yzp-sealed-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.yzp-sealed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--sumi);
+}
+
+.yzp-effort { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.yzp-effort-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 36px;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.yzp-effort-name {
+  color: var(--sumi-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.yzp-effort-h { color: var(--sumi-faint); text-align: right; font-size: 10px; }
+
+.yzp-retro-text {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--sumi);
+  white-space: pre-wrap;
+  margin-top: 4px;
+}
+
+/* ── Interactive + motion ───────────────────────────────────── */
+
+:is(
+  .yzp-cap-btn,
+  .yzp-tanzaku-title,
+  .yzp-lock,
+  .yzp-split-chev
+):focus-visible {
+  outline: 2px solid var(--sakura);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .yzp-tatami {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "statement statement"
+      "tiles     days"
+      "accuracy  sealed"
+      "effort    retro";
+  }
+  .yzp-tatami--quiet {
+    grid-template-columns: 1fr;
+    grid-template-areas: "statement" "quiet";
+  }
+  .yzp-wall { overflow-x: auto; }
+}
+
+@media (max-width: 640px) {
+  .yzp-rail-title { font-size: 22px; }
+  .yzp-tatami,
+  .yzp-tatami--quiet {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "statement"
+      "tiles"
+      "days"
+      "accuracy"
+      "sealed"
+      "effort"
+      "retro"
+      "quiet";
+  }
+  .yzp-effort-row { grid-template-columns: 80px 1fr 32px; }
+  .yzp-week-label { font-size: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .yzp-shoji-paper { transition: none; }
+  .yzp-tanzaku--lift { transform: none; }
+}

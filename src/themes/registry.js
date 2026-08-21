@@ -11,8 +11,9 @@ import kuromi from "./kuromi/index.js";
 import relay from "./relay/index.js";
 import apogee from "./apogee/index.js";
 import kaze from "./kaze/index.js";
+import yoizakura from "./yoizakura/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
