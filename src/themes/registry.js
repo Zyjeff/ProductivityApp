@@ -15,7 +15,7 @@ import yoizakura from "./yoizakura/index.js";
 import folioLegacy from "./folio-legacy/index.js";
 import folio from "./folio/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura, foliolegacy, folio];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura, folioLegacy, folio];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
