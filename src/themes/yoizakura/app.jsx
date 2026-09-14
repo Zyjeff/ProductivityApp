@@ -11,6 +11,7 @@ import * as D from "../../core/domain.js";
 import { TodayView } from "./views/today.jsx";
 import { PlanView } from "./views/plan.jsx";
 import { DockView, ChronicleDialog } from "./views/dock.jsx";
+import { LogbookPage } from "./views/logbook.jsx";
 import { ReviewOverlay } from "./views/review.jsx";
 import { FocusTunnel } from "./views/focus.jsx";
 import { Palette } from "./views/palette.jsx";
@@ -125,7 +126,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-function Index({ view }) {
+function Index({ view, statsOpen }) {
   const tasks = useStore((s) => s.tasks);
   const plan = useStore((s) => s.plan);
   const projects = useStore((s) => s.projects);
@@ -179,6 +180,8 @@ function Index({ view }) {
   })();
 
   const smartOn = (id) => {
+    if (id === "records") return !!statsOpen;
+    if (statsOpen) return false;
     if (id === "today") return view === "today";
     if (id === "week") return view === "plan";
     if (id === "inbox") return view === "dock" && filter.tab === "library" && filter.project === YZ_DOCK.inbox;
@@ -239,6 +242,13 @@ function Index({ view }) {
             <span className="yz-idx-name">All tasks</span>
             <span className="yz-idx-count">{counts.all}</span>
             <span className="yz-idx-key">3</span>
+          </button>
+          <button type="button" className={"yz-index-item" + (smartOn("records") ? " is-on" : "")}
+            onClick={() => { setUI({ statsOpen: !statsOpen }); setIndexOpen(false); }}
+            title="Records — settings, themes, data (4)">
+            <span className="yz-idx-ico"><Icon name="scroll" size={14} /></span>
+            <span className="yz-idx-name">Records</span>
+            <span className="yz-idx-key">4</span>
           </button>
         </div>
 
@@ -317,6 +327,9 @@ function Index({ view }) {
           {streak > 0 ? <span className="yz-plaque-streak">{streak} days tended</span> : <span>the garden is new</span>}
         </div>
         <div className="yz-plaque-keys">
+          <button type="button" className="yz-icon-btn" onClick={() => setUI({ statsOpen: !statsOpen })} title="Records (4)">
+            <Icon name="scroll" size={14} />
+          </button>
           <button type="button" className="yz-icon-btn" onClick={() => setUI({ helpOpen: true })} title="House rules (?)">
             <Kbd>?</Kbd>
           </button>
@@ -336,6 +349,7 @@ function Shell() {
   const confetti = useStore((s) => s.ui.confetti);
   const levelUp = useStore((s) => s.ui.levelUp);
   const helpOpen = useStore((s) => s.ui.helpOpen);
+  const statsOpen = useStore((s) => s.ui.statsOpen);
   const previewMode = useStore((s) => s.ui.previewMode);
   const externalChange = useStore((s) => s.ui.externalChange);
   const formOpen = useStore((s) => s.ui.formOpen);
@@ -394,7 +408,7 @@ function Shell() {
       className={"yz-shell" + (paneOpen ? " yz-shell--pane-open" : "") + (panePinned ? " yz-shell--pane-pinned" : "")}
       style={{ "--yz-index-w": indexW + "px", "--yz-pane-w": paneW + "px" }}
     >
-      <Index view={view} />
+      <Index view={view} statsOpen={statsOpen} />
       {!narrowIndex && (
         <ColResize
           label="Resize index column"
@@ -422,11 +436,11 @@ function Shell() {
             </button>
           </div>
         )}
-        {view === "today" && <TodayView />}
-        {view === "plan" && <PlanView />}
-        {view === "dock" && <DockView />}
+        {!statsOpen && view === "today" && <TodayView />}
+        {!statsOpen && view === "plan" && <PlanView />}
+        {!statsOpen && view === "dock" && <DockView />}
       </main>
-      {paneHandleOn && (
+      {!statsOpen && paneHandleOn && (
         <ColResize
           label="Resize garden pane"
           value={paneW}
@@ -437,7 +451,7 @@ function Shell() {
           onChange={onPaneW}
         />
       )}
-      <PaperPane view={view} />
+      {!statsOpen && <PaperPane view={view} />}
 
       {toast && (
         <div className="yz-toast" role="status">
@@ -485,6 +499,7 @@ function Shell() {
       )}
 
       <Palette />
+      <LogbookPage />
       <ReviewOverlay />
       <EndOfDayDialog />
       <FocusTunnel />
