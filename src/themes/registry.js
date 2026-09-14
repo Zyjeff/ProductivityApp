@@ -12,8 +12,10 @@ import relay from "./relay/index.js";
 import apogee from "./apogee/index.js";
 import kaze from "./kaze/index.js";
 import yoizakura from "./yoizakura/index.js";
+import folioLegacy from "./folio-legacy/index.js";
+import folio from "./folio/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura, foliolegacy, folio];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
