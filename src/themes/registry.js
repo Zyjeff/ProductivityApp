@@ -14,8 +14,10 @@ import kaze from "./kaze/index.js";
 import yoizakura from "./yoizakura/index.js";
 import folioLegacy from "./folio-legacy/index.js";
 import folio from "./folio/index.js";
+import verdant from "./verdant/index.js";
+import verdantEnchanted from "./verdant-enchanted/index.js";
 
-export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura, folioLegacy, folio];
+export const THEMES = [drydock, nightwatch, loft, sluis, kuromi, relay, apogee, kaze, yoizakura, folioLegacy, folio, verdant, verdantEnchanted];
 
 export function resolveTheme(id) {
   return THEMES.find((t) => t.id === id) || THEMES[0];
